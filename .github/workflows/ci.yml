@@ -23,6 +23,10 @@ on:
       - "docs/**"
       - "README.md"
 
+concurrency:
+  group: subnetdesk-rust-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ensure_cargo_fmt:
   #   name: Ensure 'cargo fmt' has been run
@@ -179,7 +183,7 @@ jobs:
       with:
         use-cross: ${{ matrix.job.use-cross }}
         command: build
-        args: --locked --target=${{ matrix.job.target }}
+        args: --locked --features flutter --target=${{ matrix.job.target }}
 
     - name: clean
       shell: bash
@@ -247,4 +251,4 @@ jobs:
       with:
         use-cross: ${{ matrix.job.use-cross }}
         command: test
-        args: --locked --target=${{ matrix.job.target }} ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}}
+        args: --locked --features flutter --target=${{ matrix.job.target }} ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}}

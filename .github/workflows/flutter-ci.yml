@@ -16,6 +16,10 @@ on:
       - "docs/**"
       - "README.md"
 
+concurrency:
+  group: subnetdesk-flutter-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   run-ci:
     uses: ./.github/workflows/flutter-build.yml
