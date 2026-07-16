@@ -43,12 +43,9 @@ fn run_rdp(port: u16) {
 
 pub async fn listen(
     id: String,
-    password: String,
     port: i32,
     interface: impl Interface,
     ui_receiver: mpsc::UnboundedReceiver<Data>,
-    key: &str,
-    token: &str,
     lc: Arc<RwLock<LoginConfigHandler>>,
     remote_host: String,
     remote_port: i32,
@@ -67,10 +64,9 @@ pub async fn listen(
                 log::info!("new connection from {:?}", addr);
                 lc.write().unwrap().port_forward = (remote_host.clone(), remote_port);
                 let id = id.clone();
-                let password = password.clone();
                 let mut forward = Framed::new(forward, BytesCodec::new());
                 let mut close_port_forward = false;
-                match connect_and_login(&id, &password, &mut ui_receiver, interface.clone(), &mut forward, key, token, is_rdp, &mut close_port_forward).await {
+                match connect_and_login(&id, &mut ui_receiver, interface.clone(), &mut forward, is_rdp, &mut close_port_forward).await {
                     Ok(Some(stream)) => {
                         let interface = interface.clone();
                         tokio::spawn(async move {
@@ -108,12 +104,9 @@ pub async fn listen(
 
 async fn connect_and_login(
     id: &str,
-    password: &str,
     ui_receiver: &mut mpsc::UnboundedReceiver<Data>,
     interface: impl Interface,
     forward: &mut Framed<TcpStream, BytesCodec>,
-    key: &str,
-    token: &str,
     is_rdp: bool,
     close_port_forward: &mut bool,
 ) -> ResultType<Option<Stream>> {
@@ -122,19 +115,17 @@ async fn connect_and_login(
     } else {
         ConnType::PORT_FORWARD
     };
-    let ((mut stream, direct, _pk, _kcp, _stream_type), (feedback, rendezvous_server)) =
-        Client::start(id, key, token, conn_type, interface.clone()).await?;
-    interface.update_direct(Some(direct));
-    if !stream.is_secured() && !crate::common::is_direct_ip_access(id) {
-        if !confirm_insecure_connection(&interface, ui_receiver).await {
-            *close_port_forward = true;
-            return Ok(None);
-        }
+    let (mut stream, device_public_key) = Client::start(id, conn_type, interface.clone()).await?;
+    interface.update_direct(Some(true));
+    if device_public_key.is_empty()
+        || !crate::client::confirm_lan_device(&interface, ui_receiver, id, &device_public_key).await
+    {
+        *close_port_forward = true;
+        return Ok(None);
     }
+    interface.send_initial_lan_login(&mut stream).await;
     let mut buffer = Vec::new();
     let mut received = false;
-
-    let _keep_it = hc_connection(feedback, rendezvous_server, token).await;
 
     loop {
         tokio::select! {
@@ -149,10 +140,9 @@ async fn connect_and_login(
                     }
                     let msg_in = Message::parse_from_bytes(&bytes)?;
                     match msg_in.union {
-                        Some(message::Union::Hash(hash)) => {
-                            interface.handle_hash(password, hash, &mut stream).await;
-                        }
-                        Some(message::Union::LoginResponse(lr)) => match lr.union {
+                        Some(message::Union::LoginResponse(lr)) => {
+                            interface.set_auth_retry_after(lr.retry_after_seconds);
+                            match lr.union {
                             Some(login_response::Union::Error(err)) => {
                                 if !interface.handle_login_error(&err) {
                                     return Ok(None);
@@ -163,6 +153,7 @@ async fn connect_and_login(
                                 break;
                             }
                             _ => {}
+                            }
                         }
                         Some(message::Union::TestDelay(t)) => {
                             interface.handle_test_delay(t, &mut stream).await;
@@ -181,6 +172,9 @@ async fn connect_and_login(
                 match d {
                     Some(Data::Login((os_username, os_password, password, remember))) => {
                         interface.handle_login_from_ui(os_username, os_password, password, remember, &mut stream).await;
+                    }
+                    Some(Data::SubmitLanCredentials) => {
+                        interface.send_initial_lan_login(&mut stream).await;
                     }
                     Some(Data::Message(msg)) => {
                         allow_err!(stream.send(&msg).await);

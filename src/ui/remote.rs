@@ -143,7 +143,10 @@ impl InvokeUiSession for SciterHandler {
 
     fn set_display(&self, x: i32, y: i32, w: i32, h: i32, cursor_embedded: bool, scale: f64) {
         let scale = if scale <= 0.0 { 1.0 } else { scale };
-        self.call("setDisplay", &make_args!(x, y, w, h, cursor_embedded, scale));
+        self.call(
+            "setDisplay",
+            &make_args!(x, y, w, h, cursor_embedded, scale),
+        );
         // https://sciter.com/forums/topic/color_spaceiyuv-crash
         // Nothing spectacular in decoder – done on CPU side.
         // So if you can do BGRA translation on your side – the better.
@@ -371,8 +374,6 @@ impl InvokeUiSession for SciterHandler {
         self.call("updateBlockInputState", &make_args!(on));
     }
 
-    fn switch_back(&self, _id: &str) {}
-
     fn portable_service_running(&self, _running: bool) {}
 
     fn on_voice_call_started(&self) {
@@ -498,8 +499,6 @@ impl sciter::EventHandler for SciterSession {
     }
 
     sciter::dispatch_script_call! {
-        fn get_audit_server(String);
-        fn send_note(String);
         fn is_xfce();
         fn get_id();
         fn get_default_pi();
@@ -512,9 +511,6 @@ impl sciter::EventHandler for SciterSession {
         fn is_port_forward();
         fn is_rdp();
         fn login(String, String, String, bool);
-        fn send2fa(String, bool);
-        fn continue_insecure_connection(bool);
-        fn get_enable_trusted_devices();
         fn new_rdp();
         fn send_mouse(i32, i32, i32, bool, bool, bool, bool);
         fn enter(String);
@@ -590,7 +586,6 @@ impl sciter::EventHandler for SciterSession {
 
 impl SciterSession {
     pub fn new(cmd: String, id: String, password: String, args: Vec<String>) -> Self {
-        let force_relay = args.contains(&"--relay".to_string());
         let session: Session<SciterHandler> = Session {
             password: password.clone(),
             args,
@@ -613,11 +608,7 @@ impl SciterSession {
             ConnType::DEFAULT_CONN
         };
 
-        session
-            .lc
-            .write()
-            .unwrap()
-            .initialize(id, conn_type, None, force_relay, None, None, None);
+        session.lc.write().unwrap().initialize(id, conn_type, None);
 
         Self(session)
     }

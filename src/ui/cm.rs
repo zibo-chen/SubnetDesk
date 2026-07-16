@@ -118,10 +118,6 @@ impl SciterConnectionManager {
         crate::ui_cm_interface::get_click_time() as _
     }
 
-    fn switch_permission(&self, id: i32, name: String, enabled: bool) {
-        crate::ui_cm_interface::switch_permission(id, name, enabled);
-    }
-
     fn close(&self, id: i32) {
         crate::ui_cm_interface::close(id);
     }
@@ -132,10 +128,6 @@ impl SciterConnectionManager {
 
     fn quit(&self) {
         crate::platform::quit_gui();
-    }
-
-    fn authorize(&self, id: i32) {
-        crate::ui_cm_interface::authorize(id);
     }
 
     fn send_msg(&self, id: i32, text: String) {
@@ -185,8 +177,6 @@ impl sciter::EventHandler for SciterConnectionManager {
         fn close(i32);
         fn remove_disconnected_connection(i32);
         fn quit();
-        fn authorize(i32);
-        fn switch_permission(i32, String, bool);
         fn send_msg(i32, String);
         fn can_elevate();
         fn elevate_portable(i32);

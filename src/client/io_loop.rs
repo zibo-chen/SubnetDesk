@@ -14,7 +14,6 @@ use crate::{
 // Empirical no-data window before exposing the restart reconnect state to the UI.
 // Restart msgbox text is kept as a legacy UI fallback; Flutter handles the type as a control event.
 const RESTART_REMOTE_DEVICE_NO_DATA_TIMEOUT: Duration = Duration::from_secs(5);
-const KCP_CLOSE_REASON_FLUSH_DELAY: Duration = Duration::from_millis(30);
 #[cfg(feature = "unix-file-copy-paste")]
 use crate::{clipboard::try_empty_clipboard_files, clipboard_file::unix_file_clip};
 #[cfg(any(
@@ -33,7 +32,7 @@ use hbb_common::{
         DigestCheckResult, RemoveJobMeta,
     },
     get_time, log,
-    message_proto::{permission_info::Permission, *},
+    message_proto::*,
     protobuf::Message as _,
     rendezvous_proto::ConnType,
     timeout,
@@ -135,7 +134,7 @@ impl<T: InvokeUiSession> Remote<T> {
         }
     }
 
-    pub async fn io_loop(&mut self, key: &str, token: &str, round: u32) {
+    pub async fn io_loop(&mut self, round: u32) {
         #[cfg(target_os = "windows")]
         let _file_clip_context_holder = {
             // `is_port_forward()` will not reach here, but we still check it for clarity.
@@ -169,39 +168,35 @@ impl<T: InvokeUiSession> Remote<T> {
             ConnType::default()
         };
 
-        match Client::start(
-            &self.handler.get_id(),
-            key,
-            token,
-            conn_type,
-            self.handler.clone(),
-        )
-        .await
-        {
-            Ok(((mut peer, direct, pk, kcp, stream_type), (feedback, rendezvous_server))) => {
+        match Client::start(&self.handler.get_id(), conn_type, self.handler.clone()).await {
+            Ok((mut peer, device_public_key)) => {
+                if device_public_key.is_empty()
+                    || !client::confirm_lan_device(
+                        &self.handler,
+                        &mut self.receiver,
+                        &self.handler.get_id(),
+                        &device_public_key,
+                    )
+                    .await
+                {
+                    self.send_close_reason(&mut peer, "Device identity was not trusted")
+                        .await;
+                    self.handle_disconnected(round);
+                    return;
+                }
+                self.handler.send_initial_lan_login(&mut peer).await;
                 self.handler
                     .connection_round_state
                     .lock()
                     .unwrap()
                     .set_connected();
                 let is_secured = peer.is_secured();
-                self.handler
-                    .set_connection_type(is_secured, direct, stream_type); // flutter -> connection_ready
-                if !is_secured
-                    && !crate::common::is_direct_ip_access(&self.handler.get_id())
-                    && !client::confirm_insecure_connection(&self.handler, &mut self.receiver).await
-                {
-                    self.send_close_reason(&mut peer, "").await;
-                    if kcp.is_some() {
-                        tokio::time::sleep(KCP_CLOSE_REASON_FLUSH_DELAY).await;
-                    }
-                    self.handle_disconnected(round);
-                    return;
-                }
-                self.handler.update_direct(Some(direct));
+                self.handler.set_connection_type(is_secured, true, "TCP"); // flutter -> connection_ready
+                self.handler.update_direct(Some(true));
+                let fingerprint = crate::lan_protocol::fingerprint(&device_public_key);
+                self.handler.get_lch().write().unwrap().lan_fingerprint = fingerprint.clone();
                 if conn_type == ConnType::DEFAULT_CONN || conn_type == ConnType::VIEW_CAMERA {
-                    self.handler
-                        .set_fingerprint(crate::common::pk_to_fingerprint(pk.unwrap_or_default()));
+                    self.handler.set_fingerprint(fingerprint);
                 }
 
                 // just build for now
@@ -234,7 +229,6 @@ impl<T: InvokeUiSession> Remote<T> {
                     crate::rustdesk_interval(time::interval(Duration::new(1, 0)));
                 let mut fps_instant = Instant::now();
 
-                let _keep_it = client::hc_connection(feedback, rendezvous_server, token).await;
                 let mut last_recv_time = Instant::now();
 
                 loop {
@@ -318,7 +312,7 @@ impl<T: InvokeUiSession> Remote<T> {
                             self.video_threads.iter().for_each(|(_, v)| {
                                 *v.frame_count.write().unwrap() = 0;
                             });
-                            self.fps_control(direct, fps.clone());
+                            self.fps_control(true, fps.clone());
                             let chroma = self.chroma.read().unwrap().clone();
                             let chroma = match chroma {
                                 Some(Chroma::I444) => "4:4:4",
@@ -345,13 +339,6 @@ impl<T: InvokeUiSession> Remote<T> {
                 // Stop client audio server.
                 if let Some(s) = self.stop_voice_call_sender.take() {
                     s.send(()).ok();
-                }
-                if kcp.is_some() {
-                    // Send the close reason if it hasn't been sent yet, as KCP cannot detect the socket close event.
-                    self.send_close_reason(&mut peer, "kcp").await;
-                    // KCP does not send messages immediately, so wait to ensure the last message is sent.
-                    // 1ms works in my test, but 30ms is more reliable.
-                    tokio::time::sleep(KCP_CLOSE_REASON_FLUSH_DELAY).await;
                 }
             }
             Err(err) => {
@@ -572,6 +559,9 @@ impl<T: InvokeUiSession> Remote<T> {
                 self.handler
                     .handle_login_from_ui(os_username, os_password, password, remember, peer)
                     .await;
+            }
+            Data::SubmitLanCredentials => {
+                self.handler.send_initial_lan_login(peer).await;
             }
             #[cfg(all(target_os = "windows", not(feature = "flutter")))]
             Data::ToggleClipboardFile => {
@@ -1289,7 +1279,7 @@ impl<T: InvokeUiSession> Remote<T> {
         {
             self.handler.msgbox(
                 "error",
-                "Download new version",
+                "Unsupported version",
                 "upgrade_remote_rustdesk_client_to_{1.3.9}_tip",
                 "",
             );
@@ -1352,105 +1342,102 @@ impl<T: InvokeUiSession> Remote<T> {
                         }
                     }
                 }
-                Some(message::Union::Hash(hash)) => {
-                    self.handler
-                        .handle_hash(&self.handler.password.clone(), hash, peer)
-                        .await;
-                }
-                Some(message::Union::LoginResponse(lr)) => match lr.union {
-                    Some(login_response::Union::Error(err)) => {
-                        if err == client::REQUIRE_2FA {
-                            self.handler.lc.write().unwrap().enable_trusted_devices =
-                                lr.enable_trusted_devices;
-                        }
-                        if !self.handler.handle_login_error(&err) {
-                            return false;
-                        }
-                    }
-                    Some(login_response::Union::PeerInfo(pi)) => {
-                        let peer_version = pi.version.clone();
-                        let peer_platform = pi.platform.clone();
-                        self.set_peer_info(&pi);
-                        if self.handler.is_view_camera() {
-                            if !self.check_view_camera_support(&peer_version, &peer_platform) {
-                                self.handler.lc.write().unwrap().handle_peer_info(&pi);
+                Some(message::Union::LoginResponse(lr)) => {
+                    self.handler.set_auth_retry_after(lr.retry_after_seconds);
+                    match lr.union {
+                        Some(login_response::Union::Error(err)) => {
+                            if !self.handler.handle_login_error(&err) {
                                 return false;
                             }
                         }
-                        if self.handler.is_terminal() {
-                            if !self.check_terminal_support(&peer_version) {
-                                self.handler.lc.write().unwrap().handle_peer_info(&pi);
-                                return false;
-                            }
-                        }
-                        self.handler.handle_peer_info(pi);
-                        #[cfg(all(target_os = "windows", not(feature = "flutter")))]
-                        self.check_clipboard_file_context();
-                        if self.handler.is_default() {
-                            #[cfg(feature = "flutter")]
-                            #[cfg(not(target_os = "ios"))]
-                            let rx = Client::try_start_clipboard(None);
-                            #[cfg(not(feature = "flutter"))]
-                            #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                            let rx = Client::try_start_clipboard(Some(
-                                crate::client::ClientClipboardContext {
-                                    cfg: self.handler.get_permission_config(),
-                                    tx: self.sender.clone(),
-                                    #[cfg(feature = "unix-file-copy-paste")]
-                                    is_file_supported: crate::is_support_file_copy_paste(
-                                        &peer_version,
-                                    ),
-                                },
-                            ));
-                            // To make sure current text clipboard data is updated.
-                            #[cfg(not(target_os = "ios"))]
-                            if let Some(mut rx) = rx {
-                                timeout(CLIPBOARD_INTERVAL, rx.recv()).await.ok();
-                            }
-
-                            #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                            if self.handler.lc.read().unwrap().sync_init_clipboard.v {
-                                if let Some(msg_out) = crate::clipboard::get_current_clipboard_msg(
-                                    &peer_version,
-                                    &peer_platform,
-                                    crate::clipboard::ClipboardSide::Client,
-                                ) {
-                                    let sender = self.sender.clone();
-                                    let permission_config = self.handler.get_permission_config();
-                                    tokio::spawn(async move {
-                                        if permission_config.is_text_clipboard_required() {
-                                            sender.send(Data::Message(msg_out)).ok();
-                                        }
-                                    });
+                        Some(login_response::Union::PeerInfo(pi)) => {
+                            let peer_version = pi.version.clone();
+                            let peer_platform = pi.platform.clone();
+                            self.set_peer_info(&pi);
+                            if self.handler.is_view_camera() {
+                                if !self.check_view_camera_support(&peer_version, &peer_platform) {
+                                    self.handler.lc.write().unwrap().handle_peer_info(&pi);
+                                    return false;
                                 }
                             }
-                            // to-do: Android, is `sync_init_clipboard` really needed?
-                            // https://github.com/rustdesk/rustdesk/discussions/9010
+                            if self.handler.is_terminal() {
+                                if !self.check_terminal_support(&peer_version) {
+                                    self.handler.lc.write().unwrap().handle_peer_info(&pi);
+                                    return false;
+                                }
+                            }
+                            self.handler.handle_peer_info(pi);
+                            #[cfg(all(target_os = "windows", not(feature = "flutter")))]
+                            self.check_clipboard_file_context();
+                            if self.handler.is_default() {
+                                #[cfg(feature = "flutter")]
+                                #[cfg(not(target_os = "ios"))]
+                                let rx = Client::try_start_clipboard(None);
+                                #[cfg(not(feature = "flutter"))]
+                                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                                let rx = Client::try_start_clipboard(Some(
+                                    crate::client::ClientClipboardContext {
+                                        cfg: self.handler.get_permission_config(),
+                                        tx: self.sender.clone(),
+                                        #[cfg(feature = "unix-file-copy-paste")]
+                                        is_file_supported: crate::is_support_file_copy_paste(
+                                            &peer_version,
+                                        ),
+                                    },
+                                ));
+                                // To make sure current text clipboard data is updated.
+                                #[cfg(not(target_os = "ios"))]
+                                if let Some(mut rx) = rx {
+                                    timeout(CLIPBOARD_INTERVAL, rx.recv()).await.ok();
+                                }
 
-                            #[cfg(feature = "flutter")]
-                            #[cfg(not(target_os = "ios"))]
-                            crate::flutter::update_text_clipboard_required();
+                                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                                if self.handler.lc.read().unwrap().sync_init_clipboard.v {
+                                    if let Some(msg_out) =
+                                        crate::clipboard::get_current_clipboard_msg(
+                                            &peer_version,
+                                            &peer_platform,
+                                            crate::clipboard::ClipboardSide::Client,
+                                        )
+                                    {
+                                        let sender = self.sender.clone();
+                                        let permission_config =
+                                            self.handler.get_permission_config();
+                                        tokio::spawn(async move {
+                                            if permission_config.is_text_clipboard_required() {
+                                                sender.send(Data::Message(msg_out)).ok();
+                                            }
+                                        });
+                                    }
+                                }
+                                // to-do: Android, is `sync_init_clipboard` really needed?
+                                // https://github.com/rustdesk/rustdesk/discussions/9010
 
-                            #[cfg(all(feature = "flutter", feature = "unix-file-copy-paste"))]
-                            crate::flutter::update_file_clipboard_required();
+                                #[cfg(feature = "flutter")]
+                                #[cfg(not(target_os = "ios"))]
+                                crate::flutter::update_text_clipboard_required();
 
-                            // on connection established client
-                            #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
-                            #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                            crate::plugin::handle_listen_event(
-                                crate::plugin::EVENT_ON_CONN_CLIENT.to_owned(),
-                                self.handler.get_id(),
-                            );
+                                #[cfg(all(feature = "flutter", feature = "unix-file-copy-paste"))]
+                                crate::flutter::update_file_clipboard_required();
+
+                                // on connection established client
+                                #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
+                                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                                crate::plugin::handle_listen_event(
+                                    crate::plugin::EVENT_ON_CONN_CLIENT.to_owned(),
+                                    self.handler.get_id(),
+                                );
+                            }
+
+                            if self.handler.is_file_transfer() {
+                                self.handler.load_last_jobs();
+                            }
+
+                            self.is_connected = true;
                         }
-
-                        if self.handler.is_file_transfer() {
-                            self.handler.load_last_jobs();
-                        }
-
-                        self.is_connected = true;
+                        _ => {}
                     }
-                    _ => {}
-                },
+                }
                 Some(message::Union::CursorData(cd)) => {
                     self.handler.set_cursor_data(cd);
                 }
@@ -1789,62 +1776,8 @@ impl<T: InvokeUiSession> Remote<T> {
                     Some(misc::Union::ChatMessage(c)) => {
                         self.handler.new_message(c.text);
                     }
-                    Some(misc::Union::PermissionInfo(p)) => {
-                        log::info!("Change permission {:?} -> {}", p.permission, p.enabled);
-                        // https://github.com/rustdesk/rustdesk/issues/3703#issuecomment-1474734754
-                        match p.permission.enum_value() {
-                            Ok(Permission::Keyboard) => {
-                                *self.handler.server_keyboard_enabled.write().unwrap() = p.enabled;
-                                #[cfg(feature = "flutter")]
-                                #[cfg(not(target_os = "ios"))]
-                                crate::flutter::update_text_clipboard_required();
-                                #[cfg(all(feature = "flutter", feature = "unix-file-copy-paste"))]
-                                crate::flutter::update_file_clipboard_required();
-                                self.handler.set_permission("keyboard", p.enabled);
-                            }
-                            Ok(Permission::Clipboard) => {
-                                *self.handler.server_clipboard_enabled.write().unwrap() = p.enabled;
-                                #[cfg(feature = "flutter")]
-                                #[cfg(not(target_os = "ios"))]
-                                crate::flutter::update_text_clipboard_required();
-                                self.handler.set_permission("clipboard", p.enabled);
-                            }
-                            Ok(Permission::Audio) => {
-                                self.handler.set_permission("audio", p.enabled);
-                            }
-                            Ok(Permission::File) => {
-                                *self.handler.server_file_transfer_enabled.write().unwrap() =
-                                    p.enabled;
-                                if !p.enabled && self.handler.is_file_transfer() {
-                                    return true;
-                                }
-                                #[cfg(all(feature = "flutter", feature = "unix-file-copy-paste"))]
-                                crate::flutter::update_file_clipboard_required();
-                                self.handler.set_permission("file", p.enabled);
-                                #[cfg(feature = "unix-file-copy-paste")]
-                                if !p.enabled {
-                                    try_empty_clipboard_files(
-                                        ClipboardSide::Client,
-                                        self.client_conn_id,
-                                    );
-                                }
-                            }
-                            Ok(Permission::Restart) => {
-                                self.handler.set_permission("restart", p.enabled);
-                            }
-                            Ok(Permission::Recording) => {
-                                self.handler.lc.write().unwrap().record_permission = p.enabled;
-                                self.update_record_state();
-                                self.handler.set_permission("recording", p.enabled);
-                            }
-                            Ok(Permission::BlockInput) => {
-                                self.handler.set_permission("block_input", p.enabled);
-                            }
-                            Ok(Permission::PrivacyMode) => {
-                                self.handler.set_permission("privacy_mode", p.enabled);
-                            }
-                            _ => {}
-                        }
+                    Some(misc::Union::PermissionInfo(_)) => {
+                        log::debug!("Ignoring obsolete server permission bitmap in LAN-only mode");
                     }
                     Some(misc::Union::SwitchDisplay(s)) => {
                         self.handler.handle_peer_switch_display(&s);
@@ -1966,24 +1899,6 @@ impl<T: InvokeUiSession> Remote<T> {
                             );
                         }
                     }
-                    #[cfg(feature = "flutter")]
-                    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-                    Some(misc::Union::SwitchBack(_)) => {
-                        let allow_switch_back = self
-                            .handler
-                            .lc
-                            .write()
-                            .unwrap()
-                            .consume_switch_back_permission();
-                        if allow_switch_back {
-                            self.handler.switch_back(&self.handler.get_id());
-                        } else {
-                            log::warn!(
-                                "Ignored unsolicited SwitchBack from {}",
-                                self.handler.get_id()
-                            );
-                        }
-                    }
                     #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
                     Some(misc::Union::PluginRequest(p)) => {
@@ -2067,15 +1982,8 @@ impl<T: InvokeUiSession> Remote<T> {
                     _ => {}
                 },
                 Some(message::Union::MessageBox(msgbox)) => {
-                    let mut link = msgbox.link;
-                    if let Some(v) = config::HELPER_URL.get(&link as &str) {
-                        link = v.to_string();
-                    } else {
-                        log::warn!("Message box ignore link {} for security", &link);
-                        link = "".to_string();
-                    }
                     self.handler
-                        .msgbox(&msgbox.msgtype, &msgbox.title, &msgbox.text, &link);
+                        .msgbox(&msgbox.msgtype, &msgbox.title, &msgbox.text, "");
                 }
                 Some(message::Union::VoiceCallRequest(request)) => {
                     if request.is_connect {

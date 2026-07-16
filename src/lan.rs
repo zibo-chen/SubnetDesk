@@ -4,7 +4,7 @@ use hbb_common::{
     allow_err,
     anyhow::bail,
     config::Config,
-    config::{self, RENDEZVOUS_PORT},
+    config::{self},
     log,
     protobuf::Message as _,
     rendezvous_proto::*,
@@ -21,6 +21,8 @@ use std::{
     time::Instant,
 };
 
+const LAN_DISCOVERY_PORT: u16 = 21_119;
+
 type Message = RendezvousMessage;
 
 #[cfg(not(target_os = "ios"))]
@@ -36,13 +38,17 @@ pub(super) fn start_listening() -> ResultType<()> {
                 match msg_in.union {
                     Some(rendezvous_message::Union::PeerDiscovery(p)) => {
                         if p.cmd == "ping"
-                            && config::option2bool(
-                                "enable-lan-discovery",
-                                &Config::get_option("enable-lan-discovery"),
+                            && Config::get_option("lan-discovery-enabled") != "N"
+                            && Config::lan_credentials_configured()
+                            && !config::option2bool(
+                                "stop-service",
+                                &Config::get_option("stop-service"),
                             )
+                            && crate::lan_server::source_allowed(addr.ip())
                         {
-                            let id = Config::get_id();
-                            if p.id == id {
+                            let fingerprint =
+                                crate::lan_protocol::fingerprint(&Config::get_key_pair().1);
+                            if p.id == fingerprint {
                                 continue;
                             }
                             if let Some(self_addr) = get_ipaddr_by_peer(&addr) {
@@ -55,10 +61,20 @@ pub(super) fn start_listening() -> ResultType<()> {
                                 let peer = PeerDiscovery {
                                     cmd: "pong".to_owned(),
                                     mac: get_mac(&self_addr),
-                                    id,
+                                    id: fingerprint.clone(),
                                     hostname,
-                                    username: crate::platform::get_active_username(),
+                                    username: String::new(),
                                     platform: whoami::platform().to_string(),
+                                    misc: serde_json::json!({
+                                        "protocol_version": hbb_common::lan::PROTOCOL_VERSION,
+                                        "port": Config::get_option("lan-listen-port")
+                                            .parse::<u16>()
+                                            .ok()
+                                            .filter(|port| *port > 0)
+                                            .unwrap_or(hbb_common::lan::DEFAULT_PORT),
+                                        "fingerprint": fingerprint,
+                                    })
+                                    .to_string(),
                                     ..Default::default()
                                 };
                                 msg_out.set_peer_discovery(peer);
@@ -106,7 +122,7 @@ pub fn send_wol(id: String) {
 
 #[inline]
 fn get_broadcast_port() -> u16 {
-    (RENDEZVOUS_PORT + 3) as _
+    LAN_DISCOVERY_PORT
 }
 
 fn get_mac(_ip: &IpAddr) -> String {
@@ -192,17 +208,7 @@ fn send_query() -> ResultType<Vec<UdpSocket>> {
     }
 
     let mut msg_out = Message::new();
-    // We may not be able to get the mac address on mobile platforms.
-    // So we need to use the id to avoid discovering ourselves.
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    let id = crate::ui_interface::get_id();
-    // `crate::ui_interface::get_id()` will cause error:
-    // `get_id()` uses async code with `current_thread`, which is not allowed in this context.
-    //
-    // No need to get id for desktop platforms.
-    // We can use the mac address to identify the device.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let id = "".to_owned();
+    let id = crate::lan_protocol::fingerprint(&Config::get_key_pair().1);
     let peer = PeerDiscovery {
         cmd: "ping".to_owned(),
         id,
@@ -241,13 +247,29 @@ fn wait_response(
                     Some(rendezvous_message::Union::PeerDiscovery(p)) => {
                         last_recv_time = Instant::now();
                         if p.cmd == "pong" {
-                            if !crate::common::is_valid_untrusted_peer_id(&p.id) {
+                            if p.id.len() != 64
+                                || !p.id.bytes().all(|value| value.is_ascii_hexdigit())
+                            {
                                 log::warn!(
-                                    "Ignoring LAN discovery response from {} with invalid peer id",
+                                    "Ignoring LAN discovery response from {} with invalid fingerprint",
                                     addr
                                 );
                                 continue;
                             }
+
+                            let misc = serde_json::from_str::<serde_json::Value>(&p.misc)
+                                .unwrap_or_default();
+                            let port = misc
+                                .get("port")
+                                .and_then(|value| value.as_u64())
+                                .and_then(|value| u16::try_from(value).ok())
+                                .filter(|value| *value > 0)
+                                .unwrap_or(hbb_common::lan::DEFAULT_PORT);
+                            let endpoint = if addr.ip().is_ipv6() {
+                                format!("[{}]:{}", addr.ip(), port)
+                            } else {
+                                format!("{}:{}", addr.ip(), port)
+                            };
 
                             let local_mac = if try_get_ip_by_peer {
                                 if let Some(self_addr) = get_ipaddr_by_peer(&addr) {
@@ -272,7 +294,9 @@ fn wait_response(
 
                             if local_mac.is_empty() && p.mac.is_empty() || local_mac != p.mac {
                                 allow_err!(tx.send(config::DiscoveryPeer {
-                                    id: p.id.clone(),
+                                    id: endpoint.clone(),
+                                    endpoint,
+                                    fingerprint: p.id.clone(),
                                     ip_mac: HashMap::from([
                                         (addr.ip().to_string(), p.mac.clone(),)
                                     ]),
@@ -322,7 +346,12 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
         tokio::select! {
             data = rx.recv() => match data {
                 Some(mut peer) => {
-                    let in_response_set = !response_set.insert(peer.id.clone());
+                    let response_key = if peer.fingerprint.is_empty() {
+                        peer.id.clone()
+                    } else {
+                        peer.fingerprint.clone()
+                    };
+                    let in_response_set = !response_set.insert(response_key);
                     if let Some(pos) = peers.iter().position(|x| x.is_same_peer(&peer) ) {
                         let peer1 = peers.remove(pos);
                         if in_response_set {

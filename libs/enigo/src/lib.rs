@@ -236,7 +236,7 @@ pub trait MouseControllable {
     /// ```no_run
     /// use enigo::*;
     /// let mut enigo = Enigo::new();
-    /// enigo.mouse_scroll_x(2);
+    /// MouseControllable::mouse_scroll_x(&mut enigo, 2);
     /// ```
     fn mouse_scroll_x(&mut self, length: i32);
 
@@ -253,7 +253,7 @@ pub trait MouseControllable {
     /// ```no_run
     /// use enigo::*;
     /// let mut enigo = Enigo::new();
-    /// enigo.mouse_scroll_y(2);
+    /// MouseControllable::mouse_scroll_y(&mut enigo, 2);
     /// ```
     fn mouse_scroll_y(&mut self, length: i32);
 }
@@ -530,6 +530,7 @@ impl fmt::Debug for Enigo {
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "requires an interactive desktop and input injection permissions"]
     fn test_get_key_state() {
         let mut enigo = Enigo::new();
         let keys = [Key::CapsLock, Key::NumLock];

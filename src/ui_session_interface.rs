@@ -14,7 +14,7 @@ use hbb_common::config::keys;
 use hbb_common::fs;
 use hbb_common::{
     allow_err,
-    config::{Config, LocalConfig, PeerConfig},
+    config::{Config, PeerConfig},
     get_version_number, log,
     message_proto::*,
     rendezvous_proto::ConnType,
@@ -38,13 +38,13 @@ use std::{
     },
     time::SystemTime,
 };
-use uuid::Uuid;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::client::io_loop::Remote;
 use crate::client::{
-    check_if_retry, handle_hash, handle_login_error, handle_login_from_ui, handle_test_delay,
-    input_os_password, send_mouse, send_pointer_device_event, FileManager, Key, LoginConfigHandler,
-    QualityStatus, KEY_MAP,
+    check_if_retry, handle_login_error, handle_login_from_ui, handle_test_delay, input_os_password,
+    send_mouse, send_pointer_device_event, FileManager, Key, LoginConfigHandler, QualityStatus,
+    KEY_MAP,
 };
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::common::GrabState;
@@ -53,9 +53,16 @@ use crate::{client::Data, client::Interface};
 
 const CHANGE_RESOLUTION_VALID_TIMEOUT_SECS: u64 = 15;
 
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+pub struct LanSessionCredential {
+    pub username: String,
+    pub password: Vec<u8>,
+}
+
 #[derive(Clone, Default)]
 pub struct Session<T: InvokeUiSession> {
     pub password: String,
+    pub lan_credential: Arc<Mutex<Option<LanSessionCredential>>>,
     pub args: Vec<String>,
     pub lc: Arc<RwLock<LoginConfigHandler>>,
     pub sender: Arc<RwLock<Option<mpsc::UnboundedSender<Data>>>>,
@@ -70,8 +77,6 @@ pub struct Session<T: InvokeUiSession> {
     // Indicate whether the session is reconnected.
     // Used to auto start file transfer after reconnection.
     pub reconnect_count: Arc<AtomicUsize>,
-    pub last_audit_note: Arc<Mutex<String>>,
-    pub audit_guid: Arc<Mutex<String>>,
 }
 
 #[derive(Clone)]
@@ -193,6 +198,27 @@ impl SessionPermissionConfig {
 }
 
 impl<T: InvokeUiSession> Session<T> {
+    pub fn lan_credential(&self) -> Option<LanSessionCredential> {
+        self.lan_credential.lock().unwrap().clone()
+    }
+
+    pub fn submit_lan_credentials(
+        &self,
+        username: String,
+        mut password: String,
+    ) -> hbb_common::ResultType<()> {
+        let username = hbb_common::lan::validate_username(&username)?;
+        hbb_common::lan::validate_password(password.as_bytes())?;
+        let credential = LanSessionCredential {
+            username,
+            password: password.as_bytes().to_vec(),
+        };
+        password.zeroize();
+        *self.lan_credential.lock().unwrap() = Some(credential);
+        self.send(Data::SubmitLanCredentials);
+        Ok(())
+    }
+
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub fn get_permission_config(&self) -> SessionPermissionConfig {
         SessionPermissionConfig {
@@ -508,7 +534,7 @@ impl<T: InvokeUiSession> Session<T> {
     }
 
     pub fn get_remember(&self) -> bool {
-        self.lc.read().unwrap().remember
+        false
     }
 
     #[cfg(not(feature = "flutter"))]
@@ -577,27 +603,6 @@ impl<T: InvokeUiSession> Session<T> {
         let mut msg_out = Message::new();
         msg_out.set_misc(misc);
         self.send(Data::Message(msg_out));
-    }
-
-    pub fn get_audit_server(&self, typ: String) -> String {
-        if LocalConfig::get_option("access_token").is_empty() {
-            return "".to_owned();
-        }
-        crate::get_audit_server(
-            Config::get_option("api-server"),
-            Config::get_option("custom-rendezvous-server"),
-            typ,
-        )
-    }
-
-    pub fn send_note(&self, note: String) {
-        let url = self.get_audit_server("conn".to_string());
-        let id = self.get_id();
-        let session_id = self.lc.read().unwrap().session_id;
-        *self.last_audit_note.lock().unwrap() = note.clone();
-        std::thread::spawn(move || {
-            send_note(url, id, session_id, note);
-        });
     }
 
     #[cfg(not(feature = "flutter"))]
@@ -1285,7 +1290,7 @@ impl<T: InvokeUiSession> Session<T> {
         }
     }
 
-    pub fn reconnect(&self, force_relay: bool) {
+    pub fn reconnect(&self) {
         // 1. If current session is connecting, do not reconnect.
         // 2. If the connection is established, send `Data::Close`.
         // 3. If the connection is disconnected, do nothing.
@@ -1302,10 +1307,6 @@ impl<T: InvokeUiSession> Session<T> {
 
         let cloned = self.clone();
 
-        // override only if true
-        if true == force_relay {
-            self.lc.write().unwrap().force_relay = true;
-        }
         self.lc.write().unwrap().peer_info = None;
         self.reconnect_count.fetch_add(1, Ordering::SeqCst);
         let mut lock = self.thread.lock().unwrap();
@@ -1377,29 +1378,6 @@ impl<T: InvokeUiSession> Session<T> {
         self.send(Data::Login((os_username, os_password, password, remember)));
     }
 
-    pub fn send2fa(&self, code: String, trust_this_device: bool) {
-        let mut msg_out = Message::new();
-        let hwid = if trust_this_device {
-            crate::get_hwid()
-        } else {
-            Bytes::new()
-        };
-        self.lc.write().unwrap().set_option(
-            "trust-this-device".to_string(),
-            if trust_this_device { "Y" } else { "" }.to_string(),
-        );
-        msg_out.set_auth_2fa(Auth2FA {
-            code,
-            hwid,
-            ..Default::default()
-        });
-        self.send(Data::Message(msg_out));
-    }
-
-    pub fn get_enable_trusted_devices(&self) -> bool {
-        self.lc.read().unwrap().enable_trusted_devices
-    }
-
     pub fn new_rdp(&self) {
         self.send(Data::NewRDP);
     }
@@ -1408,13 +1386,12 @@ impl<T: InvokeUiSession> Session<T> {
         self.send(Data::Close);
     }
 
-    pub fn continue_insecure_connection(&self, continue_insecure: bool) {
-        let data = if continue_insecure {
-            Data::ContinueInsecureConnection
+    pub fn confirm_lan_device(&self, trusted: bool) {
+        self.send(if trusted {
+            Data::TrustLanDevice
         } else {
-            Data::RejectInsecureConnection
-        };
-        self.send(data);
+            Data::RejectLanDevice
+        });
     }
 
     fn try_auto_start_job_str(is_reconnected: bool, job_str: &str) -> Option<String> {
@@ -1483,44 +1460,7 @@ impl<T: InvokeUiSession> Session<T> {
         self.send(Data::ElevateWithLogon(username, password));
     }
 
-    #[cfg(any(target_os = "android", target_os = "ios", not(feature = "flutter")))]
     pub fn switch_sides(&self) {}
-
-    #[cfg(feature = "flutter")]
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    #[tokio::main(flavor = "current_thread")]
-    pub async fn switch_sides(&self) {
-        match crate::ipc::connect(1000, "").await {
-            Ok(mut conn) => {
-                if conn
-                    .send(&crate::ipc::Data::SwitchSidesRequest(self.get_id()))
-                    .await
-                    .is_ok()
-                {
-                    if let Ok(Some(data)) = conn.next_timeout(1000).await {
-                        match data {
-                            crate::ipc::Data::SwitchSidesRequest(str_uuid) => {
-                                if let Ok(uuid) = Uuid::from_str(&str_uuid) {
-                                    let mut misc = Misc::new();
-                                    misc.set_switch_sides_request(SwitchSidesRequest {
-                                        uuid: Bytes::from(uuid.as_bytes().to_vec()),
-                                        ..Default::default()
-                                    });
-                                    let mut msg_out = Message::new();
-                                    msg_out.set_misc(misc);
-                                    self.send(Data::Message(msg_out));
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            Err(err) => {
-                log::info!("server not started (will try to start): {}", err);
-            }
-        }
-    }
 
     fn set_custom_resolution(&self, display: &SwitchDisplay) {
         if display.width == display.original_resolution.width
@@ -1661,10 +1601,6 @@ impl<T: InvokeUiSession> Session<T> {
         self.send(Data::Message(msg));
     }
 
-    pub fn get_conn_token(&self) -> Option<String> {
-        self.lc.read().unwrap().get_conn_token()
-    }
-
     pub fn printer_response(&self, id: i32, path: String, printer_name: String) {
         self.printer_names.write().unwrap().insert(id, printer_name);
         let to = std::env::temp_dir().join(format!("rustdesk_printer_{id}"));
@@ -1727,7 +1663,6 @@ pub trait InvokeUiSession: Send + Sync + Clone + 'static + Sized + Default {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     fn clipboard(&self, content: String);
     fn cancel_msgbox(&self, tag: &str);
-    fn switch_back(&self, id: &str);
     fn portable_service_running(&self, running: bool);
     fn on_voice_call_started(&self);
     fn on_voice_call_closed(&self, reason: &str);
@@ -1777,10 +1712,7 @@ impl<T: InvokeUiSession> Interface for Session<T> {
     }
 
     fn msgbox(&self, msgtype: &str, title: &str, text: &str, link: &str) {
-        let direct = self.lc.read().unwrap().direct;
-        let received = self.lc.read().unwrap().received;
-        let retry_for_relay = direct == Some(true) && !received;
-        let retry = check_if_retry(msgtype, title, text, retry_for_relay);
+        let retry = check_if_retry(msgtype, title, text);
         self.ui_handler.msgbox(msgtype, title, text, link, retry);
     }
 
@@ -1836,9 +1768,6 @@ impl<T: InvokeUiSession> Interface for Session<T> {
             );
         }
         self.update_privacy_mode();
-        // Clear audit_guid when connection is established successfully
-        *self.audit_guid.lock().unwrap() = String::new();
-        *self.last_audit_note.lock().unwrap() = String::new();
         // Save recent peers, then push event to flutter. So flutter can refresh peer page.
         self.lc.write().unwrap().handle_peer_info(&pi);
         self.set_peer_info(&pi);
@@ -1878,8 +1807,23 @@ impl<T: InvokeUiSession> Interface for Session<T> {
         }
     }
 
-    async fn handle_hash(&self, pass: &str, hash: Hash, peer: &mut Stream) {
-        handle_hash(self.lc.clone(), pass, hash, self, peer).await;
+    async fn send_initial_lan_login(&self, peer: &mut Stream) {
+        if let Some(mut credential) = self.lan_credential() {
+            crate::client::send_lan_login(
+                self.lc.clone(),
+                std::mem::take(&mut credential.username),
+                std::mem::take(&mut credential.password),
+                peer,
+            )
+            .await;
+        } else {
+            self.msgbox(
+                "lan-login-required",
+                "LAN access credentials required",
+                "Enter the access username and password configured on the remote device.",
+                "",
+            );
+        }
     }
 
     async fn handle_login_from_ui(
@@ -1890,15 +1834,26 @@ impl<T: InvokeUiSession> Interface for Session<T> {
         remember: bool,
         peer: &mut Stream,
     ) {
-        handle_login_from_ui(
-            self.lc.clone(),
-            os_username,
-            os_password,
-            password,
-            remember,
-            peer,
-        )
-        .await;
+        if let Some(mut credential) = self.lan_credential() {
+            handle_login_from_ui(
+                self.lc.clone(),
+                os_username,
+                os_password,
+                password,
+                remember,
+                std::mem::take(&mut credential.username),
+                std::mem::take(&mut credential.password),
+                peer,
+            )
+            .await;
+        } else {
+            self.msgbox(
+                "lan-login-required",
+                "LAN access credentials required",
+                "Enter the access username and password configured on the remote device.",
+                "",
+            );
+        }
     }
 
     async fn handle_test_delay(&self, t: TestDelay, peer: &mut Stream) {
@@ -1950,8 +1905,6 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let (sender, mut receiver) = mpsc::unbounded_channel::<Data>();
     *handler.sender.write().unwrap() = Some(sender.clone());
-    let token = LocalConfig::get_option("access_token");
-    let key = crate::get_key(false).await;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     if handler.is_port_forward() {
         if handler.is_rdp() {
@@ -1968,7 +1921,7 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
                 handler.get_option("rdp_password".to_owned()),
             );
             log::info!("Remote rdp port: {}", port);
-            start_one_port_forward(handler, 0, "".to_owned(), port, receiver, &key, &token).await;
+            start_one_port_forward(handler, 0, "".to_owned(), port, receiver).await;
         } else if handler.args.len() == 0 {
             let pfs = handler.lc.read().unwrap().port_forwards.clone();
             let mut queues = HashMap::<i32, mpsc::UnboundedSender<Data>>::new();
@@ -1984,8 +1937,6 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
                         let (sender, receiver) = mpsc::unbounded_channel::<Data>();
                         queues.insert(port, sender);
                         let handler = handler.clone();
-                        let key = key.clone();
-                        let token = token.clone();
                         tokio::spawn(async move {
                             start_one_port_forward(
                                 handler,
@@ -1993,8 +1944,6 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
                                 remote_host,
                                 remote_port,
                                 receiver,
-                                &key,
-                                &token,
                             )
                             .await;
                         });
@@ -2025,21 +1974,12 @@ pub async fn io_loop<T: InvokeUiSession>(handler: Session<T>, round: u32) {
             }
             let remote_host = handler.args[1].clone();
             let remote_port = handler.args[2].parse::<i32>().unwrap_or(0);
-            start_one_port_forward(
-                handler,
-                port,
-                remote_host,
-                remote_port,
-                receiver,
-                &key,
-                &token,
-            )
-            .await;
+            start_one_port_forward(handler, port, remote_host, remote_port, receiver).await;
         }
         return;
     }
     let mut remote = Remote::new(handler, receiver, sender);
-    remote.io_loop(&key, &token, round).await;
+    remote.io_loop(round).await;
     let _ = remote.sync_jobs_status_to_local().await;
 }
 
@@ -2050,17 +1990,12 @@ async fn start_one_port_forward<T: InvokeUiSession>(
     remote_host: String,
     remote_port: i32,
     receiver: mpsc::UnboundedReceiver<Data>,
-    key: &str,
-    token: &str,
 ) {
     if let Err(err) = crate::port_forward::listen(
         handler.get_id(),
-        handler.password.clone(),
         port,
         handler.clone(),
         receiver,
-        key,
-        token,
         handler.lc.clone(),
         remote_host,
         remote_port,
@@ -2070,10 +2005,4 @@ async fn start_one_port_forward<T: InvokeUiSession>(
         handler.on_error(&format!("Failed to listen on {}: {}", port, err));
     }
     log::info!("port forward (:{}) exit", port);
-}
-
-#[tokio::main(flavor = "current_thread")]
-async fn send_note(url: String, id: String, sid: u64, note: String) {
-    let body = serde_json::json!({ "id": id, "session_id": sid, "note": note });
-    allow_err!(crate::post_request(url, body.to_string(), "").await);
 }

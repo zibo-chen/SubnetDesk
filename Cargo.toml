@@ -1,20 +1,16 @@
 [package]
 name = "rustdesk"
 version = "1.4.9"
-authors = ["rustdesk <info@rustdesk.com>"]
+authors = ["SubnetDesk contributors"]
 edition = "2021"
 build= "build.rs"
-description = "RustDesk Remote Desktop"
+description = "SubnetDesk LAN/VPN Remote Desktop"
 default-run = "rustdesk"
 rust-version = "1.75"
 
 [lib]
 name = "librustdesk"
 crate-type = ["cdylib", "staticlib", "rlib"]
-
-[[bin]]
-name = "naming"
-path = "src/naming.rs"
 
 [[bin]]
 name = "service"
@@ -30,7 +26,7 @@ default = ["use_dasp"]
 hwcodec = ["scrap/hwcodec"]
 vram = ["scrap/vram"]
 mediacodec = ["scrap/mediacodec"]
-plugin_framework = []
+plugin_framework = ["dep:reqwest"]
 linux-pkg-config = ["magnum-opus/linux-pkg-config", "scrap/linux-pkg-config"]
 unix-file-copy-paste = [
     "dep:x11-clipboard",
@@ -54,6 +50,7 @@ serde_repr = "0.1"
 cfg-if = "1.0"
 lazy_static = "1.4"
 sha2 = "0.10"
+zeroize = { version = "1.8", features = ["derive"] }
 repng = "0.2"
 parity-tokio-ipc = { git = "https://github.com/rustdesk-org/parity-tokio-ipc" }
 magnum-opus = { git = "https://github.com/rustdesk-org/magnum-opus" }
@@ -76,10 +73,7 @@ cidr-utils = "0.5"
 fon = "0.6"
 zip = "0.6"
 shutdown_hooks = "0.1"
-totp-rs = { version = "5.4", default-features = false, features = ["gen_secret", "otpauth"] }
-stunclient = "0.4"
-kcp-sys= { git = "https://github.com/rustdesk-org/kcp-sys"}
-reqwest = { version = "0.12", features = ["blocking", "socks", "json", "native-tls", "rustls-tls", "rustls-tls-native-roots", "gzip"], default-features=false }
+reqwest = { version = "0.12", features = ["blocking", "json", "native-tls", "rustls-tls", "rustls-tls-native-roots", "gzip"], default-features=false, optional = true }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 # https://github.com/rustdesk/rustdesk/discussions/10197, not use cpal on linux
@@ -210,9 +204,9 @@ exclude = ["vdi/host", "examples/custom_plugin"]
 libxdo-sys = { path = "libs/libxdo-sys-stub" }
 
 [package.metadata.winres]
-LegalCopyright = "Copyright © 2026 Purslane Tech Pte. Ltd. All rights reserved."
-ProductName = "RustDesk"
-FileDescription = "RustDesk Remote Desktop"
+LegalCopyright = "Copyright © 2026 SubnetDesk contributors."
+ProductName = "SubnetDesk"
+FileDescription = "SubnetDesk LAN/VPN Remote Desktop"
 OriginalFilename = "rustdesk.exe"
 
 [target.'cfg(target_os="windows")'.build-dependencies]
@@ -229,8 +223,8 @@ hound = "3.5"
 docopt = "1.1"
 
 [package.metadata.bundle]
-name = "RustDesk"
-identifier = "com.carriez.rustdesk"
+name = "SubnetDesk"
+identifier = "com.zibochen.subnetdesk"
 icon = ["res/32x32.png", "res/128x128.png", "res/128x128@2x.png"]
 osx_minimum_system_version = "10.14"
 

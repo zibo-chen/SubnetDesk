@@ -180,6 +180,16 @@ fn gen_vcpkg_package(package: &str, ffi_header: &str, generated: &str, regex: &s
     generate_bindings(&ffi_header, &includes, &ffi_rs, &exact_file, regex);
 }
 
+fn build_macos_helpers() {
+    let file = "src/quartz/scale.mm";
+    cc::Build::new()
+        .flag("-std=c++17")
+        .file(file)
+        .compile("scrap_macos");
+    println!("cargo:rustc-link-lib=framework=AppKit");
+    println!("cargo:rerun-if-changed={file}");
+}
+
 // If you have problems installing ffmpeg, you can download $VCPKG_ROOT/installed from ci
 // Linux require link in hwcodec
 /*
@@ -260,6 +270,7 @@ fn main() {
     } else if cfg!(target_os = "macos") {
         // Quartz is second because macOS is the (annoying) exception.
         println!("cargo:rustc-cfg=quartz");
+        build_macos_helpers();
     } else if cfg!(unix) {
         // On UNIX we pray that X11 (with XCB) is available.
         println!("cargo:rustc-cfg=x11");

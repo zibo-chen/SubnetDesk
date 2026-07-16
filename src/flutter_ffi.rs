@@ -16,20 +16,20 @@ use flutter_rust_bridge::{StreamSink, SyncReturn};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use hbb_common::allow_err;
 use hbb_common::{
-    config::{self, LocalConfig, PeerConfig, PeerInfoSerde},
+    config::{self, Config, LocalConfig, PeerConfig, RecentLanEndpoint},
     fs, lazy_static, log,
     rendezvous_proto::ConnType,
     ResultType,
 };
 use std::{
     collections::HashMap,
-    path::PathBuf,
     sync::{
         atomic::{AtomicI32, Ordering},
         Arc,
     },
-    time::{Duration, SystemTime},
+    time::Duration,
 };
+use zeroize::Zeroize;
 
 pub type SessionID = uuid::Uuid;
 
@@ -38,7 +38,6 @@ lazy_static::lazy_static! {
 }
 
 fn initialize(app_dir: &str, custom_client_config: &str) {
-    flutter::async_tasks::start_flutter_async_runner();
     // `APP_DIR` is set in `main_get_data_dir_ios()` on iOS.
     #[cfg(not(target_os = "ios"))]
     {
@@ -63,14 +62,11 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
         hbb_common::init_log(false, "");
         #[cfg(feature = "mediacodec")]
         scrap::mediacodec::check_mediacodec();
-        crate::common::test_rendezvous_server();
-        crate::common::test_nat_type();
     }
     #[cfg(target_os = "ios")]
     {
         use hbb_common::env_logger::*;
         init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "debug"));
-        crate::common::test_nat_type();
     }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
@@ -142,11 +138,7 @@ pub fn session_add_sync(
     is_port_forward: bool,
     is_rdp: bool,
     is_terminal: bool,
-    switch_uuid: String,
-    force_relay: bool,
     password: String,
-    is_shared_password: bool,
-    conn_token: Option<String>,
 ) -> SyncReturn<String> {
     let add_res = session_add(
         &session_id,
@@ -156,11 +148,7 @@ pub fn session_add_sync(
         is_port_forward,
         is_rdp,
         is_terminal,
-        &switch_uuid,
-        force_relay,
         password,
-        is_shared_password,
-        conn_token,
     );
     // We can't put the remove call together with `std::env::var("IS_TERMINAL_ADMIN")`.
     // Because there are some `bail!` in `session_add()`, we must make sure `IS_TERMINAL_ADMIN` is removed at last.
@@ -200,14 +188,6 @@ pub fn session_start_with_displays(
     Ok(())
 }
 
-pub fn session_get_remember(session_id: SessionID) -> Option<bool> {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        Some(session.get_remember())
-    } else {
-        None
-    }
-}
-
 pub fn session_get_toggle_option(session_id: SessionID, arg: String) -> Option<bool> {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         Some(session.get_toggle_option(arg))
@@ -234,26 +214,21 @@ pub fn session_login(
     os_username: String,
     os_password: String,
     password: String,
-    remember: bool,
 ) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.login(os_username, os_password, password, remember);
+        session.login(os_username, os_password, password, false);
     }
 }
 
-pub fn session_send2fa(session_id: SessionID, code: String, trust_this_device: bool) {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.send2fa(code, trust_this_device);
-    }
-}
-
-pub fn session_get_enable_trusted_devices(session_id: SessionID) -> SyncReturn<bool> {
-    let v = if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.get_enable_trusted_devices()
-    } else {
-        false
-    };
-    SyncReturn(v)
+pub fn session_login_lan(
+    session_id: SessionID,
+    username: String,
+    password: String,
+) -> SyncReturn<String> {
+    let result = sessions::get_session_by_session_id(&session_id)
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("Session is no longer available"))
+        .and_then(|session| session.submit_lan_credentials(username, password));
+    SyncReturn(result.err().map(|err| err.to_string()).unwrap_or_default())
 }
 
 pub fn will_session_close_close_session(session_id: SessionID) -> SyncReturn<bool> {
@@ -312,9 +287,9 @@ pub fn session_get_is_recording(session_id: SessionID) -> SyncReturn<bool> {
     }
 }
 
-pub fn session_reconnect(session_id: SessionID, force_relay: bool) {
+pub fn session_reconnect(session_id: SessionID) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.reconnect(force_relay);
+        session.reconnect();
     }
     session_on_waiting_for_image_dialog_show(session_id);
 }
@@ -937,22 +912,6 @@ pub fn main_get_sound_inputs() -> Vec<String> {
     vec![String::from("")]
 }
 
-pub fn main_get_login_device_info() -> SyncReturn<String> {
-    SyncReturn(get_login_device_info_json())
-}
-
-pub fn main_change_id(new_id: String) {
-    change_id(new_id)
-}
-
-pub fn main_get_async_status() -> String {
-    get_async_job_status()
-}
-
-pub fn main_get_http_status(url: String) -> Option<String> {
-    get_async_http_status(url)
-}
-
 pub fn main_get_option(key: String) -> String {
     get_option(key)
 }
@@ -974,62 +933,21 @@ pub fn main_show_option(_key: String) -> SyncReturn<bool> {
 }
 
 pub fn main_set_option(key: String, value: String) {
-    #[cfg(target_os = "android")]
-    {
-        let is_permission_option = key.eq(config::keys::OPTION_ENABLE_CLIPBOARD)
-            || key.eq(config::keys::OPTION_ENABLE_FILE_TRANSFER)
-            || key.eq(config::keys::OPTION_ENABLE_AUDIO);
-        let allow_perm_change_in_accept_window = config::option2bool(
-            config::keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW,
-            &crate::get_builtin_option(config::keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW),
-        );
-        if is_permission_option
-            && !allow_perm_change_in_accept_window
-            && crate::ui_cm_interface::has_active_clients()
-        {
-            log::info!(
-                "blocked main_set_option by policy, key={}, value={}",
-                key,
-                value
-            );
-            return;
-        }
+    if config::is_lan_only_obsolete_option(&key) {
+        log::warn!("Ignored obsolete public-network option in LAN-only mode: {key}");
+        return;
     }
-    #[cfg(target_os = "android")]
-    if key.eq(config::keys::OPTION_ENABLE_KEYBOARD) {
-        crate::ui_cm_interface::switch_permission_all(
-            "keyboard".to_owned(),
-            config::option2bool(&key, &value),
-        );
-    }
-    #[cfg(target_os = "android")]
-    if key.eq(config::keys::OPTION_ENABLE_CLIPBOARD) {
-        crate::ui_cm_interface::switch_permission_all(
-            "clipboard".to_owned(),
-            config::option2bool(&key, &value),
-        );
-    }
-
-    // If `is_allow_tls_fallback` and https proxy is used, we need to restart rendezvous mediator.
-    // No need to check if https proxy is used, because this option does not change frequently
-    // and restarting mediator is safe even https proxy is not used.
-    let is_allow_tls_fallback = key.eq(config::keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK);
-    if is_allow_tls_fallback
-        || key.eq("custom-rendezvous-server")
-        || key.eq(config::keys::OPTION_ALLOW_WEBSOCKET)
-        || key.eq(config::keys::OPTION_DISABLE_UDP)
-        || key.eq("api-server")
-    {
-        if is_allow_tls_fallback {
-            hbb_common::tls::reset_tls_cache();
-        }
-        set_option(key, value.clone());
-        #[cfg(target_os = "android")]
-        crate::rendezvous_mediator::RendezvousMediator::restart();
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        crate::common::test_rendezvous_server();
-    } else {
-        set_option(key, value.clone());
+    let restart_lan = matches!(
+        key.as_str(),
+        "lan-listen-addresses"
+            | "lan-listen-port"
+            | "lan-allowed-networks"
+            | "lan-discovery-enabled"
+            | "stop-service"
+    );
+    set_option(key, value);
+    if restart_lan {
+        crate::lan_server::LanServer::restart();
     }
 }
 
@@ -1043,47 +961,10 @@ pub fn main_get_options_sync() -> SyncReturn<String> {
 
 pub fn main_set_options(json: String) {
     let mut map: HashMap<String, String> = serde_json::from_str(&json).unwrap_or(HashMap::new());
-    #[cfg(target_os = "android")]
-    {
-        let allow_perm_change_in_accept_window = config::option2bool(
-            config::keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW,
-            &crate::get_builtin_option(config::keys::OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW),
-        );
-        if !allow_perm_change_in_accept_window && crate::ui_cm_interface::has_active_clients() {
-            for key in [
-                config::keys::OPTION_ENABLE_CLIPBOARD,
-                config::keys::OPTION_ENABLE_FILE_TRANSFER,
-                config::keys::OPTION_ENABLE_AUDIO,
-            ] {
-                if let Some(value) = map.remove(key) {
-                    log::info!(
-                        "blocked main_set_options item by policy, key={}, value={}",
-                        key,
-                        value
-                    );
-                }
-            }
-        }
-    }
+    map.retain(|key, _| !config::is_lan_only_obsolete_option(key));
     if !map.is_empty() {
         set_options(map)
     }
-}
-
-pub fn main_test_if_valid_server(server: String, test_with_proxy: bool) -> String {
-    test_if_valid_server(server, test_with_proxy)
-}
-
-pub fn main_set_socks(proxy: String, username: String, password: String) {
-    set_socks(proxy, username, password)
-}
-
-pub fn main_get_proxy_status() -> bool {
-    get_proxy_status()
-}
-
-pub fn main_get_socks() -> Vec<String> {
-    get_socks()
 }
 
 pub fn main_get_app_name() -> String {
@@ -1096,10 +977,6 @@ pub fn main_get_app_name_sync() -> SyncReturn<String> {
 
 pub fn main_uri_prefix_sync() -> SyncReturn<String> {
     SyncReturn(crate::get_uri_prefix())
-}
-
-pub fn main_get_license() -> String {
-    get_license()
 }
 
 pub fn main_get_version() -> String {
@@ -1124,59 +1001,28 @@ pub fn main_get_lan_peers() -> String {
 }
 
 pub fn main_get_connect_status() -> String {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let status_num = if Config::lan_credentials_configured()
+        && !config::option2bool("stop-service", &Config::get_option("stop-service"))
     {
-        serde_json::to_string(&get_connect_status()).unwrap_or("".to_string())
-    }
+        1
+    } else {
+        -1
+    };
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let video_conn_count = get_connect_status().video_conn_count;
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    {
-        let mut state = hbb_common::config::get_online_state();
-        if state > 0 {
-            state = 1;
-        }
-        serde_json::json!({ "status_num": state }).to_string()
-    }
+    let video_conn_count = 0usize;
+    serde_json::json!({
+        "status_num": status_num,
+        "video_conn_count": video_conn_count,
+    })
+    .to_string()
 }
 
-pub fn main_check_connect_status() {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    start_option_status_sync(); // avoid multi calls
-}
-
-pub fn main_is_using_public_server() -> bool {
-    crate::using_public_server()
-}
+pub fn main_check_connect_status() {}
 
 pub fn main_discover() {
     discover();
-}
-
-pub fn main_get_api_server() -> String {
-    get_api_server()
-}
-
-pub fn main_deploy_device(token: String, id: String) -> String {
-    #[cfg(target_os = "android")]
-    {
-        let new_id = match id.trim() {
-            "" => None,
-            id => Some(id.to_owned()),
-        };
-        ui_interface::deploy_device(token, new_id).message()
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = (token, id);
-        "Deployment is not supported on this platform.".to_owned()
-    }
-}
-
-pub fn main_resolve_avatar_url(avatar: String) -> SyncReturn<String> {
-    SyncReturn(resolve_avatar_url(avatar))
-}
-
-pub fn main_http_request(url: String, method: String, body: Option<String>, header: String) {
-    http_request(url, method, body, header)
 }
 
 pub fn main_get_local_option(key: String) -> SyncReturn<String> {
@@ -1357,14 +1203,6 @@ pub fn main_clip_cursor(
     }
 }
 
-pub fn main_get_my_id() -> String {
-    get_id()
-}
-
-pub fn main_get_uuid() -> String {
-    get_uuid()
-}
-
 pub fn main_get_peer_option(id: String, key: String) -> String {
     get_peer_option(id, key)
 }
@@ -1406,43 +1244,29 @@ pub fn main_get_new_stored_peers() -> String {
     serde_json::to_string(&peers).unwrap_or_default()
 }
 
-pub fn main_forget_password(id: String) {
-    forget_password(id)
-}
-
-pub fn main_peer_has_password(id: String) -> bool {
-    peer_has_password(id)
-}
-
 pub fn main_peer_exists(id: String) -> bool {
     peer_exists(&id)
 }
 
-fn load_recent_peers(
-    vec_id_modified_time_path: &Vec<(String, SystemTime, std::path::PathBuf)>,
-    to_end: bool,
-    all_peers: &mut Vec<HashMap<&str, String>>,
-    from: usize,
-) -> usize {
-    let to = if to_end {
-        Some(vec_id_modified_time_path.len())
-    } else {
-        None
-    };
-    let mut peers_next = PeerConfig::batch_peers(vec_id_modified_time_path, from, to);
-    // There may be less peers than the batch size.
-    // But no need to consider this case, because it is a rare case.
-    let peers = peers_next.0.drain(..).map(|(id, _, p)| peer_to_map(id, p));
-    all_peers.extend(peers);
-    peers_next.1
+fn recent_lan_endpoint_to_map(recent: RecentLanEndpoint) -> HashMap<&'static str, String> {
+    let alias = PeerConfig::load(&recent.endpoint)
+        .options
+        .get("alias")
+        .cloned()
+        .unwrap_or_default();
+    HashMap::from([
+        ("id", recent.endpoint),
+        ("username", recent.username),
+        ("hostname", recent.hostname),
+        ("platform", recent.platform),
+        ("alias", alias),
+        ("fingerprint", recent.fingerprint),
+    ])
 }
 
 pub fn main_load_recent_peers() {
-    let push_to_flutter = |peers, ids| {
-        let mut data = HashMap::from([("name", "load_recent_peers".to_owned()), ("peers", peers)]);
-        if let Some(ids) = ids {
-            data.insert("ids", ids);
-        }
+    let push_to_flutter = |peers| {
+        let data = HashMap::from([("name", "load_recent_peers".to_owned()), ("peers", peers)]);
         let _res = flutter::push_global_event(
             flutter::APP_TYPE_MAIN,
             serde_json::ser::to_string(&data).unwrap_or("".to_owned()),
@@ -1450,61 +1274,14 @@ pub fn main_load_recent_peers() {
     };
 
     if !config::APP_DIR.read().unwrap().is_empty() {
-        let vec_id_modified_time_path = PeerConfig::get_vec_id_modified_time_path(&None);
-        if vec_id_modified_time_path.is_empty() {
-            push_to_flutter("".to_owned(), None);
-            return;
-        }
-
-        let load_two_times = vec_id_modified_time_path.len() > PeerConfig::BATCH_LOADING_COUNT
-            && cfg!(target_os = "windows");
-        let mut all_peers = vec![];
-        if load_two_times {
-            let next_from = load_recent_peers(&vec_id_modified_time_path, false, &mut all_peers, 0);
-            let rest_ids = if next_from < vec_id_modified_time_path.len() {
-                Some(
-                    vec_id_modified_time_path[next_from..]
-                        .iter()
-                        .map(|(id, _, _)| id.clone())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                )
-            } else {
-                None
-            };
-            push_to_flutter(
-                serde_json::ser::to_string(&all_peers).unwrap_or("".to_owned()),
-                rest_ids,
-            );
-            let _ = load_recent_peers(&vec_id_modified_time_path, true, &mut all_peers, next_from);
-        } else {
-            let _ = load_recent_peers(&vec_id_modified_time_path, true, &mut all_peers, 0);
-        }
-        // Don't check if `all_peers` is empty, because we need this message to update the state in the flutter side.
-        push_to_flutter(
-            serde_json::ser::to_string(&all_peers).unwrap_or("".to_owned()),
-            None,
-        );
-    } else {
-        push_to_flutter("".to_owned(), None)
-    }
-}
-
-pub fn main_load_recent_peers_for_ab(filter: String) -> String {
-    let id_filters = serde_json::from_str::<Vec<String>>(&filter).unwrap_or_default();
-    let id_filters = if id_filters.is_empty() {
-        None
-    } else {
-        Some(id_filters)
-    };
-    if !config::APP_DIR.read().unwrap().is_empty() {
-        let peers: Vec<HashMap<&str, String>> = PeerConfig::peers(id_filters)
-            .drain(..)
-            .map(|(id, _, p)| peer_to_map(id, p))
+        let peers: Vec<_> = LocalConfig::get_recent_lan_endpoints()
+            .into_iter()
+            .map(recent_lan_endpoint_to_map)
             .collect();
-        return serde_json::ser::to_string(&peers).unwrap_or("".to_owned());
+        push_to_flutter(serde_json::ser::to_string(&peers).unwrap_or_else(|_| "[]".to_owned()));
+    } else {
+        push_to_flutter("[]".to_owned())
     }
-    "".to_string()
 }
 
 pub fn main_load_fav_peers() {
@@ -1517,35 +1294,15 @@ pub fn main_load_fav_peers() {
     };
     if !config::APP_DIR.read().unwrap().is_empty() {
         let favs = get_fav();
-        let mut recent = PeerConfig::peers(Some(favs.clone()));
-        let mut lan = config::LanPeers::load()
-            .peers
-            .iter()
-            .filter(|d| favs.contains(&d.id) && recent.iter().all(|r| r.0 != d.id))
-            .map(|d| {
-                (
-                    d.id.clone(),
-                    SystemTime::UNIX_EPOCH,
-                    PeerConfig {
-                        info: PeerInfoSerde {
-                            username: d.username.clone(),
-                            hostname: d.hostname.clone(),
-                            platform: d.platform.clone(),
-                        },
-                        ..Default::default()
-                    },
-                )
-            })
-            .collect();
-        recent.append(&mut lan);
-        let peers: Vec<HashMap<&str, String>> = recent
+        let peers: Vec<_> = LocalConfig::get_recent_lan_endpoints()
             .into_iter()
-            .map(|(id, _, p)| peer_to_map(id, p))
+            .filter(|recent| favs.contains(&recent.endpoint))
+            .map(recent_lan_endpoint_to_map)
             .collect();
 
-        push_to_flutter(serde_json::ser::to_string(&peers).unwrap_or("".to_owned()));
+        push_to_flutter(serde_json::ser::to_string(&peers).unwrap_or_else(|_| "[]".to_owned()));
     } else {
-        push_to_flutter("".to_owned());
+        push_to_flutter("[]".to_owned());
     }
 }
 
@@ -1599,10 +1356,6 @@ pub fn main_set_user_default_option(key: String, value: String) {
 
 pub fn main_get_user_default_option(key: String) -> SyncReturn<String> {
     SyncReturn(get_user_default_option(key))
-}
-
-pub fn main_handle_relay_id(id: String) -> String {
-    handle_relay_id(&id).to_owned()
 }
 
 pub fn main_is_option_fixed(key: String) -> SyncReturn<bool> {
@@ -1712,14 +1465,6 @@ pub fn session_close_voice_call(session_id: SessionID) {
     }
 }
 
-pub fn session_get_conn_token(session_id: SessionID) -> SyncReturn<Option<String>> {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        SyncReturn(session.get_conn_token())
-    } else {
-        SyncReturn(None)
-    }
-}
-
 pub fn cm_handle_incoming_voice_call(id: i32, accept: bool) {
     crate::ui_cm_interface::handle_incoming_voice_call(id, accept);
 }
@@ -1752,11 +1497,10 @@ pub fn get_voice_call_input_device(_is_cm: bool) -> String {
 }
 
 pub fn main_get_last_remote_id() -> String {
-    LocalConfig::get_remote_id()
-}
-
-pub fn main_get_software_update_url() {
-    crate::common::check_software_update();
+    let endpoint = LocalConfig::get_remote_id();
+    hbb_common::lan::Endpoint::parse(&endpoint)
+        .map(|endpoint| endpoint.authority().to_owned())
+        .unwrap_or_default()
 }
 
 pub fn main_get_home_dir() -> String {
@@ -1767,16 +1511,111 @@ pub fn main_get_langs() -> String {
     get_langs()
 }
 
-pub fn main_get_temporary_password() -> String {
-    ui_interface::temporary_password()
-}
-
-pub fn main_set_permanent_password_with_result(password: String) -> bool {
-    ui_interface::set_permanent_password_with_result(password)
-}
-
 pub fn main_get_fingerprint() -> String {
-    get_fingerprint()
+    crate::lan_protocol::fingerprint(&Config::get_key_pair().1)
+}
+
+pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
+    #[cfg(not(target_os = "ios"))]
+    let configured_listen_addresses: std::collections::HashSet<String> =
+        Config::get_option("lan-listen-addresses")
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+    #[cfg(not(target_os = "ios"))]
+    let addresses: Vec<String> = default_net::get_interfaces()
+        .into_iter()
+        .flat_map(|interface| {
+            interface
+                .ipv4
+                .into_iter()
+                .map(|network| network.addr.to_string())
+                .chain(
+                    interface
+                        .ipv6
+                        .into_iter()
+                        .map(|network| network.addr.to_string()),
+                )
+        })
+        .filter(|address| address != "0.0.0.0" && address != "::")
+        .filter(|address| {
+            if configured_listen_addresses.is_empty() {
+                address
+                    .parse()
+                    .map(crate::lan_server::source_allowed)
+                    .unwrap_or(false)
+            } else {
+                configured_listen_addresses.contains(address)
+            }
+        })
+        .collect();
+    #[cfg(target_os = "ios")]
+    let addresses: Vec<String> = Vec::new();
+    let port = Config::get_option("lan-listen-port")
+        .parse::<u16>()
+        .ok()
+        .filter(|value| *value > 0)
+        .unwrap_or(hbb_common::lan::DEFAULT_PORT);
+    let data = serde_json::json!({
+        "configured": Config::lan_credentials_configured(),
+        "running": crate::lan_server::LanServer::is_running(),
+        "username": Config::get_lan_access_username(),
+        "credential_revision": Config::get_credential_revision(),
+        "device_name": crate::whoami_hostname(),
+        "fingerprint": crate::lan_protocol::fingerprint(&Config::get_key_pair().1),
+        "addresses": addresses,
+        "port": port,
+        "listen_addresses": Config::get_option("lan-listen-addresses"),
+        "allowed_networks": Config::get_option("lan-allowed-networks"),
+        "discovery_enabled": Config::get_option("lan-discovery-enabled") != "N",
+    });
+    SyncReturn(data.to_string())
+}
+
+pub fn main_apply_lan_settings(
+    username: String,
+    mut password: String,
+    listen_addresses: String,
+    listen_port: String,
+    allowed_networks: String,
+    discovery_enabled: bool,
+) -> SyncReturn<String> {
+    let result = (|| -> ResultType<()> {
+        let username = hbb_common::lan::validate_username(&username)?;
+        let port = listen_port
+            .parse::<u16>()
+            .map_err(|_| hbb_common::anyhow::anyhow!("Listen port must be between 1 and 65535"))?;
+        if port == 0 {
+            hbb_common::bail!("Listen port must be between 1 and 65535");
+        }
+        let listen_addresses = crate::lan_server::normalize_listen_addresses(&listen_addresses)?;
+        let allowed_networks = crate::lan_server::normalize_allowed_networks(&allowed_networks)?;
+
+        let current_username = Config::get_lan_access_username();
+        if password.is_empty() {
+            if !Config::lan_credentials_configured() || username != current_username {
+                hbb_common::bail!(
+                    "A password is required when creating or renaming the LAN account"
+                );
+            }
+        } else {
+            Config::set_lan_credentials(&username, password.as_bytes())?;
+        }
+        Config::set_option("lan-listen-addresses".to_owned(), listen_addresses);
+        Config::set_option("lan-listen-port".to_owned(), port.to_string());
+        Config::set_option("lan-allowed-networks".to_owned(), allowed_networks);
+        Config::set_option(
+            "lan-discovery-enabled".to_owned(),
+            if discovery_enabled { "Y" } else { "N" }.to_owned(),
+        );
+        Config::set_option("stop-service".to_owned(), String::new());
+        crate::lan_server::LanServer::restart();
+        Ok(())
+    })();
+    password.zeroize();
+    SyncReturn(result.err().map(|err| err.to_string()).unwrap_or_default())
 }
 
 pub fn cm_get_clients_state() -> String {
@@ -1799,16 +1638,13 @@ pub fn main_init(app_dir: String, custom_client_config: String) {
     initialize(&app_dir, &custom_client_config);
 }
 
-pub fn main_device_id(id: String) {
-    *crate::common::DEVICE_ID.lock().unwrap() = id;
-}
-
 pub fn main_device_name(name: String) {
     *crate::common::DEVICE_NAME.lock().unwrap() = name;
 }
 
 pub fn main_remove_peer(id: String) {
     PeerConfig::remove(&id);
+    LocalConfig::remove_recent_lan_endpoint(&id);
 }
 
 pub fn main_has_hwcodec() -> SyncReturn<bool> {
@@ -1848,42 +1684,6 @@ pub fn main_start_dbus_server() {
             let _ = start_dbus_server();
         });
     }
-}
-
-pub fn main_save_ab(json: String) {
-    if json.len() > 1024 {
-        std::thread::spawn(|| {
-            config::Ab::store(json);
-        });
-    } else {
-        config::Ab::store(json);
-    }
-}
-
-pub fn main_clear_ab() {
-    config::Ab::remove();
-}
-
-pub fn main_load_ab() -> String {
-    serde_json::to_string(&config::Ab::load()).unwrap_or_default()
-}
-
-pub fn main_save_group(json: String) {
-    if json.len() > 1024 {
-        std::thread::spawn(|| {
-            config::Group::store(json);
-        });
-    } else {
-        config::Group::store(json);
-    }
-}
-
-pub fn main_clear_group() {
-    config::Group::remove();
-}
-
-pub fn main_load_group() -> String {
-    serde_json::to_string(&config::Group::load()).unwrap_or_default()
 }
 
 pub fn session_send_pointer(session_id: SessionID, msg: String) {
@@ -2028,43 +1828,6 @@ pub fn session_restart_remote_device(session_id: SessionID) {
     }
 }
 
-pub fn session_get_audit_server_sync(session_id: SessionID, typ: String) -> SyncReturn<String> {
-    let res = if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.get_audit_server(typ)
-    } else {
-        "".to_owned()
-    };
-    SyncReturn(res)
-}
-
-pub fn session_send_note(session_id: SessionID, note: String) {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        session.send_note(note)
-    }
-}
-
-pub fn session_get_last_audit_note(session_id: SessionID) -> SyncReturn<String> {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        SyncReturn(session.last_audit_note.lock().unwrap().clone())
-    } else {
-        SyncReturn("".to_owned())
-    }
-}
-
-pub fn session_set_audit_guid(session_id: SessionID, guid: String) {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        *session.audit_guid.lock().unwrap() = guid;
-    }
-}
-
-pub fn session_get_audit_guid(session_id: SessionID) -> SyncReturn<String> {
-    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
-        SyncReturn(session.audit_guid.lock().unwrap().clone())
-    } else {
-        SyncReturn("".to_owned())
-    }
-}
-
 pub fn session_get_conn_session_id(session_id: SessionID) -> SyncReturn<String> {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         SyncReturn(session.lc.read().unwrap().session_id.to_string())
@@ -2134,7 +1897,7 @@ pub fn main_stop_service() {
     #[cfg(target_os = "android")]
     {
         config::Config::set_option("stop-service".into(), "Y".into());
-        crate::rendezvous_mediator::RendezvousMediator::restart();
+        crate::lan_server::LanServer::restart();
     }
 }
 
@@ -2142,13 +1905,8 @@ pub fn main_start_service() {
     #[cfg(target_os = "android")]
     {
         config::Config::set_option("stop-service".into(), "".into());
-        crate::rendezvous_mediator::reset_needs_deploy_notification();
-        crate::rendezvous_mediator::RendezvousMediator::restart();
+        crate::lan_server::LanServer::restart();
     }
-}
-
-pub fn main_update_temporary_password() {
-    update_temporary_password();
 }
 
 pub fn main_check_super_user_permission() -> bool {
@@ -2194,15 +1952,6 @@ pub fn cm_send_chat(conn_id: i32, msg: String) {
     crate::ui_cm_interface::send_chat(conn_id, msg);
 }
 
-pub fn cm_login_res(conn_id: i32, res: bool) {
-    #[cfg(not(any(target_os = "ios")))]
-    if res {
-        crate::ui_cm_interface::authorize(conn_id);
-    } else {
-        crate::ui_cm_interface::close(conn_id);
-    }
-}
-
 pub fn cm_close_connection(conn_id: i32) {
     #[cfg(not(any(target_os = "ios")))]
     crate::ui_cm_interface::close(conn_id);
@@ -2225,11 +1974,6 @@ pub fn cm_get_click_time() -> f64 {
     return 0 as _;
 }
 
-pub fn cm_switch_permission(conn_id: i32, name: String, enabled: bool) {
-    #[cfg(not(any(target_os = "ios")))]
-    crate::ui_cm_interface::switch_permission(conn_id, name, enabled)
-}
-
 pub fn cm_can_elevate() -> SyncReturn<bool> {
     SyncReturn(crate::ui_cm_interface::can_elevate())
 }
@@ -2240,8 +1984,7 @@ pub fn cm_elevate_portable(conn_id: i32) {
 }
 
 pub fn cm_switch_back(conn_id: i32) {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    crate::ui_cm_interface::switch_back(conn_id);
+    let _ = conn_id;
 }
 
 pub fn cm_get_config(name: String) -> String {
@@ -2296,7 +2039,7 @@ pub fn session_register_gpu_texture(
 }
 
 pub fn query_onlines(ids: Vec<String>) {
-    let _ = flutter::async_tasks::query_onlines(ids);
+    let _ = ids;
 }
 
 pub fn version_to_number(v: String) -> SyncReturn<i64> {
@@ -2350,15 +2093,6 @@ pub fn main_goto_install() -> SyncReturn<bool> {
     SyncReturn(true)
 }
 
-pub fn main_get_new_version() -> SyncReturn<String> {
-    SyncReturn(get_new_version())
-}
-
-pub fn main_update_me() -> SyncReturn<bool> {
-    update_me("".to_owned());
-    SyncReturn(true)
-}
-
 pub fn set_cur_session_id(session_id: SessionID) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         set_cur_session_id_(session_id, &session.get_keyboard_mode())
@@ -2389,20 +2123,6 @@ pub fn install_install_path() -> SyncReturn<String> {
 
 pub fn install_install_options() -> SyncReturn<String> {
     SyncReturn(install_options())
-}
-
-pub fn main_account_auth(op: String, remember_me: bool) {
-    let id = get_id();
-    let uuid = get_uuid();
-    account_auth(op, id, uuid, remember_me);
-}
-
-pub fn main_account_auth_cancel() {
-    account_auth_cancel()
-}
-
-pub fn main_account_auth_result() -> String {
-    account_auth_result()
 }
 
 pub fn main_on_main_window_close() {
@@ -2480,37 +2200,9 @@ pub fn is_disable_settings() -> SyncReturn<bool> {
     SyncReturn(config::is_disable_settings())
 }
 
-pub fn is_disable_ab() -> SyncReturn<bool> {
-    SyncReturn(config::is_disable_ab())
-}
-
-pub fn is_disable_account() -> SyncReturn<bool> {
-    SyncReturn(config::is_disable_account())
-}
-
-pub fn is_disable_group_panel() -> SyncReturn<bool> {
-    SyncReturn(LocalConfig::get_option("disable-group-panel") == "Y")
-}
-
 // windows only
 pub fn is_disable_installation() -> SyncReturn<bool> {
     SyncReturn(config::is_disable_installation())
-}
-
-pub fn is_preset_password() -> bool {
-    // On desktop, service owns the authoritative config; query it via IPC and return only a boolean.
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    return crate::ipc::is_permanent_password_preset();
-
-    // On mobile, we have no service IPC; verify against local storage.
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    return config::Config::is_using_preset_password();
-}
-
-// Don't call this function for desktop version.
-// We need this function because we want a sync return for mobile version.
-pub fn is_preset_password_mobile_only() -> SyncReturn<bool> {
-    SyncReturn(is_preset_password())
 }
 
 /// Send a url scheme through the ipc.
@@ -2736,26 +2428,6 @@ pub fn main_supported_input_source() -> SyncReturn<String> {
     }
 }
 
-pub fn main_generate2fa() -> String {
-    generate2fa()
-}
-
-pub fn main_verify2fa(code: String) -> bool {
-    verify2fa(code)
-}
-
-pub fn main_has_valid_2fa_sync() -> SyncReturn<bool> {
-    SyncReturn(has_valid_2fa())
-}
-
-pub fn main_verify_bot(token: String) -> String {
-    verify_bot(token)
-}
-
-pub fn main_has_valid_bot_sync() -> SyncReturn<bool> {
-    SyncReturn(has_valid_bot())
-}
-
 pub fn main_get_hard_option(key: String) -> SyncReturn<String> {
     SyncReturn(get_hard_option(key))
 }
@@ -2766,18 +2438,6 @@ pub fn main_get_buildin_option(key: String) -> SyncReturn<String> {
 
 pub fn main_check_hwcodec() {
     check_hwcodec()
-}
-
-pub fn main_get_trusted_devices() -> String {
-    get_trusted_devices()
-}
-
-pub fn main_remove_trusted_devices(json: String) {
-    remove_trusted_devices(&json)
-}
-
-pub fn main_clear_trusted_devices() {
-    clear_trusted_devices()
 }
 
 pub fn main_max_encrypt_len() -> SyncReturn<usize> {
@@ -2828,70 +2488,13 @@ pub fn main_get_common(key: String) -> String {
         return false.to_string();
     } else if key == "transfer-job-id" {
         return hbb_common::fs::get_next_job_id().to_string();
-    } else if key == "is-remote-modify-enabled-by-control-permissions" {
-        return match is_remote_modify_enabled_by_control_permissions() {
-            Some(true) => "true",
-            Some(false) => "false",
-            None => "",
-        }
-        .to_string();
     } else if key == "has-gnome-shortcuts-inhibitor-permission" {
         #[cfg(target_os = "linux")]
         return crate::platform::linux::has_gnome_shortcuts_inhibitor_permission().to_string();
         #[cfg(not(target_os = "linux"))]
         return false.to_string();
-    } else if key == "permanent-password-set" {
-        return ui_interface::is_permanent_password_set().to_string();
-    } else if key == "local-permanent-password-set" {
-        return ui_interface::is_local_permanent_password_set().to_string();
     } else {
-        if key.starts_with("download-data-") {
-            let id = key.replace("download-data-", "");
-            match crate::hbbs_http::downloader::get_download_data(&id) {
-                Ok(data) => serde_json::to_string(&data).unwrap_or_default(),
-                Err(e) => {
-                    format!("error:{}", e)
-                }
-            }
-        } else if key.starts_with("download-file-") {
-            let _version = key.replace("download-file-", "");
-            #[cfg(target_os = "windows")]
-            return match (
-                crate::platform::windows::is_msi_installed(),
-                crate::common::is_custom_client(),
-            ) {
-                (Ok(true), false) => match crate::platform::windows::release_arch_suffix() {
-                    Some(arch) => format!("rustdesk-{_version}-{arch}.msi"),
-                    None => "error:unsupported".to_owned(),
-                },
-                (Ok(true), true) | (Ok(false), _) => {
-                    match crate::platform::windows::release_arch_suffix() {
-                        Some(arch) => format!("rustdesk-{_version}-{arch}.exe"),
-                        None => "error:unsupported".to_owned(),
-                    }
-                }
-                (Err(e), _) => {
-                    log::error!("Failed to check if is msi: {}", e);
-                    format!("error:update-failed-check-msi-tip")
-                }
-            };
-            #[cfg(target_os = "macos")]
-            {
-                return if cfg!(target_arch = "x86_64") {
-                    format!("rustdesk-{_version}-x86_64.dmg")
-                } else if cfg!(target_arch = "aarch64") {
-                    format!("rustdesk-{_version}-aarch64.dmg")
-                } else {
-                    "error:unsupported".to_owned()
-                };
-            }
-            #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-            {
-                "error:unsupported".to_owned()
-            }
-        } else {
-            "".to_owned()
-        }
+        String::new()
     }
 }
 
@@ -2932,78 +2535,6 @@ pub fn main_set_common(_key: String, _value: String) {
             );
         });
     }
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
-    {
-        use crate::updater::get_download_file_from_url;
-        if _key == "download-new-version" {
-            let download_url = _value.clone();
-            let event_key = "download-new-version".to_owned();
-            let data = if let Some(download_file) = get_download_file_from_url(&download_url) {
-                std::fs::remove_file(&download_file).ok();
-                match crate::hbbs_http::downloader::download_file(
-                    download_url,
-                    Some(PathBuf::from(download_file)),
-                    Some(Duration::from_secs(3)),
-                ) {
-                    Ok(id) => HashMap::from([("name", event_key), ("id", id)]),
-                    Err(e) => HashMap::from([("name", event_key), ("error", e.to_string())]),
-                }
-            } else {
-                HashMap::from([
-                    ("name", event_key),
-                    ("error", "Invalid download url".to_string()),
-                ])
-            };
-            let _res = flutter::push_global_event(
-                flutter::APP_TYPE_MAIN,
-                serde_json::ser::to_string(&data).unwrap_or("".to_owned()),
-            );
-        } else if _key == "update-me" {
-            if let Some(new_version_file) = get_download_file_from_url(&_value) {
-                log::debug!(
-                    "New version file is downloaded, update begin, {:?}",
-                    new_version_file.to_str()
-                );
-                if let Some(f) = new_version_file.to_str() {
-                    // 1.4.0 does not support "--update"
-                    // But we can assume that the new version supports it.
-
-                    #[cfg(any(target_os = "windows", target_os = "macos"))]
-                    match crate::platform::update_to(f) {
-                        Ok(_) => {
-                            log::info!("Update process is launched successfully!");
-                        }
-                        Err(e) => {
-                            log::error!("Failed to update to new version, {}", e);
-                            fs::remove_file(f).ok();
-                        }
-                    }
-                }
-            }
-        } else if _key == "extract-update-dmg" {
-            #[cfg(target_os = "macos")]
-            {
-                if let Some(new_version_file) = get_download_file_from_url(&_value) {
-                    if let Some(f) = new_version_file.to_str() {
-                        crate::platform::macos::extract_update_dmg(f);
-                    } else {
-                        // unreachable!()
-                        log::error!("Failed to get the new version file path");
-                    }
-                } else {
-                    // unreachable!()
-                    log::error!("Failed to get the new version file from url: {}", _value);
-                }
-            }
-        }
-    }
-
-    if _key == "remove-downloader" {
-        crate::hbbs_http::downloader::remove(&_value);
-    } else if _key == "cancel-downloader" {
-        crate::hbbs_http::downloader::cancel(&_value);
-    }
-
     #[cfg(target_os = "linux")]
     if _key == "clear-gnome-shortcuts-inhibitor-permission" {
         std::thread::spawn(move || {
@@ -3030,9 +2561,8 @@ pub fn main_set_common(_key: String, _value: String) {
 
 pub fn session_set_common(session_id: SessionID, key: String, value: String) {
     if let Some(s) = sessions::get_session_by_session_id(&session_id) {
-        if key == "continue-insecure-connection"
-        {
-            s.continue_insecure_connection(value == "Y");
+        if key == "confirm-lan-device" {
+            s.confirm_lan_device(value == "Y");
             return;
         }
     }
@@ -3100,8 +2630,7 @@ pub mod server_side {
     pub unsafe extern "system" fn Java_ffi_FFI_startService(_env: JNIEnv, _class: JClass) {
         log::debug!("startService from jvm");
         config::Config::set_option("stop-service".into(), "".into());
-        crate::rendezvous_mediator::reset_needs_deploy_notification();
-        crate::rendezvous_mediator::RendezvousMediator::restart();
+        crate::lan_server::LanServer::restart();
     }
 
     #[no_mangle]

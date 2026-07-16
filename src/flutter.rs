@@ -1,7 +1,7 @@
 use crate::{
     client::*,
     flutter_ffi::{EventToUI, SessionID},
-    ui_session_interface::{io_loop, InvokeUiSession, Session},
+    ui_session_interface::{io_loop, InvokeUiSession, LanSessionCredential, Session},
 };
 use flutter_rust_bridge::StreamSink;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -13,7 +13,7 @@ use hbb_common::{
     anyhow::anyhow, bail, config::LocalConfig, get_version_number, log, message_proto::*,
     rendezvous_proto::ConnType, ResultType,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[cfg(target_os = "windows")]
 use std::io::{Error as IoError, ErrorKind as IoErrorKind};
@@ -43,6 +43,13 @@ pub(crate) const APP_TYPE_CM: &str = "main";
 // pub(crate) const APP_TYPE_DESKTOP_PORT_FORWARD: &str = "port forward";
 
 pub type FlutterSession = Arc<Session<FlutterHandler>>;
+
+#[derive(Deserialize)]
+struct LanCredentialPayload {
+    lan_version: u32,
+    username: String,
+    password: String,
+}
 
 lazy_static::lazy_static! {
     pub(crate) static ref CUR_SESSION_ID: RwLock<SessionID> = Default::default(); // For desktop only
@@ -700,7 +707,8 @@ impl InvokeUiSession for FlutterHandler {
     }
 
     /// unused in flutter, use switch_display or set_peer_info
-    fn set_display(&self, _x: i32, _y: i32, _w: i32, _h: i32, _cursor_embedded: bool, _scale: f64) {}
+    fn set_display(&self, _x: i32, _y: i32, _w: i32, _h: i32, _cursor_embedded: bool, _scale: f64) {
+    }
 
     fn update_privacy_mode(&self) {
         self.push_event::<&str>("update_privacy_mode", &[], &[]);
@@ -1062,10 +1070,6 @@ impl InvokeUiSession for FlutterHandler {
         self.push_event("clipboard", &[("content", &content)], &[]);
     }
 
-    fn switch_back(&self, peer_id: &str) {
-        self.push_event("switch_back", &[("peer_id", peer_id)], &[]);
-    }
-
     fn portable_service_running(&self, running: bool) {
         self.push_event(
             "portable_service_running",
@@ -1306,12 +1310,10 @@ pub fn session_add(
     is_port_forward: bool,
     is_rdp: bool,
     is_terminal: bool,
-    switch_uuid: &str,
-    force_relay: bool,
-    password: String,
-    is_shared_password: bool,
-    conn_token: Option<String>,
+    mut password: String,
 ) -> ResultType<FlutterSession> {
+    let endpoint = hbb_common::lan::Endpoint::parse(id)?;
+    let id = endpoint.authority().to_owned();
     let conn_type = if is_file_transfer {
         ConnType::FILE_TRANSFER
     } else if is_view_camera {
@@ -1339,17 +1341,29 @@ pub fn session_add(
 
     LocalConfig::set_remote_id(&id);
 
-    let mut preset_password = password.clone();
-    let shared_password = if is_shared_password {
-        // To achieve a flexible password application order, we don't treat shared password as a preset password.
-        preset_password = Default::default();
-        Some(password)
-    } else {
+    let lan_credential = if password.is_empty() {
         None
+    } else {
+        let payload: LanCredentialPayload = serde_json::from_str(&password)
+            .map_err(|_| anyhow!("Invalid LAN credential payload"))?;
+        if payload.lan_version != hbb_common::lan::PROTOCOL_VERSION {
+            bail!("Unsupported LAN credential payload version");
+        }
+        let username = hbb_common::lan::validate_username(&payload.username)?;
+        hbb_common::lan::validate_password(payload.password.as_bytes())?;
+        Some(LanSessionCredential {
+            username,
+            password: payload.password.into_bytes(),
+        })
     };
-
+    let lan_access_username = lan_credential
+        .as_ref()
+        .map(|credential| credential.username.clone())
+        .unwrap_or_default();
+    zeroize::Zeroize::zeroize(&mut password);
     let session: Session<FlutterHandler> = Session {
-        password: preset_password,
+        password: String::new(),
+        lan_credential: Arc::new(std::sync::Mutex::new(lan_credential)),
         server_keyboard_enabled: Arc::new(RwLock::new(true)),
         server_file_transfer_enabled: Arc::new(RwLock::new(true)),
         server_clipboard_enabled: Arc::new(RwLock::new(true)),
@@ -1357,21 +1371,11 @@ pub fn session_add(
         ..Default::default()
     };
 
-    let switch_uuid = if switch_uuid.is_empty() {
-        None
-    } else {
-        Some(switch_uuid.to_string())
-    };
-
-    session.lc.write().unwrap().initialize(
-        id.to_owned(),
-        conn_type,
-        switch_uuid,
-        force_relay,
-        get_adapter_luid(),
-        shared_password,
-        conn_token,
-    );
+    {
+        let mut login = session.lc.write().unwrap();
+        login.initialize(id, conn_type, get_adapter_luid());
+        login.lan_access_username = lan_access_username;
+    }
 
     let session = Arc::new(session.clone());
     sessions::insert_session(session_id.to_owned(), conn_type, session.clone());
@@ -2315,72 +2319,5 @@ pub mod sessions {
                 && s.session_handlers.read().unwrap().len() != 0
                 && s.connection_round_state.lock().unwrap().is_connected()
         })
-    }
-}
-
-pub(super) mod async_tasks {
-    use hbb_common::{bail, tokio, ResultType};
-    use std::{
-        collections::HashMap,
-        sync::{
-            mpsc::{sync_channel, SyncSender},
-            Arc, Mutex,
-        },
-    };
-
-    type TxQueryOnlines = SyncSender<Vec<String>>;
-    lazy_static::lazy_static! {
-        static ref TX_QUERY_ONLINES: Arc<Mutex<Option<TxQueryOnlines>>> = Default::default();
-    }
-
-    #[inline]
-    pub fn start_flutter_async_runner() {
-        std::thread::spawn(start_flutter_async_runner_);
-    }
-
-    #[allow(dead_code)]
-    pub fn stop_flutter_async_runner() {
-        let _ = TX_QUERY_ONLINES.lock().unwrap().take();
-    }
-
-    #[tokio::main(flavor = "current_thread")]
-    async fn start_flutter_async_runner_() {
-        // Only one task is allowed to run at the same time.
-        let (tx_onlines, rx_onlines) = sync_channel::<Vec<String>>(1);
-        TX_QUERY_ONLINES.lock().unwrap().replace(tx_onlines);
-
-        loop {
-            match rx_onlines.recv() {
-                Ok(ids) => {
-                    crate::client::peer_online::query_online_states(ids, handle_query_onlines).await
-                }
-                _ => {
-                    // unreachable!
-                    break;
-                }
-            }
-        }
-    }
-
-    pub fn query_onlines(ids: Vec<String>) -> ResultType<()> {
-        if let Some(tx) = TX_QUERY_ONLINES.lock().unwrap().as_ref() {
-            // Ignore if the channel is full.
-            let _ = tx.try_send(ids)?;
-        } else {
-            bail!("No tx_query_onlines");
-        }
-        Ok(())
-    }
-
-    fn handle_query_onlines(onlines: Vec<String>, offlines: Vec<String>) {
-        let data = HashMap::from([
-            ("name", "callback_query_onlines".to_owned()),
-            ("onlines", onlines.join(",")),
-            ("offlines", offlines.join(",")),
-        ]);
-        let _res = super::push_global_event(
-            super::APP_TYPE_MAIN,
-            serde_json::ser::to_string(&data).unwrap_or("".to_owned()),
-        );
     }
 }

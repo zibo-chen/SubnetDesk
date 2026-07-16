@@ -716,7 +716,7 @@ fn key_sleep() {
     //
     // There's a strange bug when running by `launchctl load -w /Library/LaunchAgents/abc.plist`
     // `std::thread::sleep(Duration::from_millis(20));` may sleep 90ms or more.
-    // Though `/Applications/RustDesk.app/Contents/MacOS/rustdesk --server` in terminal is ok.
+    // Though `/Applications/SubnetDesk.app/Contents/MacOS/rustdesk --server` in terminal is ok.
     let now = Instant::now();
     while now.elapsed() < Duration::from_millis(12) {
         std::thread::sleep(Duration::from_millis(1));

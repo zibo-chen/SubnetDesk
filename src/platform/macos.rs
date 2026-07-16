@@ -304,11 +304,18 @@ fn update_daemon_agent(agent_plist_file: String, update_source_dir: String, sync
 
 fn correct_app_name(s: &str) -> String {
     let mut s = s.to_owned();
-    if let Some(bundleid) = get_bundle_id() {
-        s = s.replace("com.carriez.rustdesk", &bundleid);
-    }
-    s = s.replace("rustdesk", &crate::get_app_name().to_lowercase());
-    s = s.replace("RustDesk", &crate::get_app_name());
+    s = s.replace("com.carriez.RustDesk", &crate::get_full_name());
+    let app_name = crate::get_app_name();
+    let bundle_id = get_bundle_id().unwrap_or_else(|| {
+        format!(
+            "{}.{}",
+            hbb_common::config::ORG.read().unwrap(),
+            app_name.to_lowercase()
+        )
+    });
+    s = s.replace("com.carriez.rustdesk", &bundle_id);
+    s = s.replace("rustdesk", &app_name.to_lowercase());
+    s = s.replace("RustDesk", &app_name);
     s
 }
 
@@ -737,8 +744,8 @@ pub fn start_os_service() {
     /* // mouse/keyboard works in prelogin now with launchctl asuser.
        // below can avoid multi-users logged in problem, but having its own below problem.
        // Not find a good way to start --cm without root privilege (affect file transfer).
-       // one way is to start with `launchctl asuser <uid> open -n -a /Applications/RustDesk.app/ --args --cm`,
-       // this way --cm is started with the user privilege, but we will have problem to start another RustDesk.app
+       // one way is to start with `launchctl asuser <uid> open -n -a /Applications/SubnetDesk.app/ --args --cm`,
+       // this way --cm is started with the user privilege, but we will have problem to start another SubnetDesk.app
        // with open in explorer.
         use std::sync::{
             atomic::{AtomicBool, Ordering},
@@ -835,7 +842,7 @@ pub fn update_me() -> ResultType<()> {
     );
 
     let cmd = std::env::current_exe()?;
-    // RustDesk.app/Contents/MacOS/RustDesk
+    // SubnetDesk.app/Contents/MacOS/SubnetDesk
     let app_dir = cmd
         .parent()
         .and_then(|p| p.parent())
@@ -931,7 +938,7 @@ pub fn extract_update_dmg(file: &str) {
 }
 
 fn extract_dmg(dmg_path: &str, target_dir: &str) -> ResultType<()> {
-    let mount_point = "/Volumes/RustDeskUpdate";
+    let mount_point = "/Volumes/SubnetDeskUpdate";
     let target_path = Path::new(target_dir);
 
     if target_path.exists() {

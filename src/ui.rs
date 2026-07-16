@@ -102,7 +102,6 @@ pub fn start(args: &mut [String]) {
     }
     if args.is_empty() {
         std::thread::spawn(move || check_zombie());
-        crate::common::check_software_update();
         frame.event_handler(UI {});
         frame.sciter_handler(UIHostHandler {});
         page = "index.html";
@@ -159,7 +158,7 @@ pub fn start(args: &mut [String]) {
         });
         page = "remote.html";
     } else {
-        log::error!("Wrong command: {:?}", args);
+        log::error!("Wrong command");
         return;
     }
     #[cfg(feature = "inline")]
@@ -201,27 +200,7 @@ impl UI {
     }
 
     fn get_id(&self) -> String {
-        ipc::get_id()
-    }
-
-    fn temporary_password(&mut self) -> String {
-        temporary_password()
-    }
-
-    fn update_temporary_password(&self) {
-        update_temporary_password()
-    }
-
-    fn set_permanent_password(&self, password: String) {
-        let _ = set_permanent_password_with_result(password);
-    }
-
-    fn is_local_permanent_password_set(&self) -> bool {
-        is_local_permanent_password_set()
-    }
-
-    fn is_permanent_password_set(&self) -> bool {
-        is_permanent_password_set()
+        String::new()
     }
 
     fn get_remote_id(&mut self) -> String {
@@ -268,12 +247,11 @@ impl UI {
         set_local_option(key, value);
     }
 
-    fn peer_has_password(&self, id: String) -> bool {
-        peer_has_password(id)
+    fn peer_has_password(&self, _id: String) -> bool {
+        false
     }
 
-    fn forget_password(&self, id: String) {
-        forget_password(id)
+    fn forget_password(&self, _id: String) {
     }
 
     fn get_peer_option(&self, id: String, name: String) -> String {
@@ -326,10 +304,6 @@ impl UI {
         m
     }
 
-    fn test_if_valid_server(&self, host: String, test_with_proxy: bool) -> String {
-        test_if_valid_server(host, test_with_proxy)
-    }
-
     fn get_sound_inputs(&self) -> Value {
         Value::from_iter(get_sound_inputs())
     }
@@ -358,14 +332,6 @@ impl UI {
 
     fn install_options(&self) -> String {
         install_options()
-    }
-
-    fn get_socks(&self) -> Value {
-        Value::from_iter(get_socks())
-    }
-
-    fn set_socks(&self, proxy: String, username: String, password: String) {
-        set_socks(proxy, username, password)
     }
 
     fn is_installed(&self) -> bool {
@@ -518,10 +484,6 @@ impl UI {
         current_is_wayland()
     }
 
-    fn get_software_update_url(&self) -> String {
-        crate::SOFTWARE_UPDATE_URL.lock().unwrap().clone()
-    }
-
     fn get_new_version(&self) -> String {
         get_new_version()
     }
@@ -536,29 +498,6 @@ impl UI {
 
     fn get_app_name(&self) -> String {
         get_app_name()
-    }
-
-    fn get_software_ext(&self) -> String {
-        #[cfg(windows)]
-        let p = "exe";
-        #[cfg(target_os = "macos")]
-        let p = "dmg";
-        #[cfg(target_os = "linux")]
-        let p = "deb";
-        p.to_owned()
-    }
-
-    fn get_software_store_path(&self) -> String {
-        let mut p = std::env::temp_dir();
-        let name = crate::SOFTWARE_UPDATE_URL
-            .lock()
-            .unwrap()
-            .split("/")
-            .last()
-            .map(|x| x.to_owned())
-            .unwrap_or(crate::get_app_name());
-        p.push(name);
-        format!("{}.{}", p.to_string_lossy(), self.get_software_ext())
     }
 
     fn create_shortcut(&self, _id: String) {
@@ -659,10 +598,6 @@ impl UI {
         video_save_directory(root)
     }
 
-    fn handle_relay_id(&self, id: String) -> String {
-        handle_relay_id(&id).to_owned()
-    }
-
     fn get_login_device_info(&self) -> String {
         get_login_device_info_json()
     }
@@ -733,11 +668,6 @@ impl sciter::EventHandler for UI {
         fn is_disable_installation();
         fn is_disable_ab();
         fn get_id();
-        fn temporary_password();
-        fn update_temporary_password();
-        fn set_permanent_password(String);
-        fn is_local_permanent_password_set();
-        fn is_permanent_password_set();
         fn get_remote_id();
         fn set_remote_id(String);
         fn closing(i32, i32, i32, i32);
@@ -760,8 +690,6 @@ impl sciter::EventHandler for UI {
         fn get_supported_privacy_mode_impls();
         fn is_root();
         fn is_release();
-        fn set_socks(String, String, String);
-        fn get_socks();
         fn is_share_rdp();
         fn set_share_rdp(bool);
         fn is_installed_lower_version();
@@ -783,11 +711,9 @@ impl sciter::EventHandler for UI {
         fn forget_password(String);
         fn set_peer_option(String, String, String);
         fn get_license();
-        fn test_if_valid_server(String, bool);
         fn get_sound_inputs();
         fn set_options(Value);
         fn set_option(String, String);
-        fn get_software_update_url();
         fn get_new_version();
         fn get_version();
         fn get_fingerprint();
@@ -795,8 +721,6 @@ impl sciter::EventHandler for UI {
         fn show_run_without_install();
         fn run_without_install();
         fn get_app_name();
-        fn get_software_store_path();
-        fn get_software_ext();
         fn open_url(String);
         fn change_id(String);
         fn get_async_job_status();
@@ -810,7 +734,6 @@ impl sciter::EventHandler for UI {
         fn has_vram();
         fn get_langs();
         fn video_save_directory(bool);
-        fn handle_relay_id(String);
         fn get_login_device_info();
         fn support_remove_wallpaper();
         fn has_valid_2fa();
