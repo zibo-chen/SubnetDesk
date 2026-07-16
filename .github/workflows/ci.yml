@@ -1,4 +1,7 @@
-name: CI
+name: SubnetDesk Rust CI
+
+permissions:
+  contents: read
 
 env:
 #   MIN_SUPPORTED_RUST_VERSION: "1.46.0"
@@ -17,12 +20,8 @@ on:
     branches:
       - master
     paths-ignore:
-      - ".github/**"
       - "docs/**"
       - "README.md"
-      - "res/**"
-      - "appimage/**"
-      - "flatpak/**"
 
 jobs:
   # ensure_cargo_fmt:

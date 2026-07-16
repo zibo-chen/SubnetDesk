@@ -1,5 +1,5 @@
 [Unit]
-Description=RustDesk
+Description=SubnetDesk
 Requires=network.target
 After=systemd-user-sessions.service
 

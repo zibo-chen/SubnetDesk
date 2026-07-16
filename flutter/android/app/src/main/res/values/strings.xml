@@ -1,4 +1,5 @@
 <resources>
-    <string name="app_name">RustDesk</string>
-    <string name="accessibility_service_description">Allow other devices to control your phone using virtual touch, when RustDesk screen sharing is established</string>
+    <string name="app_name">SubnetDesk</string>
+    <string name="input_service_name">SubnetDesk Input</string>
+    <string name="accessibility_service_description">Allow other devices to control your phone using virtual touch when SubnetDesk screen sharing is established</string>
 </resources>

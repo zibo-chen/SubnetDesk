@@ -1,0 +1,38 @@
+name: SubnetDesk Preflight
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: subnetdesk-preflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-gates:
+    name: LAN-only, branding, and generated assets
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Check LAN-only residuals
+        run: bash scripts/check_lan_only_residuals.sh
+
+      - name: Check SubnetDesk branding and icons
+        run: bash scripts/check_subnetdesk_branding.sh
+
+      - name: Check Python scripts
+        run: python3 -m py_compile build.py scripts/generate_subnetdesk_icons.py
+
+      - name: Check workflow syntax
+        run: |
+          ruby -e 'require "yaml"; Dir[".github/workflows/*.{yml,yaml}"].each { |path| YAML.parse_file(path) }'

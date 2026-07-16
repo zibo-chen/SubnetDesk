@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.zibochen.SubnetDesk</id>
+  <developer id="com.zibochen">
+    <name>SubnetDesk contributors</name>
+  </developer>
+  <launchable type="desktop-id">com.zibochen.SubnetDesk.desktop</launchable>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <name>SubnetDesk</name>
+  <summary>LAN/VPN-only remote desktop access</summary>
+  <description>
+    <p>
+      SubnetDesk provides encrypted remote desktop access directly between devices on a LAN or routed VPN.
+      It does not use rendezvous, relay, NAT traversal, cloud accounts, or public update services.
+    </p>
+    <ul>
+      <li>Connect directly with an IP address or internal hostname.</li>
+      <li>Authenticate with one host-managed username and password.</li>
+      <li>Verify a persistent device fingerprint before credentials are sent.</li>
+      <li>Use desktop control and the retained native session tools without a cloud service.</li>
+    </ul>
+  </description>
+  <categories>
+    <category>Utility</category>
+    <category>Network</category>
+  </categories>
+  <url type="bugtracker">https://github.com/zibo-chen/SubnetDesk/issues</url>
+  <url type="vcs-browser">https://github.com/zibo-chen/SubnetDesk</url>
+  <requires>
+    <display_length compare="ge">600</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+</component>

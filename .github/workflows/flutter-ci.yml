@@ -1,4 +1,7 @@
-name: Full Flutter CI
+name: SubnetDesk Full Flutter CI
+
+permissions:
+  contents: read
 
 on:
   workflow_dispatch:
@@ -10,12 +13,8 @@ on:
     branches:
       - master
     paths-ignore:
-      - ".github/**"
       - "docs/**"
       - "README.md"
-      - "res/**"
-      - "appimage/**"
-      - "flatpak/**"
 
 jobs:
   run-ci:

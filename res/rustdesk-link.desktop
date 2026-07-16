@@ -1,7 +1,7 @@
 [Desktop Entry]
-Name=RustDesk
+Name=SubnetDesk
 NoDisplay=true
-MimeType=x-scheme-handler/rustdesk;
+MimeType=x-scheme-handler/subnetdesk;
 TryExec=rustdesk
 Exec=rustdesk %u
 Icon=rustdesk

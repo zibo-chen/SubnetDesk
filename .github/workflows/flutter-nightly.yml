@@ -1,4 +1,7 @@
-name: Flutter Nightly Build
+name: SubnetDesk Nightly Build
+
+permissions:
+  contents: write
 
 on:
   schedule:

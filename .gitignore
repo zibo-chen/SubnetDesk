@@ -15,7 +15,9 @@ src/version.rs
 cert.pfx
 *.bak
 *png
+!flutter/assets/icon.png
 *svg
+!res/subnetdesk-icon.svg
 *jpg
 sciter.dll
 **pdb

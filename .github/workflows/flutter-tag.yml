@@ -1,4 +1,7 @@
-name: Flutter Tag Build
+name: SubnetDesk Release Build
+
+permissions:
+  contents: write
 
 on:
   workflow_dispatch:
