@@ -523,7 +523,7 @@ server-account / group / address-book cloud state
 - [x] 更新 README/安装文档，只描述 LAN/VPN IP 直连流程。
 - [x] 准备旧版本回滚说明，不允许回滚时泄露新凭据或设备私钥。
 
-当前 macOS arm64 本机补充证据已记录在 `docs/lan-only-regression-matrix.md`：Release app bundle 构建、arm64/最低系统版本/严格签名检查、本地 DMG 校验/挂载/复制、隔离 HOME 首次设置、Argon2id 与 `0600` 落盘、21118/21119 端口、空闲无出站 TCP、停止后同配置重启恢复，以及默认/自定义端口真实 UI 远程桌面连接均通过。首次指纹确认、同设备改端口后信任复用、错误凭据拒绝、活动会话改密失效和旧密码拒绝也已通过；用户另行确认本机控制基本正常。本地 DMG 仅为 ad-hoc 签名，未代替 Developer ID 公证、特权服务安装或卸载测试。尚未勾选的 Phase 6 项必须使用外部双机、VPN、正式安装器和 Windows/Linux/Android 平台实验室完成，不能用单机源码或回环测试冒充。
+当前 macOS arm64 本机补充证据已记录在 `docs/lan-only-regression-matrix.md`：SubnetDesk Release app bundle 的名称、标识、图标、arm64 架构、最低系统版本、严格签名和版本检查均通过。品牌改名前的同一 LAN-only 核心构建还完成了本地 DMG 校验/挂载/复制、隔离 HOME 首次设置、Argon2id 与 `0600` 落盘、21118/21119 端口、空闲无出站 TCP、停止后同配置重启恢复，以及默认/自定义端口真实 UI 远程桌面连接。首次指纹确认、同设备改端口后信任复用、错误凭据拒绝、活动会话改密失效和旧密码拒绝也已通过；用户另行确认本机控制基本正常。当前机器未安装 `create-dmg`，因此尚未生成 SubnetDesk 品牌的本地 DMG；正式品牌安装包、Developer ID 公证、特权服务安装或卸载测试仍需由 CI/平台实验室完成。尚未勾选的 Phase 6 项必须使用外部双机、VPN、正式安装器和 Windows/Linux/Android 平台实验室完成，不能用单机源码或回环测试冒充。
 
 完成门槛：满足第 12 节的完成定义。
 
