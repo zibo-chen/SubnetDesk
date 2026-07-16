@@ -52,9 +52,6 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
       peerId: params['id'],
       terminalId: terminalId,
       password: params['password'],
-      isSharedPassword: params['isSharedPassword'],
-      forceRelay: params['forceRelay'],
-      connToken: params['connToken'],
     ));
   }
 
@@ -62,9 +59,6 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
     required String peerId,
     required int terminalId,
     String? password,
-    bool? isSharedPassword,
-    bool? forceRelay,
-    String? connToken,
   }) {
     final tabKey = '${peerId}_$terminalId';
     final alias = bind.mainGetPeerOptionSync(id: peerId, key: 'alias');
@@ -82,10 +76,7 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
         terminalId: terminalId,
         tabKey: tabKey,
         password: password,
-        isSharedPassword: isSharedPassword,
         tabController: tabController,
-        forceRelay: forceRelay,
-        connToken: connToken,
       ),
     );
   }
@@ -309,8 +300,8 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
 
     rustDeskWinManager.setMethodHandler((call, fromWindowId) async {
-      print(
-          "[Remote Terminal] call ${call.method} with args ${call.arguments} from window $fromWindowId");
+      debugPrint(
+          "[Remote Terminal] call ${call.method} from window $fromWindowId");
       if (call.method == kWindowEventNewTerminal) {
         final args = jsonDecode(call.arguments);
         final id = args['id'];
@@ -321,9 +312,6 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
           peerId: id,
           terminalId: terminalId,
           password: args['password'],
-          isSharedPassword: args['isSharedPassword'],
-          forceRelay: args['forceRelay'],
-          connToken: args['connToken'],
         ));
       } else if (call.method == kWindowEventRestoreTerminalSessions) {
         _restoreSessions(call.arguments);
@@ -518,9 +506,6 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
         peerId: peerId,
         terminalId: newTerminalId,
         password: page.password,
-        isSharedPassword: page.isSharedPassword,
-        forceRelay: page.forceRelay,
-        connToken: page.connToken,
       ));
     }
   }

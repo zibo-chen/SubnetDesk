@@ -13,14 +13,10 @@ class FileManagerPage extends StatefulWidget {
   FileManagerPage(
       {Key? key,
       required this.id,
-      this.password,
-      this.isSharedPassword,
-      this.forceRelay})
+      this.password})
       : super(key: key);
   final String id;
   final String? password;
-  final bool? isSharedPassword;
-  final bool? forceRelay;
 
   @override
   State<StatefulWidget> createState() => _FileManagerPageState();
@@ -78,9 +74,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
     super.initState();
     gFFI.start(widget.id,
         isFileTransfer: true,
-        password: widget.password,
-        isSharedPassword: widget.isSharedPassword,
-        forceRelay: widget.forceRelay);
+        password: widget.password);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       gFFI.dialogManager
           .showLoading(translate('Connecting...'), onCancel: closeConnection);

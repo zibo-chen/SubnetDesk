@@ -225,29 +225,15 @@ class RustDeskMultiWindowManager {
     String remoteId,
     List<int> windows, {
     String? password,
-    bool? forceRelay,
-    String? switchUuid,
     bool? isRDP,
-    bool? isSharedPassword,
-    String? connToken,
   }) async {
     var params = {
       "type": type.index,
       "id": remoteId,
       "password": password,
-      "forceRelay": forceRelay
     };
-    if (switchUuid != null) {
-      params['switch_uuid'] = switchUuid;
-    }
     if (isRDP != null) {
       params['isRDP'] = isRDP;
-    }
-    if (isSharedPassword != null) {
-      params['isSharedPassword'] = isSharedPassword;
-    }
-    if (connToken != null) {
-      params['connToken'] = connToken;
     }
     final msg = jsonEncode(params);
 
@@ -270,9 +256,6 @@ class RustDeskMultiWindowManager {
   Future<MultiWindowCallResult> newRemoteDesktop(
     String remoteId, {
     String? password,
-    bool? isSharedPassword,
-    String? switchUuid,
-    bool? forceRelay,
   }) async {
     return await newSession(
       WindowType.RemoteDesktop,
@@ -280,18 +263,12 @@ class RustDeskMultiWindowManager {
       remoteId,
       _remoteDesktopWindows,
       password: password,
-      forceRelay: forceRelay,
-      switchUuid: switchUuid,
-      isSharedPassword: isSharedPassword,
     );
   }
 
   Future<MultiWindowCallResult> newFileTransfer(
     String remoteId, {
     String? password,
-    bool? isSharedPassword,
-    bool? forceRelay,
-    String? connToken,
   }) async {
     return await newSession(
       WindowType.FileTransfer,
@@ -299,19 +276,12 @@ class RustDeskMultiWindowManager {
       remoteId,
       _fileTransferWindows,
       password: password,
-      forceRelay: forceRelay,
-      isSharedPassword: isSharedPassword,
-      connToken: connToken,
     );
   }
 
   Future<MultiWindowCallResult> newViewCamera(
     String remoteId, {
     String? password,
-    bool? isSharedPassword,
-    String? switchUuid,
-    bool? forceRelay,
-    String? connToken,
   }) async {
     return await newSession(
       WindowType.ViewCamera,
@@ -319,10 +289,6 @@ class RustDeskMultiWindowManager {
       remoteId,
       _viewCameraWindows,
       password: password,
-      forceRelay: forceRelay,
-      switchUuid: switchUuid,
-      isSharedPassword: isSharedPassword,
-      connToken: connToken,
     );
   }
 
@@ -330,9 +296,6 @@ class RustDeskMultiWindowManager {
     String remoteId,
     bool isRDP, {
     String? password,
-    bool? isSharedPassword,
-    bool? forceRelay,
-    String? connToken,
   }) async {
     return await newSession(
       WindowType.PortForward,
@@ -340,19 +303,13 @@ class RustDeskMultiWindowManager {
       remoteId,
       _portForwardWindows,
       password: password,
-      forceRelay: forceRelay,
       isRDP: isRDP,
-      isSharedPassword: isSharedPassword,
-      connToken: connToken,
     );
   }
 
   Future<MultiWindowCallResult> newTerminal(
     String remoteId, {
     String? password,
-    bool? isSharedPassword,
-    bool? forceRelay,
-    String? connToken,
   }) async {
     // Iterate through terminal windows in reverse order to prioritize
     // the most recently added or used windows, as they are more likely
@@ -371,9 +328,6 @@ class RustDeskMultiWindowManager {
       "type": WindowType.Terminal.index,
       "id": remoteId,
       "password": password,
-      "forceRelay": forceRelay,
-      "isSharedPassword": isSharedPassword,
-      "connToken": connToken,
     };
     final msg = jsonEncode(params);
 

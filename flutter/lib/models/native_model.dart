@@ -60,7 +60,8 @@ class PlatformFFI {
   }
 
   bool registerEventHandler(
-      String eventName, String handlerName, HandleEvent handler, {bool replace = false}) {
+      String eventName, String handlerName, HandleEvent handler,
+      {bool replace = false}) {
     debugPrint('registerEventHandler $eventName $handlerName');
     var handlers = _eventHandlers[eventName];
     if (handlers == null) {
@@ -209,7 +210,6 @@ class PlatformFFI {
       if (desktopType == DesktopType.cm) {
         await _ffiBind.cmInit();
       }
-      await _ffiBind.mainDeviceId(id: id);
       await _ffiBind.mainDeviceName(name: name);
       await _ffiBind.mainSetHomeDir(home: _homeDir);
       await _ffiBind.mainInit(

@@ -86,7 +86,7 @@ class ConnectionType {
   static String get strSecure => 'secure';
   static String get strInsecure => 'insecure';
   static String get strDirect => '';
-  static String get strIndirect => '_relay';
+  static String get strIndirect => '_invalid';
 
   void setSecure(bool v) {
     _secure.value = v ? strSecure : strInsecure;

@@ -10,50 +10,41 @@ import 'package:get/get.dart';
 import '../common.dart';
 import 'model.dart';
 
-enum PeerTabIndex {
-  recent,
-  fav,
-  lan,
-  ab,
-  group,
-}
+enum PeerTabIndex { recent, fav, lan }
 
 class PeerTabModel with ChangeNotifier {
   WeakReference<FFI> parent;
   int get currentTab => _currentTab;
   int _currentTab = 0; // index in tabNames
-  static const int maxTabCount = 5;
+  static const int maxTabCount = 3;
   static const List<String> tabNames = [
     'Recent sessions',
     'Favorites',
     'Discovered',
-    'Address book',
-    'Accessible devices',
   ];
   static const List<IconData> icons = [
     Icons.access_time_filled,
     Icons.star,
     Icons.explore,
-    IconFont.addressBook,
-    IconFont.deviceGroupFill,
   ];
   List<bool> isEnabled = List.from([
     true,
     true,
     !isWeb && bind.mainGetLocalOption(key: "disable-discovery-panel") != "Y",
-    !(bind.isDisableAb() || bind.isDisableAccount()),
-    !(bind.isDisableGroupPanel() || bind.isDisableAccount()),
   ]);
   final List<bool> _isVisible = List.filled(maxTabCount, true, growable: false);
   List<bool> get isVisibleEnabled => () {
-        final list = _isVisible.toList();
-        for (int i = 0; i < maxTabCount; i++) {
-          list[i] = list[i] && isEnabled[i];
-        }
-        return list;
-      }();
-  final List<int> orders =
-      List.generate(maxTabCount, (index) => index, growable: false);
+    final list = _isVisible.toList();
+    for (int i = 0; i < maxTabCount; i++) {
+      list[i] = list[i] && isEnabled[i];
+    }
+    return list;
+  }();
+  final List<int> orders = List.generate(
+    maxTabCount,
+    (index) => index,
+    growable: false,
+  );
   List<int> get visibleEnabledOrderedIndexs =>
       orders.where((e) => isVisibleEnabled[e]).toList();
   List<Peer> _selectedPeers = List.empty(growable: true);
@@ -227,7 +218,9 @@ class PeerTabModel with ChangeNotifier {
         }
         try {
           bind.setLocalFlutterOption(
-              k: kOptionPeerTabVisible, v: jsonEncode(_isVisible));
+            k: kOptionPeerTabVisible,
+            v: jsonEncode(_isVisible),
+          );
         } catch (_) {}
         notifyListeners();
       }

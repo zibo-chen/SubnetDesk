@@ -11,17 +11,12 @@ import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../common.dart';
-import '../common/formatter/id_formatter.dart';
 import '../desktop/pages/server_page.dart' as desktop;
 import '../desktop/widgets/tabbar_widget.dart';
 import '../mobile/pages/server_page.dart';
 import 'model.dart';
 
 const kLoginDialogTag = "LOGIN";
-
-const kUseTemporaryPassword = "use-temporary-password";
-const kUsePermanentPassword = "use-permanent-password";
-const kUseBothPasswords = "use-both-passwords";
 
 class ServerModel with ChangeNotifier {
   bool _isStart = false; // Android MainService status
@@ -32,17 +27,7 @@ class ServerModel with ChangeNotifier {
   bool _clipboardOk = false;
   bool _showElevation = false;
   bool hideCm = false;
-  int _connectStatus = 0; // Rendezvous Server status
-  String _verificationMethod = "";
-  String _temporaryPasswordLength = "";
-  bool _allowNumericOneTimePassword = false;
-  String _approveMode = "";
   int _zeroClientLengthCounter = 0;
-
-  late String _emptyIdShow;
-  late final IDTextEditingController _serverId;
-  final _serverPasswd =
-      TextEditingController(text: translate("Generating ..."));
 
   final tabController = DesktopTabController(tabType: DesktopTabType.cm);
 
@@ -66,64 +51,6 @@ class ServerModel with ChangeNotifier {
 
   bool get showElevation => _showElevation;
 
-  int get connectStatus => _connectStatus;
-
-  String get verificationMethod {
-    final index = [
-      kUseTemporaryPassword,
-      kUsePermanentPassword,
-      kUseBothPasswords
-    ].indexOf(_verificationMethod);
-    if (index < 0) {
-      return kUseBothPasswords;
-    }
-    return _verificationMethod;
-  }
-
-  String get approveMode => _approveMode;
-
-  setVerificationMethod(String method) async {
-    await bind.mainSetOption(key: kOptionVerificationMethod, value: method);
-    /*
-    if (method != kUsePermanentPassword) {
-      await bind.mainSetOption(
-          key: 'allow-hide-cm', value: bool2option('allow-hide-cm', false));
-    }
-    */
-  }
-
-  String get temporaryPasswordLength {
-    final lengthIndex = ["6", "8", "10"].indexOf(_temporaryPasswordLength);
-    if (lengthIndex < 0) {
-      return "6";
-    }
-    return _temporaryPasswordLength;
-  }
-
-  setTemporaryPasswordLength(String length) async {
-    await bind.mainSetOption(key: "temporary-password-length", value: length);
-  }
-
-  setApproveMode(String mode) async {
-    await bind.mainSetOption(key: kOptionApproveMode, value: mode);
-    /*
-    if (mode != 'password') {
-      await bind.mainSetOption(
-          key: 'allow-hide-cm', value: bool2option('allow-hide-cm', false));
-    }
-    */
-  }
-
-  bool get allowNumericOneTimePassword => _allowNumericOneTimePassword;
-  switchAllowNumericOneTimePassword() async {
-    await mainSetBoolOption(
-        kOptionAllowNumericOneTimePassword, !_allowNumericOneTimePassword);
-  }
-
-  TextEditingController get serverId => _serverId;
-
-  TextEditingController get serverPasswd => _serverPasswd;
-
   List<Client> get clients => _clients;
 
   final controller = ScrollController();
@@ -131,31 +58,7 @@ class ServerModel with ChangeNotifier {
   WeakReference<FFI> parent;
 
   ServerModel(this.parent) {
-    _emptyIdShow = translate("Generating ...");
-    _serverId = IDTextEditingController(text: _emptyIdShow);
-
-    /*
-    // initital _hideCm at startup
-    final verificationMethod =
-        bind.mainGetOptionSync(key: kOptionVerificationMethod);
-    final approveMode = bind.mainGetOptionSync(key: kOptionApproveMode);
-    _hideCm = option2bool(
-        'allow-hide-cm', bind.mainGetOptionSync(key: 'allow-hide-cm'));
-    if (!(approveMode == 'password' &&
-        verificationMethod == kUsePermanentPassword)) {
-      _hideCm = false;
-    }
-    */
-
     timerCallback() async {
-      final connectionStatus =
-          jsonDecode(await bind.mainGetConnectStatus()) as Map<String, dynamic>;
-      final statusNum = connectionStatus['status_num'] as int;
-      if (statusNum != _connectStatus) {
-        _connectStatus = statusNum;
-        notifyListeners();
-      }
-
       if (desktopType == DesktopType.cm) {
         final res = await bind.cmCheckClientsLength(length: _clients.length);
         if (res != null) {
@@ -174,8 +77,6 @@ class ServerModel with ChangeNotifier {
           }
         }
       }
-
-      updatePasswordModel();
     }
 
     if (!isTest) {
@@ -225,76 +126,6 @@ class ServerModel with ChangeNotifier {
     _clipboardOk = clipOption != 'N';
 
     notifyListeners();
-  }
-
-  updatePasswordModel() async {
-    var update = false;
-    final temporaryPassword = await bind.mainGetTemporaryPassword();
-    final verificationMethod =
-        await bind.mainGetOption(key: kOptionVerificationMethod);
-    final temporaryPasswordLength =
-        await bind.mainGetOption(key: "temporary-password-length");
-    final approveMode = await bind.mainGetOption(key: kOptionApproveMode);
-    final numericOneTimePassword =
-        await mainGetBoolOption(kOptionAllowNumericOneTimePassword);
-    /*
-    var hideCm = option2bool(
-        'allow-hide-cm', await bind.mainGetOption(key: 'allow-hide-cm'));
-    if (!(approveMode == 'password' &&
-        verificationMethod == kUsePermanentPassword)) {
-      hideCm = false;
-    }
-    */
-    if (_approveMode != approveMode) {
-      _approveMode = approveMode;
-      update = true;
-    }
-    var stopped = await mainGetBoolOption(kOptionStopService);
-    final oldPwdText = _serverPasswd.text;
-    if (stopped ||
-        verificationMethod == kUsePermanentPassword ||
-        _approveMode == 'click') {
-      _serverPasswd.text = '-';
-    } else {
-      if (_serverPasswd.text != temporaryPassword &&
-          temporaryPassword.isNotEmpty) {
-        _serverPasswd.text = temporaryPassword;
-      }
-    }
-    if (oldPwdText != _serverPasswd.text) {
-      update = true;
-    }
-    if (_verificationMethod != verificationMethod) {
-      _verificationMethod = verificationMethod;
-      update = true;
-    }
-    if (_temporaryPasswordLength != temporaryPasswordLength) {
-      if (_temporaryPasswordLength.isNotEmpty) {
-        bind.mainUpdateTemporaryPassword();
-      }
-      _temporaryPasswordLength = temporaryPasswordLength;
-      update = true;
-    }
-    if (_allowNumericOneTimePassword != numericOneTimePassword) {
-      _allowNumericOneTimePassword = numericOneTimePassword;
-      update = true;
-    }
-    /*
-    if (_hideCm != hideCm) {
-      _hideCm = hideCm;
-      if (desktopType == DesktopType.cm) {
-        if (hideCm) {
-          await hideCmWindow();
-        } else {
-          await showCmWindow();
-        }
-      }
-      update = true;
-    }
-    */
-    if (update) {
-      notifyListeners();
-    }
   }
 
   toggleAudio() async {
@@ -471,14 +302,6 @@ class ServerModel with ChangeNotifier {
     WakelockManager.disable(_wakelockKey);
   }
 
-  fetchID() async {
-    final id = await bind.mainGetMyId();
-    if (id != _serverId.id) {
-      _serverId.id = id;
-      notifyListeners();
-    }
-  }
-
   changeStatue(String name, bool value) {
     debugPrint("changeStatue value $value");
     switch (name) {
@@ -543,28 +366,14 @@ class ServerModel with ChangeNotifier {
   void addConnection(Map<String, dynamic> evt) {
     try {
       final client = Client.fromJson(jsonDecode(evt["client"]));
-      if (client.authorized) {
-        parent.target?.dialogManager.dismissByTag(getLoginDialogTag(client.id));
-        final index = _clients.indexWhere((c) => c.id == client.id);
-        if (index < 0) {
-          _clients.add(client);
-        } else {
-          if (_clients[index].authorized) {
-            _clients[index].privacyMode = client.privacyMode;
-            notifyListeners();
-            return;
-          }
-          _clients[index].authorized = true;
-          _clients[index].privacyMode = client.privacyMode;
-        }
-      } else {
-        final index = _clients.indexWhere((c) => c.id == client.id);
-        if (index >= 0) {
-          _clients[index].privacyMode = client.privacyMode;
-          notifyListeners();
-          return;
-        }
+      parent.target?.dialogManager.dismissByTag(getLoginDialogTag(client.id));
+      final index = _clients.indexWhere((c) => c.id == client.id);
+      if (index < 0) {
         _clients.add(client);
+      } else {
+        _clients[index].privacyMode = client.privacyMode;
+        notifyListeners();
+        return;
       }
       _addTab(client);
       // remove disconnected
@@ -579,7 +388,6 @@ class ServerModel with ChangeNotifier {
       }
       scrollToBottom();
       notifyListeners();
-      if (isAndroid && !client.authorized) showLoginDialog(client);
       if (isAndroid) androidUpdatekeepScreenOn();
     } catch (e) {
       debugPrint("Failed to call loginRequest,error:$e");
@@ -597,7 +405,7 @@ class ServerModel with ChangeNotifier {
       if (!hideCm) windowOnTop(null);
     });
     // Only do the hidden task when on Desktop.
-    if (client.authorized && isDesktop) {
+    if (isDesktop) {
       cmHiddenTimer = Timer(const Duration(seconds: 3), () {
         if (!hideCm) windowManager.minimize();
         cmHiddenTimer = null;
@@ -605,23 +413,6 @@ class ServerModel with ChangeNotifier {
     }
     parent.target?.chatModel
         .updateConnIdOfKey(MessageKey(client.peerId, client.id));
-  }
-
-  void showLoginDialog(Client client) {
-    showClientDialog(
-      client,
-      client.isFileTransfer
-          ? "Transfer file"
-          : client.isViewCamera
-              ? "View camera"
-              : client.isTerminal
-                  ? "Terminal"
-                  : "Share screen",
-      'Do you accept?',
-      'android_new_connection_tip',
-      () => sendLoginResponse(client, false),
-      () => sendLoginResponse(client, true),
-    );
   }
 
   handleVoiceCall(Client client, bool accept) {
@@ -674,8 +465,7 @@ class ServerModel with ChangeNotifier {
         ),
         actions: [
           dialogButton("Dismiss", onPressed: cancel, isOutline: true),
-          if (approveMode != 'password')
-            dialogButton("Accept", onPressed: submit),
+          dialogButton("Accept", onPressed: submit),
         ],
         onSubmit: submit,
         onCancel: cancel,
@@ -690,25 +480,6 @@ class ServerModel with ChangeNotifier {
           duration: Duration(milliseconds: 200),
           curve: Curves.fastLinearToSlowEaseIn);
     });
-  }
-
-  void sendLoginResponse(Client client, bool res) async {
-    if (res) {
-      bind.cmLoginRes(connId: client.id, res: res);
-      if (!client.isFileTransfer && !client.isTerminal) {
-        parent.target?.invokeMethod("start_capture");
-      }
-      parent.target?.invokeMethod("cancel_notification", client.id);
-      client.authorized = true;
-      notifyListeners();
-    } else {
-      bind.cmLoginRes(connId: client.id, res: res);
-      parent.target?.invokeMethod("cancel_notification", client.id);
-      final index = _clients.indexOf(client);
-      tabController.remove(index);
-      _clients.remove(client);
-      if (isAndroid) androidUpdatekeepScreenOn();
-    }
   }
 
   void onClientRemove(Map<String, dynamic> evt) {

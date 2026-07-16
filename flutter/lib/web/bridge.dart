@@ -82,23 +82,9 @@ class RustdeskImpl {
       required bool isPortForward,
       required bool isRdp,
       required bool isTerminal,
-      required String switchUuid,
-      required bool forceRelay,
       required String password,
-      required bool isSharedPassword,
-      String? connToken,
       dynamic hint}) {
-    return js.context.callMethod('setByName', [
-      'session_add_sync',
-      jsonEncode({
-        'id': id,
-        'password': password,
-        'is_shared_password': isSharedPassword,
-        'isFileTransfer': isFileTransfer,
-        'isViewCamera': isViewCamera,
-        'isTerminal': isTerminal
-      })
-    ]);
+    return 'Web is not a LAN-only release target';
   }
 
   Stream<EventToUI> sessionStart(
@@ -189,7 +175,7 @@ class RustdeskImpl {
   }
 
   Future<void> sessionReconnect(
-      {required UuidValue sessionId, required bool forceRelay, dynamic hint}) {
+      {required UuidValue sessionId, dynamic hint}) {
     return Future(() => js.context.callMethod('setByName', ['reconnect']));
   }
 
@@ -1086,14 +1072,6 @@ class RustdeskImpl {
     return js.context.callMethod('getByName', ['option:user:default', key]);
   }
 
-  Future<String> mainHandleRelayId({required String id, dynamic hint}) {
-    var newId = id;
-    if (id.endsWith("\\r") || id.endsWith("/r")) {
-      newId = id.substring(0, id.length - 2);
-    }
-    return Future.value(newId);
-  }
-
   String mainGetMainDisplay({dynamic hint}) {
     return js.context.callMethod('getByName', ['main_display']);
   }
@@ -1608,8 +1586,9 @@ class RustdeskImpl {
   }
 
   bool isCustomClient({dynamic hint}) {
-    // is_custom_client() checks if app name is not "RustDesk"
-    return mainGetAppNameSync(hint: hint) != "RustDesk";
+    // The upstream and SubnetDesk defaults are products, not generated custom clients.
+    final appName = mainGetAppNameSync(hint: hint);
+    return appName != "RustDesk" && appName != "SubnetDesk";
   }
 
   bool isDisableSettings({dynamic hint}) {
@@ -1877,10 +1856,6 @@ class RustdeskImpl {
   Future<void> sessionSelectFiles(
       {required UuidValue sessionId, dynamic hint}) {
     return Future(() => js.context.callMethod('setByName', ['select_files']));
-  }
-
-  String? sessionGetConnToken({required UuidValue sessionId, dynamic hint}) {
-    throw UnimplementedError("sessionGetConnToken");
   }
 
   String mainGetPrinterNames({dynamic hint}) {

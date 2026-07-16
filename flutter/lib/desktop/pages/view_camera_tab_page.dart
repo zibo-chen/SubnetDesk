@@ -99,9 +99,6 @@ class _ViewCameraTabPageState extends State<ViewCameraTabPage> {
           password: params['password'],
           toolbarState: ToolbarState(),
           tabController: tabController,
-          connToken: params['connToken'],
-          forceRelay: params['forceRelay'],
-          isSharedPassword: params['isSharedPassword'],
         ),
       ));
       _update_remote_count();
@@ -386,7 +383,7 @@ class _ViewCameraTabPageState extends State<ViewCameraTabPage> {
 
   Future<dynamic> _remoteMethodHandler(call, fromWindowId) async {
     debugPrint(
-        "[View Camera Page] call ${call.method} with args ${call.arguments} from window $fromWindowId");
+        "[View Camera Page] call ${call.method} from window $fromWindowId");
 
     dynamic returnValue;
     // for simplify, just replace connectionId
@@ -435,9 +432,6 @@ class _ViewCameraTabPageState extends State<ViewCameraTabPage> {
           password: args['password'],
           toolbarState: ToolbarState(),
           tabController: tabController,
-          connToken: args['connToken'],
-          forceRelay: args['forceRelay'],
-          isSharedPassword: args['isSharedPassword'],
         ),
       ));
     } else if (call.method == kWindowDisableGrabKeyboard) {

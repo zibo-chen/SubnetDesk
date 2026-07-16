@@ -17,15 +17,9 @@ class TerminalPage extends StatefulWidget {
     Key? key,
     required this.id,
     required this.password,
-    required this.isSharedPassword,
-    this.forceRelay,
-    this.connToken,
   }) : super(key: key);
   final String id;
   final String? password;
-  final bool? forceRelay;
-  final bool? isSharedPassword;
-  final String? connToken;
   final terminalId = 0;
 
   @override
@@ -66,9 +60,6 @@ class _TerminalPageState extends State<TerminalPage>
     _ffi = TerminalConnectionManager.getConnection(
       peerId: widget.id,
       password: widget.password,
-      isSharedPassword: widget.isSharedPassword,
-      forceRelay: widget.forceRelay,
-      connToken: widget.connToken,
     );
 
     // Create terminal model with specific terminal ID

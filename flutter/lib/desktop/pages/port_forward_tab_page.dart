@@ -44,11 +44,8 @@ class _PortForwardTabPageState extends State<PortForwardTabPage> {
           key: ValueKey(params['id']),
           id: params['id'],
           password: params['password'],
-          isSharedPassword: params['isSharedPassword'],
           tabController: tabController,
           isRDP: isRDP,
-          forceRelay: params['forceRelay'],
-          connToken: params['connToken'],
         )));
   }
 
@@ -58,7 +55,7 @@ class _PortForwardTabPageState extends State<PortForwardTabPage> {
 
     rustDeskWinManager.setMethodHandler((call, fromWindowId) async {
       debugPrint(
-          "[Port Forward] call ${call.method} with args ${call.arguments} from window $fromWindowId");
+          "[Port Forward] call ${call.method} from window $fromWindowId");
       // for simplify, just replace connectionId
       if (call.method == kWindowEventNewPortForward) {
         final args = jsonDecode(call.arguments);
@@ -79,11 +76,8 @@ class _PortForwardTabPageState extends State<PortForwardTabPage> {
               key: ValueKey(args['id']),
               id: id,
               password: args['password'],
-              isSharedPassword: args['isSharedPassword'],
               isRDP: isRDP,
               tabController: tabController,
-              forceRelay: args['forceRelay'],
-              connToken: args['connToken'],
             )));
       } else if (call.method == "onDestroy") {
         tabController.clear();

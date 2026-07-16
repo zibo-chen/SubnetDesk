@@ -8,7 +8,6 @@ import 'dart:html';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_hbb/common/widgets/login.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 
 import 'package:flutter_hbb/web/bridge.dart';
@@ -118,9 +117,6 @@ class PlatformFFI {
     context['dialog'] = (type, title, text) {
       final uuid = Uuid();
       msgBox(SessionID(uuid.v4()), type, title, text, '', gFFI.dialogManager);
-    };
-    context['loginDialog'] = () {
-      loginDialog();
     };
     context['closeConnection'] = () {
       gFFI.dialogManager.dismissAll();

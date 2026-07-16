@@ -31,17 +31,11 @@ class PortForwardPage extends StatefulWidget {
     required this.password,
     required this.tabController,
     required this.isRDP,
-    required this.isSharedPassword,
-    this.forceRelay,
-    this.connToken,
   }) : super(key: key);
   final String id;
   final String? password;
   final DesktopTabController tabController;
   final bool isRDP;
-  final bool? forceRelay;
-  final bool? isSharedPassword;
-  final String? connToken;
   final SimpleWrapper<State<PortForwardPage>?> _lastState = SimpleWrapper(null);
 
   FFI get ffi => (_lastState.value! as _PortForwardPageState)._ffi;
@@ -69,9 +63,6 @@ class _PortForwardPageState extends State<PortForwardPage>
     _ffi.start(widget.id,
         isPortForward: true,
         password: widget.password,
-        isSharedPassword: widget.isSharedPassword,
-        forceRelay: widget.forceRelay,
-        connToken: widget.connToken,
         isRdp: widget.isRDP);
     Get.put<FFI>(_ffi, tag: 'pf_${widget.id}');
     debugPrint("Port forward page init success with id ${widget.id}");

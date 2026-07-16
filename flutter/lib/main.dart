@@ -27,7 +27,6 @@ import 'common.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
-import 'mobile/widgets/deploy_dialog.dart';
 import 'models/platform_model.dart';
 
 import 'package:flutter_hbb/plugin/handlers.dart'
@@ -42,7 +41,14 @@ Future<void> main(List<String> args) async {
   earlyAssert();
   WidgetsFlutterBinding.ensureInitialized();
 
-  debugPrint("launch args: $args");
+  if (isWeb) {
+    runApp(const MaterialApp(home: _LanOnlyWebUnavailablePage()));
+    return;
+  }
+
+  // Launch arguments can contain LAN credentials for a newly-created session.
+  // Never log their contents, including in debug builds.
+  debugPrint("launch args count: ${args.length}");
   kBootArgs = List.from(args);
 
   if (!isDesktop) {
@@ -67,38 +73,23 @@ Future<void> main(List<String> args) async {
     switch (kWindowType) {
       case WindowType.RemoteDesktop:
         desktopType = DesktopType.remote;
-        runMultiWindow(
-          argument,
-          kAppTypeDesktopRemote,
-        );
+        runMultiWindow(argument, kAppTypeDesktopRemote);
         break;
       case WindowType.FileTransfer:
         desktopType = DesktopType.fileTransfer;
-        runMultiWindow(
-          argument,
-          kAppTypeDesktopFileTransfer,
-        );
+        runMultiWindow(argument, kAppTypeDesktopFileTransfer);
         break;
       case WindowType.ViewCamera:
         desktopType = DesktopType.viewCamera;
-        runMultiWindow(
-          argument,
-          kAppTypeDesktopViewCamera,
-        );
+        runMultiWindow(argument, kAppTypeDesktopViewCamera);
         break;
       case WindowType.PortForward:
         desktopType = DesktopType.portForward;
-        runMultiWindow(
-          argument,
-          kAppTypeDesktopPortForward,
-        );
+        runMultiWindow(argument, kAppTypeDesktopPortForward);
         break;
       case WindowType.Terminal:
         desktopType = DesktopType.terminal;
-        runMultiWindow(
-          argument,
-          kAppTypeDesktopTerminal,
-        );
+        runMultiWindow(argument, kAppTypeDesktopTerminal);
       default:
         break;
     }
@@ -120,6 +111,25 @@ Future<void> main(List<String> args) async {
   }
 }
 
+class _LanOnlyWebUnavailablePage extends StatelessWidget {
+  const _LanOnlyWebUnavailablePage();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'The LAN-only release supports native desktop and mobile clients only.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 Future<void> initEnv(String appType) async {
   // global shared preference
   await platformFFI.init(appType);
@@ -136,7 +146,6 @@ Future<void> initEnv(String appType) async {
 void runMainApp(bool startService) async {
   // register uni links
   await initEnv(kAppTypeMain);
-  checkUpdate();
   // trigger connection status updater
   await bind.mainCheckConnectStatus();
   if (startService) {
@@ -144,8 +153,6 @@ void runMainApp(bool startService) async {
     bind.pluginSyncUi(syncTo: kAppTypeMain);
     bind.pluginListReload();
   }
-  await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
-  gFFI.userModel.refreshCurrentUser();
   runApp(App());
 
   bool? alwaysOnTop;
@@ -156,7 +163,9 @@ void runMainApp(bool startService) async {
 
   // Set window option.
   WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
-      isMainWindow: true, alwaysOnTop: alwaysOnTop);
+    isMainWindow: true,
+    alwaysOnTop: alwaysOnTop,
+  );
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     // Restore the location of the main window before window hide or show.
     await restoreWindowPosition(WindowType.Main);
@@ -180,20 +189,14 @@ void runMainApp(bool startService) async {
 
 void runMobileApp() async {
   await initEnv(kAppTypeMain);
-  checkUpdate();
   if (isAndroid) androidChannelInit();
   if (isAndroid) platformFFI.syncAndroidServiceAppDirConfigPath();
   draggablePositions.load();
-  await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
-  gFFI.userModel.refreshCurrentUser();
   runApp(App());
   await initUniLinks();
 }
 
-void runMultiWindow(
-  Map<String, dynamic> argument,
-  String appType,
-) async {
+void runMultiWindow(Map<String, dynamic> argument, String appType) async {
   await initEnv(appType);
   final title = getWindowName();
   // set prevent close to true, we handle close event manually
@@ -205,40 +208,26 @@ void runMultiWindow(
   switch (appType) {
     case kAppTypeDesktopRemote:
       draggablePositions.load();
-      widget = DesktopRemoteScreen(
-        params: argument,
-      );
+      widget = DesktopRemoteScreen(params: argument);
       break;
     case kAppTypeDesktopFileTransfer:
-      widget = DesktopFileTransferScreen(
-        params: argument,
-      );
+      widget = DesktopFileTransferScreen(params: argument);
       break;
     case kAppTypeDesktopViewCamera:
       draggablePositions.load();
-      widget = DesktopViewCameraScreen(
-        params: argument,
-      );
+      widget = DesktopViewCameraScreen(params: argument);
       break;
     case kAppTypeDesktopPortForward:
-      widget = DesktopPortForwardScreen(
-        params: argument,
-      );
+      widget = DesktopPortForwardScreen(params: argument);
       break;
     case kAppTypeDesktopTerminal:
-      widget = DesktopTerminalScreen(
-        params: argument,
-      );
+      widget = DesktopTerminalScreen(params: argument);
       break;
     default:
       // no such appType
       exit(0);
   }
-  _runApp(
-    title,
-    widget,
-    MyTheme.currentThemeMode(),
-  );
+  _runApp(title, widget, MyTheme.currentThemeMode());
   // we do not hide titlebar on win7 because of the frame overflow.
   if (kUseCompatibleUiMode) {
     WindowController.fromWindowId(kWindowId!).showTitleBar(true);
@@ -257,8 +246,10 @@ void runMultiWindow(
       }
       break;
     case kAppTypeDesktopFileTransfer:
-      await restoreWindowPosition(WindowType.FileTransfer,
-          windowId: kWindowId!);
+      await restoreWindowPosition(
+        WindowType.FileTransfer,
+        windowId: kWindowId!,
+      );
       break;
     case kAppTypeDesktopViewCamera:
       // If screen rect is set, the window will be moved to the target screen and then set fullscreen.
@@ -289,11 +280,7 @@ void runMultiWindow(
 
 void runConnectionManagerScreen() async {
   await initEnv(kAppTypeConnectionManager);
-  _runApp(
-    '',
-    const DesktopServerPage(),
-    MyTheme.currentThemeMode(),
-  );
+  _runApp('', const DesktopServerPage(), MyTheme.currentThemeMode());
   final hide = await bind.cmGetConfig(name: "hide_cm") == 'true';
   gFFI.serverModel.hideCm = hide;
   if (hide) {
@@ -311,17 +298,21 @@ bool _isCmReadyToShow = false;
 showCmWindow({bool isStartup = false}) async {
   if (isStartup) {
     WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
-        size: kConnectionManagerWindowSizeClosedChat, alwaysOnTop: true);
+      size: kConnectionManagerWindowSizeClosedChat,
+      alwaysOnTop: true,
+    );
     await windowManager.waitUntilReadyToShow(windowOptions, null);
     bind.mainHideDock();
     await Future.wait([
       windowManager.show(),
       windowManager.focus(),
-      windowManager.setOpacity(1)
+      windowManager.setOpacity(1),
     ]);
     // ensure initial window size to be changed
     await windowManager.setSizeAlignment(
-        kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
+      kConnectionManagerWindowSizeClosedChat,
+      Alignment.topRight,
+    );
     _isCmReadyToShow = true;
   } else if (_isCmReadyToShow) {
     if (await windowManager.getOpacity() != 1) {
@@ -329,7 +320,9 @@ showCmWindow({bool isStartup = false}) async {
       await windowManager.focus();
       await windowManager.minimize(); //needed
       await windowManager.setSizeAlignment(
-          kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
+        kConnectionManagerWindowSizeClosedChat,
+        Alignment.topRight,
+      );
       windowOnTop(null);
     }
   }
@@ -338,7 +331,8 @@ showCmWindow({bool isStartup = false}) async {
 hideCmWindow({bool isStartup = false}) async {
   if (isStartup) {
     WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
-        size: kConnectionManagerWindowSizeClosedChat);
+      size: kConnectionManagerWindowSizeClosedChat,
+    );
     windowManager.setOpacity(0);
     await windowManager.waitUntilReadyToShow(windowOptions, null);
     bind.mainHideDock();
@@ -355,46 +349,46 @@ hideCmWindow({bool isStartup = false}) async {
   }
 }
 
-void _runApp(
-  String title,
-  Widget home,
-  ThemeMode themeMode,
-) {
+void _runApp(String title, Widget home, ThemeMode themeMode) {
   final botToastBuilder = BotToastInit();
-  runApp(RefreshWrapper(
-    builder: (context) => GetMaterialApp(
-      navigatorKey: globalKey,
-      debugShowCheckedModeBanner: false,
-      title: title,
-      theme: MyTheme.lightTheme,
-      darkTheme: MyTheme.darkTheme,
-      themeMode: themeMode,
-      home: home,
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: supportedLocales,
-      navigatorObservers: [
-        // FirebaseAnalyticsObserver(analytics: analytics),
-        BotToastNavigatorObserver(),
-      ],
-      builder: (context, child) {
-        child = _keepScaleBuilder(context, child);
-        child = botToastBuilder(context, child);
-        return child;
-      },
+  runApp(
+    RefreshWrapper(
+      builder: (context) => GetMaterialApp(
+        navigatorKey: globalKey,
+        debugShowCheckedModeBanner: false,
+        title: title,
+        theme: MyTheme.lightTheme,
+        darkTheme: MyTheme.darkTheme,
+        themeMode: themeMode,
+        home: home,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: supportedLocales,
+        navigatorObservers: [
+          // FirebaseAnalyticsObserver(analytics: analytics),
+          BotToastNavigatorObserver(),
+        ],
+        builder: (context, child) {
+          child = _keepScaleBuilder(context, child);
+          child = botToastBuilder(context, child);
+          return child;
+        },
+      ),
     ),
-  ));
+  );
 }
 
 void runInstallPage() async {
   await windowManager.ensureInitialized();
   await initEnv(kAppTypeMain);
   _runApp('', const InstallPage(), MyTheme.currentThemeMode());
-  WindowOptions windowOptions =
-      getHiddenTitleBarWindowOptions(size: Size(800, 600), center: true);
+  WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
+    size: Size(800, 600),
+    center: true,
+  );
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     windowManager.show();
     windowManager.focus();
@@ -403,11 +397,12 @@ void runInstallPage() async {
   });
 }
 
-WindowOptions getHiddenTitleBarWindowOptions(
-    {bool isMainWindow = false,
-    Size? size,
-    bool center = false,
-    bool? alwaysOnTop}) {
+WindowOptions getHiddenTitleBarWindowOptions({
+  bool isMainWindow = false,
+  Size? size,
+  bool center = false,
+  bool? alwaysOnTop,
+}) {
   var defaultTitleBarStyle = TitleBarStyle.hidden;
   // we do not hide titlebar on win7 because of the frame overflow.
   if (kUseCompatibleUiMode) {
@@ -438,7 +433,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
       WidgetsBinding.instance.handlePlatformBrightnessChanged();
       final systemIsDark =
           WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-              Brightness.dark;
+          Brightness.dark;
       final ThemeMode to;
       if (systemIsDark) {
         to = ThemeMode.dark;
@@ -486,74 +481,74 @@ class _AppState extends State<App> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     // final analytics = FirebaseAnalytics.instance;
     final botToastBuilder = BotToastInit();
-    return RefreshWrapper(builder: (context) {
-      return MultiProvider(
-        providers: [
-          // global configuration
-          // use session related FFI when in remote control or file transfer page
-          ChangeNotifierProvider.value(value: gFFI.ffiModel),
-          ChangeNotifierProvider.value(value: gFFI.imageModel),
-          ChangeNotifierProvider.value(value: gFFI.cursorModel),
-          ChangeNotifierProvider.value(value: gFFI.canvasModel),
-          ChangeNotifierProvider.value(value: gFFI.peerTabModel),
-        ],
-        child: GetMaterialApp(
-          navigatorKey: globalKey,
-          debugShowCheckedModeBanner: false,
-          title: isWeb
-              ? '${bind.mainGetAppNameSync()} Web Client V2 (Preview)'
-              : bind.mainGetAppNameSync(),
-          theme: MyTheme.lightTheme,
-          darkTheme: MyTheme.darkTheme,
-          themeMode: MyTheme.currentThemeMode(),
-          home: isDesktop
-              ? const DesktopTabPage()
-              : isWeb
-                  ? WebHomePage()
-                  : HomePage(),
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
+    return RefreshWrapper(
+      builder: (context) {
+        return MultiProvider(
+          providers: [
+            // global configuration
+            // use session related FFI when in remote control or file transfer page
+            ChangeNotifierProvider.value(value: gFFI.ffiModel),
+            ChangeNotifierProvider.value(value: gFFI.imageModel),
+            ChangeNotifierProvider.value(value: gFFI.cursorModel),
+            ChangeNotifierProvider.value(value: gFFI.canvasModel),
+            ChangeNotifierProvider.value(value: gFFI.peerTabModel),
           ],
-          supportedLocales: supportedLocales,
-          navigatorObservers: [
-            // FirebaseAnalyticsObserver(analytics: analytics),
-            BotToastNavigatorObserver(),
-          ],
-          builder: isAndroid
-              ? (context, child) => AccessibilityListener(
+          child: GetMaterialApp(
+            navigatorKey: globalKey,
+            debugShowCheckedModeBanner: false,
+            title: isWeb
+                ? '${bind.mainGetAppNameSync()} Web Client V2 (Preview)'
+                : bind.mainGetAppNameSync(),
+            theme: MyTheme.lightTheme,
+            darkTheme: MyTheme.darkTheme,
+            themeMode: MyTheme.currentThemeMode(),
+            home: isDesktop
+                ? const DesktopTabPage()
+                : isWeb
+                ? WebHomePage()
+                : HomePage(),
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            supportedLocales: supportedLocales,
+            navigatorObservers: [
+              // FirebaseAnalyticsObserver(analytics: analytics),
+              BotToastNavigatorObserver(),
+            ],
+            builder: isAndroid
+                ? (context, child) => AccessibilityListener(
                     child: MediaQuery(
-                      data: MediaQuery.of(context).copyWith(
-                        textScaler: TextScaler.linear(1.0),
-                      ),
+                      data: MediaQuery.of(
+                        context,
+                      ).copyWith(textScaler: TextScaler.linear(1.0)),
                       child: child ?? Container(),
                     ),
                   )
-              : (context, child) {
-                  child = _keepScaleBuilder(context, child);
-                  child = botToastBuilder(context, child);
-                  if ((isDesktop && desktopType == DesktopType.main) ||
-                      isWebDesktop) {
-                    child = keyListenerBuilder(context, child);
-                  }
-                  if (isLinux) {
-                    return buildVirtualWindowFrame(context, child);
-                  } else {
-                    return workaroundWindowBorder(context, child);
-                  }
-                },
-        ),
-      );
-    });
+                : (context, child) {
+                    child = _keepScaleBuilder(context, child);
+                    child = botToastBuilder(context, child);
+                    if ((isDesktop && desktopType == DesktopType.main) ||
+                        isWebDesktop) {
+                      child = keyListenerBuilder(context, child);
+                    }
+                    if (isLinux) {
+                      return buildVirtualWindowFrame(context, child);
+                    } else {
+                      return workaroundWindowBorder(context, child);
+                    }
+                  },
+          ),
+        );
+      },
+    );
   }
 }
 
 Widget _keepScaleBuilder(BuildContext context, Widget? child) {
   return MediaQuery(
-    data: MediaQuery.of(context).copyWith(
-      textScaler: TextScaler.linear(1.0),
-    ),
+    data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(1.0)),
     child: child ?? Container(),
   );
 }
@@ -574,14 +569,6 @@ _registerEventHandler() {
   if (isDesktop) {
     platformFFI.registerEventHandler('native_ui', 'native_ui', (evt) async {
       NativeUiHandler.instance.onEvent(evt);
-    });
-  }
-  if (isAndroid) {
-    platformFFI.registerEventHandler(
-        'android_needs_deploy', 'android_needs_deploy', (_) async {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        showDeployPromptDialog();
-      });
     });
   }
 }

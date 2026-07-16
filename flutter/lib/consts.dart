@@ -91,21 +91,18 @@ const String kOptionTextureRender = "use-texture-render";
 const String kOptionD3DRender = "allow-d3d-render";
 const String kOptionOpenInTabs = "allow-open-in-tabs";
 const String kOptionOpenInWindows = "allow-open-in-windows";
-const String kOptionForceAlwaysRelay = "force-always-relay";
 const String kOptionViewOnly = "view_only";
-const String kOptionEnableLanDiscovery = "enable-lan-discovery";
+const String kOptionEnableLanDiscovery = "lan-discovery-enabled";
 const String kOptionWhitelist = "whitelist";
 const String kOptionEnableAbr = "enable-abr";
 const String kOptionEnableRecordSession = "enable-record-session";
 const String kOptionDirectServer = "direct-server";
-const String kOptionDirectAccessPort = "direct-access-port";
 const String kOptionAllowAutoDisconnect = "allow-auto-disconnect";
 const String kOptionAutoDisconnectTimeout = "auto-disconnect-timeout";
 const String kOptionEnableHwcodec = "enable-hwcodec";
 const String kOptionAllowAutoRecordIncoming = "allow-auto-record-incoming";
 const String kOptionAllowAutoRecordOutgoing = "allow-auto-record-outgoing";
 const String kOptionVideoSaveDirectory = "video-save-directory";
-const String kOptionAccessMode = "access-mode";
 const String kOptionEnableKeyboard = "enable-keyboard";
 // "Settings -> Security -> Permissions"
 const String kOptionEnableRemotePrinter = "enable-remote-printer";
@@ -119,14 +116,6 @@ const String kOptionEnableTunnel = "enable-tunnel";
 const String kOptionEnableRemoteRestart = "enable-remote-restart";
 const String kOptionEnableBlockInput = "enable-block-input";
 const String kOptionEnablePrivacyMode = "enable-privacy-mode";
-const String kOptionEnablePermChangeInAcceptWindow =
-    "enable-perm-change-in-accept-window";
-const String kOptionAllowRemoteConfigModification =
-    "allow-remote-config-modification";
-const String kOptionVerificationMethod = "verification-method";
-const String kOptionApproveMode = "approve-mode";
-const String kOptionAllowNumericOneTimePassword =
-    "allow-numeric-one-time-password";
 const String kOptionCollapseToolbar = "collapse_toolbar";
 const String kOptionHideToolbar = "hide-toolbar";
 const String kOptionShowRemoteCursor = "show_remote_cursor";
@@ -148,8 +137,7 @@ const String kOptionRemoteMenubarDragLeft = "remote-menubar-drag-left";
 const String kOptionRemoteMenubarDragRight = "remote-menubar-drag-right";
 const String kOptionRemoteMenubarEdge = "remote-menubar-edge";
 const String kOptionRemoteMenubarFraction = "remote-menubar-frac";
-const String kOptionAllowMultiEdgeToolbarDock =
-    "allow-multi-edge-toolbar-dock";
+const String kOptionAllowMultiEdgeToolbarDock = "allow-multi-edge-toolbar-dock";
 const String kOptionHideAbTagsPanel = "hideAbTagsPanel";
 const String kOptionRemoteMenubarState = "remoteMenubarState";
 const String kOptionPeerSorting = "peer-sorting";
@@ -160,49 +148,30 @@ const String kOptionPeerCardUiType = "peer-card-ui-type";
 const String kOptionCurrentAbName = "current-ab-name";
 const String kOptionEnableConfirmClosingTabs = "enable-confirm-closing-tabs";
 const String kOptionAllowAlwaysSoftwareRender = "allow-always-software-render";
-const String kOptionEnableCheckUpdate = "enable-check-update";
-const String kOptionAllowAutoUpdate = "allow-auto-update";
 const String kOptionAllowLinuxHeadless = "allow-linux-headless";
 const String kOptionAllowRemoveWallpaper = "allow-remove-wallpaper";
 const String kOptionStopService = "stop-service";
 const String kOptionDirectxCapture = "enable-directx-capture";
 const String kOptionAllowRemoteCmModification = "allow-remote-cm-modification";
-const String kOptionEnableUdpPunch = "enable-udp-punch";
-const String kOptionEnableIpv6Punch = "enable-ipv6-punch";
-const String kOptionEnableTrustedDevices = "enable-trusted-devices";
 const String kOptionShowVirtualMouse = "show-virtual-mouse";
 const String kOptionVirtualMouseScale = "virtual-mouse-scale";
 const String kOptionShowVirtualJoystick = "show-virtual-joystick";
 const String kOptionAllowAskForNoteAtEndOfConnection = "allow-ask-for-note";
-const String kOptionAllowMonitorSwitchMainToolbar = "allow-monitor-switch-main-toolbar";
-const String kOptionAllowMonitorSwitchMinToolbar = "allow-monitor-switch-min-toolbar";
-const String kOptionEnableShowTerminalExtraKeys = "enable-show-terminal-extra-keys";
-
-// network options
-const String kOptionAllowWebSocket = "allow-websocket";
-const String kOptionAllowInsecureTLSFallback = "allow-insecure-tls-fallback";
-const String kOptionDisableUdp = "disable-udp";
-const String kOptionEnableFlutterHttpOnRust = "enable-flutter-http-on-rust";
+const String kOptionAllowMonitorSwitchMainToolbar =
+    "allow-monitor-switch-main-toolbar";
+const String kOptionAllowMonitorSwitchMinToolbar =
+    "allow-monitor-switch-min-toolbar";
+const String kOptionEnableShowTerminalExtraKeys =
+    "enable-show-terminal-extra-keys";
 
 // builtin options
-const String kOptionHideServerSetting = "hide-server-settings";
-const String kOptionHideProxySetting = "hide-proxy-settings";
-const String kOptionHideWebSocketSetting = "hide-websocket-settings";
 const String kOptionHideStopService = "hide-stop-service";
 const String kOptionHideRemotePrinterSetting = "hide-remote-printer-settings";
 const String kOptionHideSecuritySetting = "hide-security-settings";
 const String kOptionHideNetworkSetting = "hide-network-settings";
-const String kOptionRemovePresetPasswordWarning =
-    "remove-preset-password-warning";
-const String kOptionDisableChangePermanentPassword =
-    "disable-change-permanent-password";
-const String kOptionDisableChangeId = "disable-change-id";
 const String kOptionDisableUnlockPin = "disable-unlock-pin";
 const kHideUsernameOnCard = "hide-username-on-card";
 const String kOptionHideHelpCards = "hide-help-cards";
-const String kOptionAllowDeepLinkPassword = "allow-deep-link-password";
-const String kOptionAllowDeepLinkServerSettings =
-    "allow-deep-link-server-settings";
 
 const String kOptionToggleViewOnly = "view-only";
 const String kOptionToggleShowMyCursor = "show-my-cursor";
@@ -211,8 +180,10 @@ const String kOptionDisableFloatingWindow = "disable-floating-window";
 
 const String kOptionKeepScreenOn = "keep-screen-on";
 
-const String kOptionKeepAwakeDuringIncomingSessions = "keep-awake-during-incoming-sessions";
-const String kOptionKeepAwakeDuringOutgoingSessions = "keep-awake-during-outgoing-sessions";
+const String kOptionKeepAwakeDuringIncomingSessions =
+    "keep-awake-during-incoming-sessions";
+const String kOptionKeepAwakeDuringOutgoingSessions =
+    "keep-awake-during-outgoing-sessions";
 
 const String kOptionShowMobileAction = "showMobileActions";
 
@@ -317,15 +288,15 @@ const String kKeyPrinterAllowAutoPrint = 'allow-printer-auto-print';
 double kNewWindowOffset = isWindows
     ? 56.0
     : isLinux
-        ? 50.0
-        : isMacOS
-            ? 30.0
-            : 50.0;
+    ? 50.0
+    : isMacOS
+    ? 30.0
+    : 50.0;
 
 EdgeInsets get kDragToResizeAreaPadding => !kUseCompatibleUiMode && isLinux
     ? stateGlobal.fullscreen.isTrue || stateGlobal.isMaximized.value
-        ? EdgeInsets.zero
-        : EdgeInsets.all(5.0)
+          ? EdgeInsets.zero
+          : EdgeInsets.all(5.0)
     : EdgeInsets.zero;
 // https://en.wikipedia.org/wiki/Non-breaking_space
 const int $nbsp = 0x00A0;
@@ -690,12 +661,10 @@ enum WindowsTarget {
   w8,
   w8_1,
   w10,
-  w11
+  w11,
 }
 
 /// A convenient method to transform a build number to the corresponding windows version.
 extension WindowsTargetExt on int {
   WindowsTarget get windowsVersion => getWindowsTarget(this);
 }
-
-const kCheckSoftwareUpdateFinish = 'check_software_update_finish';

@@ -92,10 +92,11 @@ class _DesktopServerPageState extends State<DesktopServerPage>
                   context,
                   Container(
                     decoration: BoxDecoration(
-                        border:
-                            Border.all(color: MyTheme.color(context).border!)),
+                      border: Border.all(color: MyTheme.color(context).border!),
+                    ),
                     child: body,
-                  ));
+                  ),
+                );
         },
       ),
     );
@@ -119,8 +120,9 @@ class ConnectionManagerState extends State<ConnectionManager>
     gFFI.serverModel.tabController.onSelected = (client_id_str) {
       final client_id = int.tryParse(client_id_str);
       if (client_id != null) {
-        final client =
-            gFFI.serverModel.clients.firstWhereOrNull((e) => e.id == client_id);
+        final client = gFFI.serverModel.clients.firstWhereOrNull(
+          (e) => e.id == client_id,
+        );
         if (client != null) {
           gFFI.chatModel.changeCurrentKey(MessageKey(client.peerId, client.id));
           if (client.unreadChatMessageCount.value > 0) {
@@ -176,11 +178,7 @@ class ConnectionManagerState extends State<ConnectionManager>
         ? Column(
             children: [
               buildTitleBar(),
-              Expanded(
-                child: Center(
-                  child: Text(translate("Waiting")),
-                ),
-              ),
+              Expanded(child: Center(child: Text(translate("Waiting")))),
             ],
           )
         : Listener(
@@ -197,17 +195,20 @@ class ConnectionManagerState extends State<ConnectionManager>
               maxLabelWidth: 100,
               tail: null, //buildScrollJumper(),
               tabBuilder: (key, icon, label, themeConf) {
-                final client = serverModel.clients
-                    .firstWhereOrNull((client) => client.id.toString() == key);
+                final client = serverModel.clients.firstWhereOrNull(
+                  (client) => client.id.toString() == key,
+                );
                 return Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Tooltip(
-                        message: key,
-                        waitDuration: Duration(seconds: 1),
-                        child: label),
-                    unreadMessageCountBuilder(client?.unreadChatMessageCount)
-                        .marginOnly(left: 4),
+                      message: key,
+                      waitDuration: Duration(seconds: 1),
+                      child: label,
+                    ),
+                    unreadMessageCountBuilder(
+                      client?.unreadChatMessageCount,
+                    ).marginOnly(left: 4),
                   ],
                 );
               },
@@ -216,10 +217,12 @@ class ConnectionManagerState extends State<ConnectionManager>
                   var borderWidth = 0.0;
                   if (constrains.maxWidth >
                       kConnectionManagerWindowSizeClosedChat.width) {
-                    borderWidth = kConnectionManagerWindowSizeOpenChat.width -
+                    borderWidth =
+                        kConnectionManagerWindowSizeOpenChat.width -
                         constrains.maxWidth;
                   } else {
-                    borderWidth = kConnectionManagerWindowSizeClosedChat.width -
+                    borderWidth =
+                        kConnectionManagerWindowSizeClosedChat.width -
                         constrains.maxWidth;
                   }
                   if (borderWidth < 0 || borderWidth > 50) {
@@ -227,34 +230,40 @@ class ConnectionManagerState extends State<ConnectionManager>
                   }
                   final realClosedWidth =
                       kConnectionManagerWindowSizeClosedChat.width -
-                          borderWidth;
+                      borderWidth;
                   final realChatPageWidth =
                       constrains.maxWidth - realClosedWidth;
-                  final row = Row(children: [
-                    if (constrains.maxWidth >
-                        kConnectionManagerWindowSizeClosedChat.width)
-                      Consumer<ChatModel>(
+                  final row = Row(
+                    children: [
+                      if (constrains.maxWidth >
+                          kConnectionManagerWindowSizeClosedChat.width)
+                        Consumer<ChatModel>(
                           builder: (_, model, child) => SizedBox(
-                                width: realChatPageWidth,
-                                child: allowRemoteCMModification()
-                                    ? buildSidePage()
-                                    : buildRemoteBlock(
-                                        child: buildSidePage(),
-                                        block: _sidePageBlock,
-                                        mask: true),
-                              )),
-                    SizedBox(
+                            width: realChatPageWidth,
+                            child: allowRemoteCMModification()
+                                ? buildSidePage()
+                                : buildRemoteBlock(
+                                    child: buildSidePage(),
+                                    block: _sidePageBlock,
+                                    mask: true,
+                                  ),
+                          ),
+                        ),
+                      SizedBox(
                         width: realClosedWidth,
                         child: SizedBox(
-                            width: realClosedWidth,
-                            child: allowRemoteCMModification()
-                                ? pageView
-                                : buildRemoteBlock(
-                                    child: _buildKeyEventBlock(pageView),
-                                    block: _controlPageBlock,
-                                    mask: false,
-                                  ))),
-                  ]);
+                          width: realClosedWidth,
+                          child: allowRemoteCMModification()
+                              ? pageView
+                              : buildRemoteBlock(
+                                  child: _buildKeyEventBlock(pageView),
+                                  block: _controlPageBlock,
+                                  mask: false,
+                                ),
+                        ),
+                      ),
+                    ],
+                  );
                   return Container(
                     color: Theme.of(context).scaffoldBackgroundColor,
                     child: row,
@@ -294,15 +303,11 @@ class ConnectionManagerState extends State<ConnectionManager>
               onPanStart: (d) {
                 windowManager.startDragging();
               },
-              child: Container(
-                color: Theme.of(context).colorScheme.background,
-              ),
+              child: Container(color: Theme.of(context).colorScheme.background),
             ),
           ),
-          const SizedBox(
-            width: 4.0,
-          ),
-          const _CloseButton()
+          const SizedBox(width: 4.0),
+          const _CloseButton(),
         ],
       ),
     );
@@ -312,15 +317,14 @@ class ConnectionManagerState extends State<ConnectionManager>
     final offstage = gFFI.serverModel.clients.length < 2;
     final sc = gFFI.serverModel.tabController.state.value.scrollController;
     return Offstage(
-        offstage: offstage,
-        child: Row(
-          children: [
-            ActionIcon(
-                icon: Icons.arrow_left, iconSize: 22, onTap: sc.backward),
-            ActionIcon(
-                icon: Icons.arrow_right, iconSize: 22, onTap: sc.forward),
-          ],
-        ));
+      offstage: offstage,
+      child: Row(
+        children: [
+          ActionIcon(icon: Icons.arrow_left, iconSize: 22, onTap: sc.backward),
+          ActionIcon(icon: Icons.arrow_right, iconSize: 22, onTap: sc.forward),
+        ],
+      ),
+    );
   }
 
   Future<bool> handleWindowCloseButton() async {
@@ -331,8 +335,10 @@ class ConnectionManagerState extends State<ConnectionManager>
       return true;
     } else {
       final bool res;
-      if (!option2bool(kOptionEnableConfirmClosingTabs,
-          bind.mainGetLocalOption(key: kOptionEnableConfirmClosingTabs))) {
+      if (!option2bool(
+        kOptionEnableConfirmClosingTabs,
+        bind.mainGetLocalOption(key: kOptionEnableConfirmClosingTabs),
+      )) {
         res = true;
       } else {
         res = await closeConfirmDialog();
@@ -353,18 +359,12 @@ Widget buildConnectionCard(Client client) {
       key: ValueKey(client.id),
       children: [
         _CmHeader(client: client),
-        client.type_() == ClientType.file ||
-                client.type_() == ClientType.portForward ||
-                client.type_() == ClientType.terminal ||
-                client.disconnected
-            ? Offstage()
-            : _PrivilegeBoard(client: client),
         Expanded(
           child: Align(
             alignment: Alignment.bottomCenter,
             child: _CmControlPanel(client: client),
           ),
-        )
+        ),
       ],
     ).paddingSymmetric(vertical: 4.0, horizontal: 8.0),
   );
@@ -391,10 +391,7 @@ class _CloseButton extends StatelessWidget {
       onPressed: () {
         windowManager.close();
       },
-      icon: const Icon(
-        IconFont.close,
-        size: 18,
-      ),
+      icon: const Icon(IconFont.close, size: 18),
       splashColor: Colors.transparent,
       hoverColor: Colors.transparent,
     );
@@ -421,7 +418,7 @@ class _CmHeaderState extends State<_CmHeader>
   void initState() {
     super.initState();
     _timer = Timer.periodic(Duration(seconds: 1), (_) {
-      if (client.authorized && !client.disconnected) {
+      if (!client.disconnected) {
         _time.value = _time.value + 1;
       }
     });
@@ -446,19 +443,11 @@ class _CmHeaderState extends State<_CmHeader>
         gradient: LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [
-            Color(0xff00bfe1),
-            Color(0xff0071ff),
-          ],
+          colors: [Color(0xff00bfe1), Color(0xff0071ff)],
         ),
       ),
       margin: EdgeInsets.symmetric(horizontal: 5.0, vertical: 10.0),
-      padding: EdgeInsets.only(
-        top: 10.0,
-        bottom: 10.0,
-        left: 10.0,
-        right: 5.0,
-      ),
+      padding: EdgeInsets.only(top: 10.0, bottom: 10.0, left: 10.0, right: 5.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -469,16 +458,17 @@ class _CmHeaderState extends State<_CmHeader>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 FittedBox(
-                    child: Text(
-                  client.name,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                    overflow: TextOverflow.ellipsis,
+                  child: Text(
+                    client.name,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 20,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    maxLines: 1,
                   ),
-                  maxLines: 1,
-                )),
+                ),
                 FittedBox(
                   child: Text(
                     "(${client.peerId})",
@@ -515,50 +505,49 @@ class _CmHeaderState extends State<_CmHeader>
                   ),
                 SizedBox(height: 10.0),
                 FittedBox(
-                    child: Row(
-                  children: [
-                    Text(
-                      client.authorized
-                          ? client.disconnected
-                              ? translate("Disconnected")
-                              : translate("Connected")
-                          : "${translate("Request access to your device")}...",
-                      style: TextStyle(color: Colors.white),
-                    ).marginOnly(right: 8.0),
-                    if (client.authorized)
+                  child: Row(
+                    children: [
+                      Text(
+                        client.disconnected
+                            ? translate("Disconnected")
+                            : translate("Connected"),
+                        style: TextStyle(color: Colors.white),
+                      ).marginOnly(right: 8.0),
                       Obx(
                         () => Text(
-                          formatDurationToTime(
-                            Duration(seconds: _time.value),
-                          ),
+                          formatDurationToTime(Duration(seconds: _time.value)),
                           style: TextStyle(color: Colors.white),
                         ),
-                      )
-                  ],
-                ))
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
           Offstage(
-            offstage: !client.authorized ||
-                (client.type_() != ClientType.remote &&
-                    client.type_() != ClientType.file &&
-                    client.type_() != ClientType.camera),
+            offstage:
+                client.type_() != ClientType.remote &&
+                client.type_() != ClientType.file &&
+                client.type_() != ClientType.camera,
             child: IconButton(
               onPressed: () => checkClickTime(client.id, () {
                 if (client.type_() == ClientType.file) {
                   gFFI.chatModel.toggleCMFilePage();
                 } else {
-                  gFFI.chatModel
-                      .toggleCMChatPage(MessageKey(client.peerId, client.id));
+                  gFFI.chatModel.toggleCMChatPage(
+                    MessageKey(client.peerId, client.id),
+                  );
                 }
               }),
-              icon: SvgPicture.asset(client.type_() == ClientType.file
-                  ? 'assets/file_transfer.svg'
-                  : 'assets/chat2.svg'),
+              icon: SvgPicture.asset(
+                client.type_() == ClientType.file
+                    ? 'assets/file_transfer.svg'
+                    : 'assets/chat2.svg',
+              ),
               splashRadius: kDesktopIconButtonSplashRadius,
             ),
-          )
+          ),
         ],
       ),
     );
@@ -598,256 +587,6 @@ class _CmHeaderState extends State<_CmHeader>
   }
 }
 
-class _PrivilegeBoard extends StatefulWidget {
-  final Client client;
-
-  const _PrivilegeBoard({Key? key, required this.client}) : super(key: key);
-
-  @override
-  State<StatefulWidget> createState() => _PrivilegeBoardState();
-}
-
-class _PrivilegeBoardState extends State<_PrivilegeBoard> {
-  late final client = widget.client;
-  Widget buildPermissionIcon(bool enabled, IconData iconData,
-      Function(bool)? onTap, String tooltipText,
-      {required bool canModify}) {
-    return Tooltip(
-      message: "$tooltipText: ${enabled ? "ON" : "OFF"}",
-      waitDuration: Duration.zero,
-      child: Container(
-        decoration: BoxDecoration(
-          color: enabled
-              ? (canModify ? MyTheme.accent : MyTheme.accent.withOpacity(0.6))
-              : Colors.grey[700],
-          borderRadius: BorderRadius.circular(10.0),
-        ),
-        padding: EdgeInsets.all(8.0),
-        child: InkWell(
-          onTap: canModify
-              ? () =>
-                  checkClickTime(widget.client.id, () => onTap?.call(!enabled))
-              : null,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              Expanded(
-                child: Icon(
-                  iconData,
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final crossAxisCount = 4;
-    final spacing = 10.0;
-    final canModifyPermission =
-        bind.mainGetBuildinOption(key: kOptionEnablePermChangeInAcceptWindow) !=
-            'N';
-    return Container(
-      width: double.infinity,
-      height: 160.0,
-      margin: EdgeInsets.all(5.0),
-      padding: EdgeInsets.all(5.0),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10.0),
-        color: Theme.of(context).colorScheme.background,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            spreadRadius: 1,
-            blurRadius: 1,
-            offset: Offset(0, 1.5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(
-            translate("Permissions"),
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            textAlign: TextAlign.center,
-          ).marginOnly(left: 4.0, bottom: 8.0),
-          Expanded(
-            child: GridView.count(
-              crossAxisCount: crossAxisCount,
-              padding: EdgeInsets.symmetric(horizontal: spacing),
-              mainAxisSpacing: spacing,
-              crossAxisSpacing: spacing,
-              children: client.type_() == ClientType.camera
-                  ? [
-                      buildPermissionIcon(
-                        client.audio,
-                        Icons.volume_up_rounded,
-                        (enabled) {
-                          bind.cmSwitchPermission(
-                              connId: client.id,
-                              name: "audio",
-                              enabled: enabled);
-                          setState(() {
-                            client.audio = enabled;
-                          });
-                        },
-                        translate('Enable audio'),
-                        canModify: canModifyPermission,
-                      ),
-                      buildPermissionIcon(
-                        client.recording,
-                        Icons.videocam_rounded,
-                        (enabled) {
-                          bind.cmSwitchPermission(
-                              connId: client.id,
-                              name: "recording",
-                              enabled: enabled);
-                          setState(() {
-                            client.recording = enabled;
-                          });
-                        },
-                        translate('Enable recording session'),
-                        canModify: canModifyPermission,
-                      ),
-                    ]
-                  : [
-                      buildPermissionIcon(
-                        client.keyboard,
-                        Icons.keyboard,
-                        (enabled) {
-                          bind.cmSwitchPermission(
-                              connId: client.id,
-                              name: "keyboard",
-                              enabled: enabled);
-                          setState(() {
-                            client.keyboard = enabled;
-                          });
-                        },
-                        translate('Enable keyboard/mouse'),
-                        canModify: canModifyPermission,
-                      ),
-                      buildPermissionIcon(
-                        client.clipboard,
-                        Icons.assignment_rounded,
-                        (enabled) {
-                          bind.cmSwitchPermission(
-                              connId: client.id,
-                              name: "clipboard",
-                              enabled: enabled);
-                          setState(() {
-                            client.clipboard = enabled;
-                          });
-                        },
-                        translate('Enable clipboard'),
-                        canModify: canModifyPermission,
-                      ),
-                      buildPermissionIcon(
-                        client.audio,
-                        Icons.volume_up_rounded,
-                        (enabled) {
-                          bind.cmSwitchPermission(
-                              connId: client.id,
-                              name: "audio",
-                              enabled: enabled);
-                          setState(() {
-                            client.audio = enabled;
-                          });
-                        },
-                        translate('Enable audio'),
-                        canModify: canModifyPermission,
-                      ),
-                      buildPermissionIcon(
-                        client.file,
-                        Icons.upload_file_rounded,
-                        (enabled) {
-                          bind.cmSwitchPermission(
-                              connId: client.id,
-                              name: "file",
-                              enabled: enabled);
-                          setState(() {
-                            client.file = enabled;
-                          });
-                        },
-                        translate('Enable file copy and paste'),
-                        canModify: canModifyPermission,
-                      ),
-                      buildPermissionIcon(
-                        client.restart,
-                        Icons.restart_alt_rounded,
-                        (enabled) {
-                          bind.cmSwitchPermission(
-                              connId: client.id,
-                              name: "restart",
-                              enabled: enabled);
-                          setState(() {
-                            client.restart = enabled;
-                          });
-                        },
-                        translate('Enable remote restart'),
-                        canModify: canModifyPermission,
-                      ),
-                      buildPermissionIcon(
-                        client.recording,
-                        Icons.videocam_rounded,
-                        (enabled) {
-                          bind.cmSwitchPermission(
-                              connId: client.id,
-                              name: "recording",
-                              enabled: enabled);
-                          setState(() {
-                            client.recording = enabled;
-                          });
-                        },
-                        translate('Enable recording session'),
-                        canModify: canModifyPermission,
-                      ),
-                      // only windows support block input
-                      if (isWindows)
-                        buildPermissionIcon(
-                          client.blockInput,
-                          Icons.block,
-                          (enabled) {
-                            bind.cmSwitchPermission(
-                                connId: client.id,
-                                name: "block_input",
-                                enabled: enabled);
-                            setState(() {
-                              client.blockInput = enabled;
-                            });
-                          },
-                          translate('Enable blocking user input'),
-                          canModify: canModifyPermission,
-                        ),
-                      if (bind.mainSupportedPrivacyModeImpls() != '[]')
-                        buildPermissionIcon(
-                          client.privacyMode,
-                          Icons.visibility_off,
-                          (enabled) {
-                            bind.cmSwitchPermission(
-                                connId: client.id,
-                                name: "privacy_mode",
-                                enabled: enabled);
-                            setState(() {
-                              client.privacyMode = enabled;
-                            });
-                          },
-                          translate('Enable privacy mode'),
-                          canModify: canModifyPermission,
-                        )
-                    ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 const double buttonBottomMargin = 8;
 
 class _CmControlPanel extends StatelessWidget {
@@ -857,17 +596,16 @@ class _CmControlPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return client.authorized
-        ? client.disconnected
-            ? buildDisconnected(context)
-            : buildAuthorized(context)
-        : buildUnAuthorized(context);
+    return client.disconnected
+        ? buildDisconnected(context)
+        : buildAuthorized(context);
   }
 
   buildAuthorized(BuildContext context) {
     final bool canElevate = bind.cmCanElevate();
     final model = Provider.of<ServerModel>(context);
-    final showElevation = canElevate &&
+    final showElevation =
+        canElevate &&
         model.showElevation &&
         client.type_() == ClientType.remote;
     return Column(
@@ -878,69 +616,75 @@ class _CmControlPanel extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: buildButton(context,
-                    color: MyTheme.accent,
-                    onClick: null, onTapDown: (details) async {
-                  final devicesInfo =
-                      await AudioInput.getDevicesInfo(true, true);
-                  List<String> devices = devicesInfo['devices'] as List<String>;
-                  if (devices.isEmpty) {
-                    msgBox(
-                      gFFI.sessionId,
-                      'custom-nocancel-info',
-                      'Prompt',
-                      'no_audio_input_device_tip',
-                      '',
-                      gFFI.dialogManager,
+                child: buildButton(
+                  context,
+                  color: MyTheme.accent,
+                  onClick: null,
+                  onTapDown: (details) async {
+                    final devicesInfo = await AudioInput.getDevicesInfo(
+                      true,
+                      true,
                     );
-                    return;
-                  }
+                    List<String> devices =
+                        devicesInfo['devices'] as List<String>;
+                    if (devices.isEmpty) {
+                      msgBox(
+                        gFFI.sessionId,
+                        'custom-nocancel-info',
+                        'Prompt',
+                        'no_audio_input_device_tip',
+                        '',
+                        gFFI.dialogManager,
+                      );
+                      return;
+                    }
 
-                  String currentDevice = devicesInfo['current'] as String;
-                  final x = details.globalPosition.dx;
-                  final y = details.globalPosition.dy;
-                  final position = RelativeRect.fromLTRB(x, y, x, y);
-                  showMenu(
-                    context: context,
-                    position: position,
-                    items: devices
-                        .map((d) => PopupMenuItem<String>(
+                    String currentDevice = devicesInfo['current'] as String;
+                    final x = details.globalPosition.dx;
+                    final y = details.globalPosition.dy;
+                    final position = RelativeRect.fromLTRB(x, y, x, y);
+                    showMenu(
+                      context: context,
+                      position: position,
+                      items: devices
+                          .map(
+                            (d) => PopupMenuItem<String>(
                               value: d,
                               height: 18,
                               padding: EdgeInsets.zero,
                               onTap: () => AudioInput.setDevice(d, true, true),
                               child: IgnorePointer(
-                                  child: RadioMenuButton(
-                                value: d,
-                                groupValue: currentDevice,
-                                onChanged: (v) {
-                                  if (v != null)
-                                    AudioInput.setDevice(v, true, true);
-                                },
-                                child: Container(
-                                  child: Text(
-                                    d,
-                                    overflow: TextOverflow.ellipsis,
-                                    maxLines: 1,
-                                  ),
-                                  constraints: BoxConstraints(
+                                child: RadioMenuButton(
+                                  value: d,
+                                  groupValue: currentDevice,
+                                  onChanged: (v) {
+                                    if (v != null)
+                                      AudioInput.setDevice(v, true, true);
+                                  },
+                                  child: Container(
+                                    child: Text(
+                                      d,
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
+                                    ),
+                                    constraints: BoxConstraints(
                                       maxWidth:
                                           kConnectionManagerWindowSizeClosedChat
-                                                  .width -
-                                              80),
+                                              .width -
+                                          80,
+                                    ),
+                                  ),
                                 ),
-                              )),
-                            ))
-                        .toList(),
-                  );
-                },
-                    icon: Icon(
-                      Icons.call_rounded,
-                      color: Colors.white,
-                      size: 14,
-                    ),
-                    text: "Audio input",
-                    textColor: Colors.white),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    );
+                  },
+                  icon: Icon(Icons.call_rounded, color: Colors.white, size: 14),
+                  text: "Audio input",
+                  textColor: Colors.white,
+                ),
               ),
               Expanded(
                 child: buildButton(
@@ -955,7 +699,7 @@ class _CmControlPanel extends StatelessWidget {
                   text: "Stop voice call",
                   textColor: Colors.white,
                 ),
-              )
+              ),
             ],
           ),
         ),
@@ -964,16 +708,14 @@ class _CmControlPanel extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: buildButton(context,
-                    color: MyTheme.accent,
-                    onClick: () => handleVoiceCall(true),
-                    icon: Icon(
-                      Icons.call_rounded,
-                      color: Colors.white,
-                      size: 14,
-                    ),
-                    text: "Accept",
-                    textColor: Colors.white),
+                child: buildButton(
+                  context,
+                  color: MyTheme.accent,
+                  onClick: () => handleVoiceCall(true),
+                  icon: Icon(Icons.call_rounded, color: Colors.white, size: 14),
+                  text: "Accept",
+                  textColor: Colors.white,
+                ),
               ),
               Expanded(
                 child: buildButton(
@@ -988,18 +730,9 @@ class _CmControlPanel extends StatelessWidget {
                   text: "Dismiss",
                   textColor: Colors.white,
                 ),
-              )
+              ),
             ],
           ),
-        ),
-        Offstage(
-          offstage: !client.fromSwitch,
-          child: buildButton(context,
-              color: Colors.purple,
-              onClick: () => handleSwitchBack(context),
-              icon: Icon(Icons.reply, color: Colors.white),
-              text: "Switch Sides",
-              textColor: Colors.white),
         ),
         Offstage(
           offstage: !showElevation,
@@ -1010,11 +743,7 @@ class _CmControlPanel extends StatelessWidget {
               handleElevate(context);
               windowManager.minimize();
             },
-            icon: Icon(
-              Icons.security_rounded,
-              color: Colors.white,
-              size: 14,
-            ),
+            icon: Icon(Icons.security_rounded, color: Colors.white, size: 14),
             text: 'Elevate',
             textColor: Colors.white,
           ),
@@ -1022,19 +751,21 @@ class _CmControlPanel extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: buildButton(context,
-                  color: Colors.redAccent,
-                  onClick: handleDisconnect,
-                  text: 'Disconnect',
-                  icon: Icon(
-                    Icons.link_off_rounded,
-                    color: Colors.white,
-                    size: 14,
-                  ),
-                  textColor: Colors.white),
+              child: buildButton(
+                context,
+                color: Colors.redAccent,
+                onClick: handleDisconnect,
+                text: 'Disconnect',
+                icon: Icon(
+                  Icons.link_off_rounded,
+                  color: Colors.white,
+                  size: 14,
+                ),
+                textColor: Colors.white,
+              ),
             ),
           ],
-        )
+        ),
       ],
     ).marginOnly(bottom: buttonBottomMargin);
   }
@@ -1044,86 +775,29 @@ class _CmControlPanel extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Expanded(
-            child: buildButton(context,
-                color: MyTheme.accent,
-                onClick: handleClose,
-                text: 'Close',
-                textColor: Colors.white)),
-      ],
-    ).marginOnly(bottom: buttonBottomMargin);
-  }
-
-  buildUnAuthorized(BuildContext context) {
-    final bool canElevate = bind.cmCanElevate();
-    final model = Provider.of<ServerModel>(context);
-    final showElevation = canElevate &&
-        model.showElevation &&
-        client.type_() == ClientType.remote;
-    final showAccept = model.approveMode != 'password';
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        Offstage(
-          offstage: !showElevation || !showAccept,
-          child: buildButton(context, color: Colors.green[700], onClick: () {
-            handleAccept(context);
-            handleElevate(context);
-            windowManager.minimize();
-          },
-              text: 'Accept and Elevate',
-              icon: Icon(
-                Icons.security_rounded,
-                color: Colors.white,
-                size: 14,
-              ),
-              textColor: Colors.white,
-              tooltip: 'accept_and_elevate_btn_tooltip'),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (showAccept)
-              Expanded(
-                child: Column(
-                  children: [
-                    buildButton(
-                      context,
-                      color: MyTheme.accent,
-                      onClick: () {
-                        handleAccept(context);
-                        windowManager.minimize();
-                      },
-                      text: 'Accept',
-                      textColor: Colors.white,
-                    ),
-                  ],
-                ),
-              ),
-            Expanded(
-              child: buildButton(
-                context,
-                color: Colors.transparent,
-                border: Border.all(color: Colors.grey),
-                onClick: handleDisconnect,
-                text: 'Cancel',
-                textColor: null,
-              ),
-            ),
-          ],
+          child: buildButton(
+            context,
+            color: MyTheme.accent,
+            onClick: handleClose,
+            text: 'Close',
+            textColor: Colors.white,
+          ),
         ),
       ],
     ).marginOnly(bottom: buttonBottomMargin);
   }
 
-  Widget buildButton(BuildContext context,
-      {required Color? color,
-      GestureTapCallback? onClick,
-      Widget? icon,
-      BoxBorder? border,
-      required String text,
-      required Color? textColor,
-      String? tooltip,
-      GestureTapDownCallback? onTapDown}) {
+  Widget buildButton(
+    BuildContext context, {
+    required Color? color,
+    GestureTapCallback? onClick,
+    Widget? icon,
+    BoxBorder? border,
+    required String text,
+    required Color? textColor,
+    String? tooltip,
+    GestureTapDownCallback? onTapDown,
+  }) {
     assert(!(onClick == null && onTapDown == null));
     Widget textWidget;
     if (icon != null) {
@@ -1145,7 +819,10 @@ class _CmControlPanel extends StatelessWidget {
     final btn = Container(
       height: 28,
       decoration: BoxDecoration(
-          color: color, borderRadius: borderRadius, border: border),
+        color: color,
+        borderRadius: borderRadius,
+        border: border,
+      ),
       child: InkWell(
         borderRadius: borderRadius,
         onTap: () {
@@ -1168,21 +845,13 @@ class _CmControlPanel extends StatelessWidget {
       ),
     );
     return (tooltip != null
-            ? Tooltip(
-                message: translate(tooltip),
-                child: btn,
-              )
+            ? Tooltip(message: translate(tooltip), child: btn)
             : btn)
         .marginAll(4);
   }
 
   void handleDisconnect() {
     bind.cmCloseConnection(connId: client.id);
-  }
-
-  void handleAccept(BuildContext context) {
-    final model = Provider.of<ServerModel>(context, listen: false);
-    model.sendLoginResponse(client, true);
   }
 
   void handleElevate(BuildContext context) {
@@ -1196,10 +865,6 @@ class _CmControlPanel extends StatelessWidget {
     if (await bind.cmGetClientsLength() == 0) {
       windowManager.close();
     }
-  }
-
-  void handleSwitchBack(BuildContext context) {
-    bind.cmSwitchBack(connId: client.id);
   }
 
   void handleVoiceCall(bool accept) {
@@ -1225,8 +890,10 @@ void checkClickTime(int id, Function() callback) async {
 }
 
 bool allowRemoteCMModification() {
-  return option2bool(kOptionAllowRemoteCmModification,
-      bind.mainGetLocalOption(key: kOptionAllowRemoteCmModification));
+  return option2bool(
+    kOptionAllowRemoteCmModification,
+    bind.mainGetLocalOption(key: kOptionAllowRemoteCmModification),
+  );
 }
 
 class _FileTransferLogPage extends StatefulWidget {
@@ -1246,9 +913,7 @@ class __FileTransferLogPageState extends State<_FileTransferLogPage> {
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.all(
-          Radius.circular(15.0),
-        ),
+        borderRadius: BorderRadius.all(Radius.circular(15.0)),
       ),
       child: child,
     );
@@ -1269,19 +934,18 @@ class __FileTransferLogPageState extends State<_FileTransferLogPage> {
                 colorFilter: svgColor(Theme.of(context).tabBarTheme.labelColor),
               ),
             ),
-            Text(item.action == CmFileAction.remoteToLocal
-                ? translate('Send')
-                : translate('Receive'))
+            Text(
+              item.action == CmFileAction.remoteToLocal
+                  ? translate('Send')
+                  : translate('Receive'),
+            ),
           ],
         );
       case CmFileAction.remove:
         return Column(
           children: [
-            Icon(
-              Icons.delete,
-              color: Theme.of(context).tabBarTheme.labelColor,
-            ),
-            Text(translate('Delete'))
+            Icon(Icons.delete, color: Theme.of(context).tabBarTheme.labelColor),
+            Text(translate('Delete')),
           ],
         );
       case CmFileAction.createDir:
@@ -1291,7 +955,7 @@ class __FileTransferLogPageState extends State<_FileTransferLogPage> {
               Icons.create_new_folder,
               color: Theme.of(context).tabBarTheme.labelColor,
             ),
-            Text(translate('Create Folder'))
+            Text(translate('Create Folder')),
           ],
         );
       case CmFileAction.rename:
@@ -1301,7 +965,7 @@ class __FileTransferLogPageState extends State<_FileTransferLogPage> {
               Icons.drive_file_move_outlined,
               color: Theme.of(context).tabBarTheme.labelColor,
             ),
-            Text(translate('Rename'))
+            Text(translate('Rename')),
           ],
         );
     }
@@ -1311,138 +975,130 @@ class __FileTransferLogPageState extends State<_FileTransferLogPage> {
     return PreferredSize(
       preferredSize: const Size(200, double.infinity),
       child: Container(
-          padding: const EdgeInsets.all(12.0),
-          child: Obx(
-            () {
-              final jobTable = gFFI.cmFileModel.currentJobTable;
-              statusListView(List<CmFileLog> jobs) => ListView.builder(
-                    controller: ScrollController(),
-                    itemBuilder: (BuildContext context, int index) {
-                      final item = jobs[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 5),
-                        child: generateCard(
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  SizedBox(
-                                    width: 50,
-                                    child: iconLabel(item),
-                                  ).paddingOnly(left: 15),
-                                  const SizedBox(
-                                    width: 16.0,
-                                  ),
-                                  Expanded(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          item.fileName,
-                                        ).paddingSymmetric(vertical: 10),
-                                        if (item.totalSize > 0)
-                                          Text(
-                                            '${translate("Total")} ${readableFileSize(item.totalSize.toDouble())}',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: MyTheme.darkGray,
-                                            ),
-                                          ),
-                                        if (item.totalSize > 0)
-                                          Offstage(
-                                            offstage: item.state !=
-                                                JobState.inProgress,
-                                            child: Text(
-                                              '${translate("Speed")} ${readableFileSize(item.speed)}/s',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: MyTheme.darkGray,
-                                              ),
-                                            ),
-                                          ),
-                                        Offstage(
-                                          offstage: !(item.isTransfer() &&
-                                              item.state !=
-                                                  JobState.inProgress),
-                                          child: Text(
-                                            translate(
-                                              item.display(),
-                                            ),
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: MyTheme.darkGray,
-                                            ),
-                                          ),
-                                        ),
-                                        if (item.totalSize > 0)
-                                          Offstage(
-                                            offstage: item.state !=
-                                                JobState.inProgress,
-                                            child: LinearPercentIndicator(
-                                              padding:
-                                                  EdgeInsets.only(right: 15),
-                                              animateFromLastPercent: true,
-                                              center: Text(
-                                                '${(item.finishedSize / item.totalSize * 100).toStringAsFixed(0)}%',
-                                              ),
-                                              barRadius: Radius.circular(15),
-                                              percent: item.finishedSize /
-                                                  item.totalSize,
-                                              progressColor: MyTheme.accent,
-                                              backgroundColor:
-                                                  Theme.of(context).hoverColor,
-                                              lineHeight:
-                                                  kDesktopFileTransferRowHeight,
-                                            ).paddingSymmetric(vertical: 15),
-                                          ),
-                                      ],
+        padding: const EdgeInsets.all(12.0),
+        child: Obx(() {
+          final jobTable = gFFI.cmFileModel.currentJobTable;
+          statusListView(List<CmFileLog> jobs) => ListView.builder(
+            controller: ScrollController(),
+            itemBuilder: (BuildContext context, int index) {
+              final item = jobs[index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: generateCard(
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 50,
+                            child: iconLabel(item),
+                          ).paddingOnly(left: 15),
+                          const SizedBox(width: 16.0),
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.fileName,
+                                ).paddingSymmetric(vertical: 10),
+                                if (item.totalSize > 0)
+                                  Text(
+                                    '${translate("Total")} ${readableFileSize(item.totalSize.toDouble())}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: MyTheme.darkGray,
                                     ),
                                   ),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [],
+                                if (item.totalSize > 0)
+                                  Offstage(
+                                    offstage: item.state != JobState.inProgress,
+                                    child: Text(
+                                      '${translate("Speed")} ${readableFileSize(item.speed)}/s',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: MyTheme.darkGray,
+                                      ),
+                                    ),
                                   ),
-                                ],
-                              ),
-                            ],
-                          ).paddingSymmetric(vertical: 10),
-                        ),
-                      );
-                    },
-                    itemCount: jobTable.length,
-                  );
-
-              return jobTable.isEmpty
-                  ? generateCard(
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SvgPicture.asset(
-                              "assets/transfer.svg",
-                              colorFilter: svgColor(
-                                  Theme.of(context).tabBarTheme.labelColor),
-                              height: 40,
-                            ).paddingOnly(bottom: 10),
-                            Text(
-                              translate("No transfers in progress"),
-                              textAlign: TextAlign.center,
-                              textScaler: TextScaler.linear(1.20),
-                              style: TextStyle(
-                                  color:
-                                      Theme.of(context).tabBarTheme.labelColor),
+                                Offstage(
+                                  offstage:
+                                      !(item.isTransfer() &&
+                                          item.state != JobState.inProgress),
+                                  child: Text(
+                                    translate(item.display()),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: MyTheme.darkGray,
+                                    ),
+                                  ),
+                                ),
+                                if (item.totalSize > 0)
+                                  Offstage(
+                                    offstage: item.state != JobState.inProgress,
+                                    child: LinearPercentIndicator(
+                                      padding: EdgeInsets.only(right: 15),
+                                      animateFromLastPercent: true,
+                                      center: Text(
+                                        '${(item.finishedSize / item.totalSize * 100).toStringAsFixed(0)}%',
+                                      ),
+                                      barRadius: Radius.circular(15),
+                                      percent:
+                                          item.finishedSize / item.totalSize,
+                                      progressColor: MyTheme.accent,
+                                      backgroundColor: Theme.of(
+                                        context,
+                                      ).hoverColor,
+                                      lineHeight: kDesktopFileTransferRowHeight,
+                                    ).paddingSymmetric(vertical: 15),
+                                  ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [],
+                          ),
+                        ],
                       ),
-                    )
-                  : statusListView(jobTable);
+                    ],
+                  ).paddingSymmetric(vertical: 10),
+                ),
+              );
             },
-          )),
+            itemCount: jobTable.length,
+          );
+
+          return jobTable.isEmpty
+              ? generateCard(
+                  Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SvgPicture.asset(
+                          "assets/transfer.svg",
+                          colorFilter: svgColor(
+                            Theme.of(context).tabBarTheme.labelColor,
+                          ),
+                          height: 40,
+                        ).paddingOnly(bottom: 10),
+                        Text(
+                          translate("No transfers in progress"),
+                          textAlign: TextAlign.center,
+                          textScaler: TextScaler.linear(1.20),
+                          style: TextStyle(
+                            color: Theme.of(context).tabBarTheme.labelColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : statusListView(jobTable);
+        }),
+      ),
     );
   }
 }

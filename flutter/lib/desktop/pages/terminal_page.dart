@@ -14,18 +14,12 @@ class TerminalPage extends StatefulWidget {
     required this.id,
     required this.password,
     required this.tabController,
-    required this.isSharedPassword,
     required this.terminalId,
     required this.tabKey,
-    this.forceRelay,
-    this.connToken,
   }) : super(key: key);
   final String id;
   final String? password;
   final DesktopTabController tabController;
-  final bool? forceRelay;
-  final bool? isSharedPassword;
-  final String? connToken;
   final int terminalId;
 
   /// Tab key for focus management, passed from parent to avoid duplicate construction
@@ -64,9 +58,6 @@ class _TerminalPageState extends State<TerminalPage>
     _ffi = TerminalConnectionManager.getConnection(
       peerId: widget.id,
       password: widget.password,
-      isSharedPassword: widget.isSharedPassword,
-      forceRelay: widget.forceRelay,
-      connToken: widget.connToken,
     );
 
     // Create terminal model with specific terminal ID
