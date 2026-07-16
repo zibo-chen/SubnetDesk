@@ -28,6 +28,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  generate-bridge:
+    uses: ./.github/workflows/bridge.yml
+
   # ensure_cargo_fmt:
   #   name: Ensure 'cargo fmt' has been run
   #   runs-on: ubuntu-20.04
@@ -70,6 +73,7 @@ jobs:
 
   build:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
+    needs: generate-bridge
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
@@ -113,6 +117,12 @@ jobs:
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         submodules: recursive
+
+    - name: Restore generated Flutter bridge
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: bridge-artifact
+        path: ./
 
     - name: Install prerequisites
       shell: bash
