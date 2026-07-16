@@ -264,6 +264,7 @@ jobs:
           # --hwcodec is shared by all Windows targets; per-target extras (e.g. --vram) come from the matrix
           python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec ${{ matrix.job.build-args }}
           mv ./flutter/build/windows/${{ matrix.job.flutter-arch }}/runner/Release ./rustdesk
+          Rename-Item ./rustdesk/rustdesk.exe SubnetDesk.exe
 
           # Download usbmmidd_v2.zip and extract it to ./rustdesk
           Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
@@ -343,7 +344,7 @@ jobs:
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/SubnetDesk.exe
           popd
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
@@ -359,6 +360,7 @@ jobs:
         run: |
           pushd ./res/msi
           python preprocess.py --arp --app-name SubnetDesk --manufacturer SubnetDesk -d ../../rustdesk
+          if ($LASTEXITCODE -ne 0) { throw "MSI preprocessing failed with exit code $LASTEXITCODE" }
           nuget restore msi.sln
           $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
           msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10
@@ -2023,6 +2025,7 @@ jobs:
           # run appimage-builder
           pushd appimage
           sudo appimage-builder --skip-tests --recipe ./AppImageBuilder-${{ matrix.job.arch }}.yml
+          sudo chown "$(id -u):$(id -g)" rustdesk-*.AppImage
           for name in rustdesk-*.AppImage; do
             mv "$name" "subnetdesk-${name#rustdesk-}"
           done
