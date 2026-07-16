@@ -16,12 +16,20 @@ on:
     paths-ignore:
       - "docs/**"
       - "README.md"
+      - ".github/workflows/flutter-build.yml"
+      - ".github/workflows/flutter-ci.yml"
+      - ".github/workflows/flutter-nightly.yml"
+      - ".github/workflows/flutter-tag.yml"
   push:
     branches:
       - master
     paths-ignore:
       - "docs/**"
       - "README.md"
+      - ".github/workflows/flutter-build.yml"
+      - ".github/workflows/flutter-ci.yml"
+      - ".github/workflows/flutter-nightly.yml"
+      - ".github/workflows/flutter-tag.yml"
 
 concurrency:
   group: subnetdesk-rust-ci-${{ github.ref }}

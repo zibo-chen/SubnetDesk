@@ -15,4 +15,5 @@ jobs:
     secrets: inherit
     with:
       upload-artifact: true
+      publish-release: true
       upload-tag: "nightly"

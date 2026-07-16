@@ -1,4 +1,4 @@
-name: SubnetDesk Full Flutter CI
+name: SubnetDesk Installers CI
 
 permissions:
   contents: read
@@ -9,12 +9,14 @@ on:
     paths-ignore:
     - "docs/**"
     - "README.md"
+    - ".github/workflows/ci.yml"
   push:
     branches:
       - master
     paths-ignore:
       - "docs/**"
       - "README.md"
+      - ".github/workflows/ci.yml"
 
 concurrency:
   group: subnetdesk-flutter-ci-${{ github.ref }}
@@ -24,4 +26,5 @@ jobs:
   run-ci:
     uses: ./.github/workflows/flutter-build.yml
     with:
-      upload-artifact: false
+      upload-artifact: true
+      publish-release: false

@@ -30,6 +30,22 @@ jobs:
       - name: Check SubnetDesk branding and icons
         run: bash scripts/check_subnetdesk_branding.sh
 
+      - name: Check installer artifact contract
+        run: |
+          grep -Fq 'upload-artifact: true' .github/workflows/flutter-ci.yml
+          grep -Fq 'publish-release: false' .github/workflows/flutter-ci.yml
+          grep -Fq 'publish-release: true' .github/workflows/flutter-tag.yml
+          grep -Fq 'publish-release: true' .github/workflows/flutter-nightly.yml
+          for artifact in \
+            'name: subnetdesk-windows-' \
+            'name: subnetdesk-macos-' \
+            'name: subnetdesk-linux-rpm-' \
+            'name: subnetdesk-appimage-' \
+            'name: subnetdesk-flatpak-'
+          do
+            grep -Fq "$artifact" .github/workflows/flutter-build.yml
+          done
+
       - name: Check Python scripts
         run: python3 -m py_compile build.py scripts/generate_subnetdesk_icons.py
 

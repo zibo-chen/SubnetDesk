@@ -43,6 +43,8 @@ See [security details](docs/lan-only-security.md), the [regression matrix](docs/
 
 The LAN-only release targets native Flutter desktop and mobile clients. Web builds and deprecated Sciter builds are disabled in the release workflow. The optional plugin framework is not enabled in release commands.
 
+Every push to `master` runs **SubnetDesk Installers CI** and uploads Windows x64/ARM64 MSI and portable EXE packages, macOS x86_64/ARM64 DMG packages, and Linux DEB/RPM/AppImage/Flatpak packages to the workflow run's **Artifacts** section. Ordinary branch CI does not create or modify a GitHub Release. Tag and nightly workflows publish the same packages to their configured prerelease after artifact generation. Packages are unsigned unless the repository signing secrets are configured.
+
 For local native development, generate the Rust/Flutter bridge as described by the existing build tooling and build with the `flutter` feature. The release workflow remains the source of truth for platform-specific packaging commands.
 
 ## Verification
