@@ -9,6 +9,9 @@ on:
       publish-release:
         type: boolean
         default: false
+      build-mobile:
+        type: boolean
+        default: true
       upload-tag:
         type: string
         default: "nightly"
@@ -542,7 +545,7 @@ jobs:
             ./SignOutput/subnetdesk-*.exe
 
   build-rustdesk-ios:
-    if: ${{ inputs.upload-artifact }}
+    if: ${{ inputs.upload-artifact && inputs.build-mobile }}
     name: Build SubnetDesk ios ipa
     runs-on: ${{ matrix.job.os }}
     needs: [generate-bridge]
@@ -922,6 +925,7 @@ jobs:
           files: subnetdesk-${{ env.VERSION }}-unsigned.tar.gz
 
   build-rustdesk-android:
+    if: ${{ inputs.build-mobile }}
     needs: [generate-bridge]
     name: Build SubnetDesk android apk ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
@@ -1216,7 +1220,7 @@ jobs:
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
     name: Build SubnetDesk android universal apk
-    if: ${{ inputs.upload-artifact }}
+    if: ${{ inputs.upload-artifact && inputs.build-mobile }}
     runs-on: ubuntu-24.04
     env:
       reltype: release
@@ -1730,12 +1734,17 @@ jobs:
         uses: rustdesk-org/arch-makepkg-action@04200739ed1d0bf6f2188b6736b26a767c57a7f9 # no release tag; commit 2026-05-26
         with:
           packages:
-          scripts: |
-            cd res
-            HBB=`pwd`/.. FLUTTER=1 makepkg -f
-            for name in rustdesk-*.pkg.tar.zst; do
-              mv "$name" "subnetdesk-${name#rustdesk-}"
-            done
+          scripts: >-
+            cd res &&
+            HBB="$(pwd)/.." FLUTTER=1 makepkg -f &&
+            for name in rustdesk-*.pkg.tar.zst; do mv "$name" "subnetdesk-${name#rustdesk-}"; done
+
+      - name: Upload Arch Linux package
+        if: matrix.job.arch == 'x86_64' && env.UPLOAD_ARTIFACT == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: subnetdesk-archlinux-x86_64
+          path: res/subnetdesk-${{ env.VERSION }}*.zst
 
       - name: Publish archlinux package
         if: matrix.job.arch == 'x86_64' && env.PUBLISH_RELEASE == 'true'

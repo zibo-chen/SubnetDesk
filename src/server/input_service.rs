@@ -12,6 +12,8 @@ use hbb_common::{
     message_proto::{pointer_device_event::Union::TouchEvent, touch_event::Union::ScaleUpdate},
     protobuf::EnumOrUnknown,
 };
+#[cfg(windows)]
+use hbb_common::timeout;
 use rdev::{self, EventType, Key as RdevKey, KeyCode, RawKey};
 #[cfg(target_os = "macos")]
 use rdev::{CGEventSourceStateID, CGEventTapLocation, VirtualInput};

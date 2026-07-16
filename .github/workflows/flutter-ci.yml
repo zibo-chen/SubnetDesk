@@ -28,3 +28,4 @@ jobs:
     with:
       upload-artifact: true
       publish-release: false
+      build-mobile: false

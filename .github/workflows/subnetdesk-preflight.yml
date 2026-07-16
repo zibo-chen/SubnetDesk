@@ -34,12 +34,14 @@ jobs:
         run: |
           grep -Fq 'upload-artifact: true' .github/workflows/flutter-ci.yml
           grep -Fq 'publish-release: false' .github/workflows/flutter-ci.yml
+          grep -Fq 'build-mobile: false' .github/workflows/flutter-ci.yml
           grep -Fq 'publish-release: true' .github/workflows/flutter-tag.yml
           grep -Fq 'publish-release: true' .github/workflows/flutter-nightly.yml
           for artifact in \
             'name: subnetdesk-windows-' \
             'name: subnetdesk-macos-' \
             'name: subnetdesk-linux-rpm-' \
+            'name: subnetdesk-archlinux-' \
             'name: subnetdesk-appimage-' \
             'name: subnetdesk-flatpak-'
           do

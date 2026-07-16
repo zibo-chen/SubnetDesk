@@ -17,6 +17,8 @@ use clipboard::platform::unix::fuse::{init_fuse_context, uninit_fuse_context};
 use clipboard_master::CallbackResult;
 #[cfg(target_os = "android")]
 use hbb_common::config::{keys, option2bool};
+#[cfg(windows)]
+use hbb_common::timeout;
 #[cfg(target_os = "android")]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
