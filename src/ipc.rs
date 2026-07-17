@@ -451,6 +451,7 @@ pub enum Data {
     PortForwardSessionCount(Option<usize>),
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     Whiteboard((String, crate::whiteboard::CustomEvent)),
+    Shutdown,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -728,6 +729,15 @@ async fn handle(data: Data, stream: &mut Connection) {
                 }
                 std::process::exit(-1); // to make sure --server luauchagent process can restart because SuccessfulExit used
             }
+        }
+        Data::Shutdown => {
+            log::info!("Receive clean background shutdown message");
+            #[cfg(not(target_os = "android"))]
+            crate::server::input_service::fix_key_down_timeout_at_exit();
+            if is_server() {
+                let _ = privacy_mode::turn_off_privacy(0, Some(PrivacyModeState::OffByPeer));
+            }
+            std::process::exit(0);
         }
         Data::OnlineStatus(_) => {
             let status = if crate::lan_server::LanServer::is_running() {
@@ -1472,6 +1482,14 @@ pub fn close_all_instances() -> ResultType<bool> {
         Ok(_) => Ok(true),
         Err(err) => Err(err),
     }
+}
+
+pub(crate) fn background_shutdown_request() -> Data {
+    Data::Shutdown
+}
+
+pub fn shutdown_background_server() -> ResultType<()> {
+    set_data(&background_shutdown_request())
 }
 
 #[cfg(windows)]

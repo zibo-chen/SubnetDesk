@@ -79,6 +79,22 @@ pub fn core_main() -> Option<Vec<String>> {
         }
         i += 1;
     }
+    #[cfg(target_os = "macos")]
+    if args.is_empty() {
+        if !crate::check_process("--server", false) {
+            match crate::run_me(vec!["--server"]) {
+                Ok(_) => no_server = true,
+                Err(err) => {
+                    log::error!("Failed to start macOS background server: {err}");
+                    if !crate::check_process("--tray", true) {
+                        hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+                    }
+                }
+            }
+        } else if !crate::check_process("--tray", true) {
+            hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+        }
+    }
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     if args.is_empty() {
         #[cfg(target_os = "linux")]
@@ -414,9 +430,13 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             #[cfg(target_os = "macos")]
             {
+                if !crate::check_process("--tray", true) {
+                    hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+                }
                 let handler = std::thread::spawn(move || crate::start_server(true, false));
-                crate::tray::start_tray();
-                // prevent server exit when encountering errors from tray
+                crate::tray::start_server_event_loop();
+                // Prevent the server from exiting when its main-thread event
+                // loop encounters an error.
                 hbb_common::allow_err!(handler.join());
             }
             return None;
