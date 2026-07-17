@@ -94,7 +94,6 @@ const String kOptionOpenInWindows = "allow-open-in-windows";
 const String kOptionViewOnly = "view_only";
 const String kOptionEnableLanDiscovery = "lan-discovery-enabled";
 const String kOptionWhitelist = "whitelist";
-const String kOptionEnableAbr = "enable-abr";
 const String kOptionEnableRecordSession = "enable-record-session";
 const String kOptionDirectServer = "direct-server";
 const String kOptionAllowAutoDisconnect = "allow-auto-disconnect";
@@ -235,11 +234,11 @@ const double kDesktopFileTransferRowHeight = 30.0;
 const double kDesktopFileTransferHeaderHeight = 25.0;
 
 const double kMinFps = 5;
-const double kDefaultFps = 30;
+const double kDefaultFps = 60;
 const double kMaxFps = 120;
 
 const double kMinQuality = 10;
-const double kDefaultQuality = 50;
+const double kDefaultQuality = 100;
 const double kMaxQuality = 100;
 const double kMaxMoreQuality = 2000;
 

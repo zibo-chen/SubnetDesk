@@ -6,38 +6,26 @@ use std::{
 };
 
 /*
-FPS adjust:
-a. new user connected =>set to INIT_FPS
-b. TestDelay receive => update user's fps according to network delay
-    When network delay < DELAY_THRESHOLD_150MS, set minimum fps according to image quality, and increase fps;
-    When network delay >= DELAY_THRESHOLD_150MS, set minimum fps according to image quality, and decrease fps;
-c. second timeout / TestDelay receive => update real fps to the minimum fps from all users
+SubnetDesk is LAN/VPN-only, so its default video profile starts at 100% custom
+quality and 60 FPS without WAN-style delay-based downshifts. Explicit client
+quality/FPS choices and decoder capacity feedback are still respected.
 
-ratio adjust:
-a. user set image quality => update to the maximum ratio of the latest quality
-b. 3 seconds timeout => update ratio according to network delay
-    When network delay < DELAY_THRESHOLD_150MS, increase ratio, max 150kbps;
-    When network delay >= DELAY_THRESHOLD_150MS, decrease ratio;
-
-adjust between FPS and ratio:
-    When network delay < DELAY_THRESHOLD_150MS, fps is always higher than the minimum fps, and ratio is increasing;
-    When network delay >= DELAY_THRESHOLD_150MS, fps is always lower than the minimum fps, and ratio is decreasing;
-
-delay:
-    use delay minus RTT as the actual network delay
+The legacy ratio adjustment helpers remain available for encoder compatibility,
+but `abr_config` stays disabled in the LAN-only product path.
 */
 
 // Constants
-pub const FPS: u32 = 30;
+pub const FPS: u32 = 60;
 pub const MIN_FPS: u32 = 1;
 pub const MAX_FPS: u32 = 120;
-pub const INIT_FPS: u32 = 15;
+pub const INIT_FPS: u32 = FPS;
 
 // Bitrate ratio constants for different quality levels
 const BR_MAX: f32 = 40.0; // 2000 * 2 / 100
 const BR_MIN: f32 = 0.2;
 const BR_MIN_HIGH_RESOLUTION: f32 = 0.1; // For high resolution, BR_MIN is still too high, so we set a lower limit
 const MAX_BR_MULTIPLE: f32 = 1.0;
+const LAN_DEFAULT_BITRATE_RATIO: f32 = 2.0; // 100% in the custom quality UI
 
 const HISTORY_DELAY_LEN: usize = 2;
 const ADJUST_RATIO_INTERVAL: usize = 3; // Adjust quality ratio every 3 seconds
@@ -46,12 +34,9 @@ const DELAY_THRESHOLD_150MS: u32 = 150; // 150ms is the threshold for good netwo
 
 #[derive(Default, Debug, Clone)]
 struct UserDelay {
-    response_delayed: bool,
     delay_history: VecDeque<u32>,
     fps: Option<u32>,
     rtt_calculator: RttCalculator,
-    quick_increase_fps_count: usize,
-    increase_fps_count: usize,
 }
 
 impl UserDelay {
@@ -117,12 +102,12 @@ impl Default for VideoQoS {
     fn default() -> Self {
         VideoQoS {
             fps: FPS,
-            ratio: BR_BALANCED,
+            ratio: LAN_DEFAULT_BITRATE_RATIO,
             users: Default::default(),
             displays: Default::default(),
             bitrate_store: 0,
             adjust_ratio_instant: Instant::now(),
-            abr_config: true,
+            abr_config: false,
             new_user_instant: Instant::now(),
         }
     }
@@ -185,7 +170,9 @@ impl VideoQoS {
     // Initialize new user session
     pub fn on_connection_open(&mut self, id: i32) {
         self.users.insert(id, UserData::default());
-        self.abr_config = Config::get_option("enable-abr") != "N";
+        // SubnetDesk only accepts LAN/VPN direct connections. Do not apply the
+        // WAN-oriented bitrate ramp and delay-based quality reduction by default.
+        self.abr_config = false;
         self.new_user_instant = Instant::now();
     }
 
@@ -245,100 +232,18 @@ impl VideoQoS {
 
     pub fn user_network_delay(&mut self, id: i32, delay: u32) {
         let highest_fps = self.highest_fps();
-        let target_ratio = self.latest_quality().ratio();
-
-        // For bad network, small fps means quick reaction and high quality
-        let (min_fps, normal_fps) = if target_ratio >= BR_BEST {
-            (8, 16)
-        } else if target_ratio >= BR_BALANCED {
-            (10, 20)
-        } else {
-            (12, 24)
-        };
-
-        // Calculate minimum acceptable delay-fps product
-        let dividend_ms = DELAY_THRESHOLD_150MS * min_fps;
-
-        let mut adjust_ratio = false;
         if let Some(user) = self.users.get_mut(&id) {
             let delay = delay.max(10);
-            let old_avg_delay = user.delay.avg_delay();
             user.delay.add_delay(delay);
-            let mut avg_delay = user.delay.avg_delay();
-            avg_delay = avg_delay.max(10);
-            let mut fps = self.fps;
-
-            // Adaptive FPS adjustment based on network delay:
-            if avg_delay < 50 {
-                user.delay.quick_increase_fps_count += 1;
-                let mut step = if fps < normal_fps { 1 } else { 0 };
-                if user.delay.quick_increase_fps_count >= 3 {
-                    // After 3 consecutive good samples, increase more aggressively
-                    user.delay.quick_increase_fps_count = 0;
-                    step = 5;
-                }
-                fps = min_fps.max(fps + step);
-            } else if avg_delay < 100 {
-                let step = if avg_delay < old_avg_delay {
-                    if fps < normal_fps {
-                        1
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-                fps = min_fps.max(fps + step);
-            } else if avg_delay < DELAY_THRESHOLD_150MS {
-                fps = min_fps.max(fps);
-            } else {
-                let devide_fps = ((fps as f32) / (avg_delay as f32 / DELAY_THRESHOLD_150MS as f32))
-                    .ceil() as u32;
-                if avg_delay < 200 {
-                    fps = min_fps.max(devide_fps);
-                } else if avg_delay < 300 {
-                    fps = min_fps.min(devide_fps);
-                } else if avg_delay < 600 {
-                    fps = dividend_ms / avg_delay;
-                } else {
-                    fps = (dividend_ms / avg_delay).min(devide_fps);
-                }
-            }
-
-            if avg_delay < DELAY_THRESHOLD_150MS {
-                user.delay.increase_fps_count += 1;
-            } else {
-                user.delay.increase_fps_count = 0;
-            }
-            if user.delay.increase_fps_count >= 3 {
-                // After 3 stable samples, try increasing FPS
-                user.delay.increase_fps_count = 0;
-                fps += 1;
-            }
-
-            // Reset quick increase counter if network condition worsens
-            if avg_delay > 50 {
-                user.delay.quick_increase_fps_count = 0;
-            }
-
-            fps = fps.clamp(MIN_FPS, highest_fps);
-            // first network delay message
-            adjust_ratio = user.delay.fps.is_none();
-            user.delay.fps = Some(fps);
+            user.delay.fps = Some(highest_fps);
         }
         self.adjust_fps();
-        if adjust_ratio && !cfg!(target_os = "linux") {
-            //Reduce the possibility of vaapi being created twice
-            self.adjust_ratio(false);
-        }
     }
 
     pub fn user_delay_response_elapsed(&mut self, id: i32, elapsed: u128) {
         if let Some(user) = self.users.get_mut(&id) {
-            user.delay.response_delayed = elapsed > 2000;
-            if user.delay.response_delayed {
+            if elapsed > 2000 {
                 user.delay.add_delay(elapsed as u32);
-                self.adjust_fps();
             }
         }
     }
@@ -408,7 +313,7 @@ impl VideoQoS {
             .filter(|q| *q != None)
             .max_by(|a, b| a.unwrap_or_default().0.cmp(&b.unwrap_or_default().0))
             .flatten()
-            .unwrap_or((0, Quality::Balanced))
+            .unwrap_or((0, Quality::Custom(LAN_DEFAULT_BITRATE_RATIO)))
             .1
     }
 
@@ -518,13 +423,8 @@ impl VideoQoS {
             .min()
             .unwrap_or(INIT_FPS);
 
-        if self.users.iter().any(|u| u.1.delay.response_delayed) {
-            if fps > MIN_FPS + 1 {
-                fps = MIN_FPS + 1;
-            }
-        }
-
-        // For new connections (within 1 second), cap fps to INIT_FPS to ensure stability
+        // Keep startup bounded by the LAN profile, while respecting a lower
+        // explicit/decoder-provided frame limit from `highest_fps` below.
         if self.new_user_instant.elapsed().as_secs() < 1 {
             if fps > INIT_FPS {
                 fps = INIT_FPS;
@@ -591,5 +491,39 @@ impl RttCalculator {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lan_profile_starts_with_full_quality_and_sixty_fps() {
+        let qos = VideoQoS::default();
+
+        assert_eq!(qos.fps(), 60);
+        assert_eq!(qos.latest_quality().ratio(), 2.0);
+    }
+
+    #[test]
+    fn lan_network_delay_does_not_throttle_the_frame_budget() {
+        let mut qos = VideoQoS::default();
+        qos.on_connection_open(1);
+
+        qos.user_network_delay(1, 750);
+
+        assert_eq!(qos.fps(), 60);
+    }
+
+    #[test]
+    fn explicit_client_frame_cap_is_still_respected() {
+        let mut qos = VideoQoS::default();
+        qos.on_connection_open(1);
+        qos.user_custom_fps(1, 30);
+
+        qos.user_network_delay(1, 10);
+
+        assert_eq!(qos.fps(), 30);
     }
 }

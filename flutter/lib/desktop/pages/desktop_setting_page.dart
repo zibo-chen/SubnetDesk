@@ -479,8 +479,6 @@ class _GeneralState extends State<_General> {
             reloadAllWindows();
           },
         ),
-      if (!isWeb && !outgoingOnly)
-        _OptionCheckBox(context, 'Adaptive bitrate', kOptionEnableAbr),
       if (!isWeb) wallpaper(),
       if (!isWeb && !incomingOnly) ...[
         _OptionCheckBox(

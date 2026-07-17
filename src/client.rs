@@ -1485,14 +1485,14 @@ impl LoginConfigHandler {
         } else if q == "custom" {
             let config = self.load_config();
             let quality = if config.custom_image_quality.is_empty() {
-                50
+                100
             } else {
                 config.custom_image_quality[0]
             };
             msg.custom_image_quality = quality << 8;
             #[cfg(feature = "flutter")]
             if let Some(custom_fps) = self.options.get("custom-fps") {
-                let custom_fps = custom_fps.parse().unwrap_or(30);
+                let custom_fps = custom_fps.parse().unwrap_or(60);
                 msg.custom_fps = custom_fps;
                 *self.custom_fps.lock().unwrap() = Some(custom_fps as _);
             }

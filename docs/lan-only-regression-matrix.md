@@ -2,7 +2,7 @@
 
 This matrix separates repository-verifiable checks from tests that require multiple machines, platform permissions, installers, or VPN infrastructure. Do not convert a lab row to **Pass** without recording date, package hash, controller/host OS, and evidence location.
 
-Latest repository verification: **2026-07-17**, macOS arm64, after the Windows live service-config sync and mDNS discovery changes. The final unified `cargo check --workspace --all-targets --features flutter` and `cargo test --workspace --features flutter` passed. The suite passed **176 tests**, failed none, and explicitly ignored one Enigo key-state test because it requires an interactive desktop plus input-injection permission. Focused Flutter analysis of the modified desktop files completed with no errors (existing info-level deprecations remain); the previous full Flutter 3.24.5 analysis, LAN-only residual gate, and SubnetDesk branding/icon manifest gate remain recorded as passed.
+Latest repository verification: **2026-07-17**, macOS arm64, after the LAN 100%/60 FPS defaults and headless host connection-manager changes. The final unified `cargo check --workspace --all-targets --features flutter` and `cargo test --workspace --features flutter` passed. The suite passed **181 tests**, failed none, and explicitly ignored one Enigo key-state test because it requires an interactive desktop plus input-injection permission. Focused Flutter analysis of the modified desktop files completed with no errors (existing warnings and info-level deprecations remain); the LAN-only residual gate, SubnetDesk branding/icon manifest gate, and nested-repository diff checks passed.
 
 ## Automated and source-level matrix
 
@@ -13,6 +13,8 @@ Latest repository verification: **2026-07-17**, macOS arm64, after the Windows l
 | Listener | Default private/CGNAT/ULA policy and custom CIDR normalization | `src/lan_server.rs` tests | Pass |
 | Listener | IPv4-mapped IPv6 sources are canonicalized before allowlist/rate-limit handling | `src/lan_server.rs` mapped-address assertions and macOS dual-stack E2E | Pass |
 | Windows service | Saving LAN settings sends the hash-only current config to the running privileged server and requires its exact IPC acknowledgement | `ipc::test::sync_config_ack_requires_the_expected_response`, protected main-IPC authorization | Automated contract; Windows installed-service lab pending |
+| Video QoS | New LAN profiles start at 100% custom quality and 60 FPS; delay samples do not reduce FPS, while an explicit lower client cap remains effective | `server::video_qos::tests`, `config::tests::lan_user_defaults_favor_full_quality_and_sixty_fps` | Pass |
+| Host session UI | Desktop hosts launch the retained connection-manager backend with `--cm-no-ui`; LAN authentication still completes before CM startup | `server::connection::test::lan_connection_manager_is_always_headless`, `handle_lan_login_request` ordering | Automated contract passed; platform process/UI lab pending |
 | Discovery | mDNS advertises only version/name/OS/fingerprint, validates remote metadata, filters addresses, skips self, and deduplicates by fingerprint | `src/lan_mdns.rs` tests plus shared `LanPeers` merge path | Pass |
 | Discovery | UDP broadcast remains available when mDNS is unavailable and neither transport is required for direct endpoint connection | `src/lan.rs` dual-transport orchestration and direct connector | Source verified |
 | Transport | Direct TCP is the only connector | `Client::start`, `socket_client::connect_tcp_local`, residual gate | Implemented |
@@ -94,6 +96,7 @@ Run each row over the same authenticated LAN connector on every claimed release 
 | --- | --- | --- | --- | --- | --- |
 | Screen and keyboard/mouse | Not run | Partial: same-machine full-access desktop and user control check passed | Not run | Not run | Not run |
 | Multi-display, resolution, quality, scaling | Not run | Not run | Not run | Not run | Not run |
+| LAN 100%/60 FPS default and manual lower cap | Not run | Not run | Not run | Not run | Not run |
 | Audio | Not run | Not run | Not run | Not run | Not run |
 | Text and file clipboard | Not run | Not run | Not run | Not run | Not run |
 | File manager/transfer | Not run | Not run | Not run | Not run | Not run |
@@ -120,6 +123,7 @@ Run each row over the same authenticated LAN connector on every claimed release 
 | Uninstall/reinstall | No accidental credential/key disclosure | Not run |
 | Rollback | Separate protected data and verified outbound behavior | Not run |
 | Windows service/UAC/lock screen | Screen/input continuity and ACL inspection | Not run |
+| Headless connection manager | No separate CM window; desktop/file/chat/disconnect cleanup remains functional | Not run |
 | macOS permissions | Screen recording and Accessibility prompts/capabilities | Partial: bundle entitlements/signature and launch passed; Screen Recording/Accessibility feature lab not run |
 | Linux X11/Wayland | Session/portal behavior and service ownership | Not run |
 | Android permissions | Capture, Accessibility, audio, file access, clipboard | Not run |

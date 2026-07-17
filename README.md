@@ -26,6 +26,12 @@ The first connection displays the controlled device fingerprint. Compare it with
 
 VPN products such as WireGuard, Tailscale, or OpenVPN only provide a routable address. The application still uses the same direct TCP protocol. Add the VPN CIDR to the allowed-network list when it is outside the default private, ULA, link-local, loopback, or CGNAT ranges.
 
+## LAN performance and host sessions
+
+New peer profiles default to 100% custom image quality and 60 FPS. SubnetDesk does not apply RustDesk's WAN-oriented delay-based bitrate or frame-rate downshifts to LAN/VPN sessions. A user can still select a lower quality or FPS, and decoder-capacity feedback remains active to prevent an overloaded controller from building an unbounded video queue.
+
+After encrypted credential authentication, the controlled device runs the connection manager in headless mode. No separate incoming-connection window is created; the background manager remains responsible for session cleanup, file operations, chat transport, and other retained features.
+
 ## Security model
 
 - A long-term Ed25519 device identity signs an ephemeral key exchange.
