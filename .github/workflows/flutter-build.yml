@@ -2025,10 +2025,10 @@ jobs:
           # run appimage-builder
           pushd appimage
           sudo appimage-builder --skip-tests --recipe ./AppImageBuilder-${{ matrix.job.arch }}.yml
-          sudo chown "$(id -u):$(id -g)" rustdesk-*.AppImage
           for name in rustdesk-*.AppImage; do
-            mv "$name" "subnetdesk-${name#rustdesk-}"
+            sudo mv "$name" "subnetdesk-${name#rustdesk-}"
           done
+          sudo chown "$(id -u):$(id -g)" subnetdesk-*.AppImage
 
       - name: Publish appimage package
         if: env.PUBLISH_RELEASE == 'true'
