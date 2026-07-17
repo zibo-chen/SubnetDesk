@@ -1,8 +1,5 @@
 name: SubnetDesk Installers CI
 
-permissions:
-  contents: read
-
 on:
   workflow_dispatch:
   pull_request:
@@ -23,9 +20,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  run-ci:
+  run-pr-ci:
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
     uses: ./.github/workflows/flutter-build.yml
     with:
       upload-artifact: true
       publish-release: false
       build-mobile: false
+
+  run-release:
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/flutter-build.yml
+    with:
+      upload-artifact: true
+      publish-release: true
+      build-mobile: false
+      upload-tag: "nightly"
+
+  refresh-nightly-tag:
+    name: Point nightly at this successful build
+    if: ${{ github.event_name != 'pull_request' }}
+    needs: run-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Update nightly tag
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+        with:
+          script: |
+            const ref = 'tags/nightly';
+            try {
+              await github.rest.git.updateRef({
+                ...context.repo,
+                ref,
+                sha: context.sha,
+                force: true,
+              });
+            } catch (error) {
+              if (error.status !== 404 && error.status !== 422) {
+                throw error;
+              }
+              await github.rest.git.createRef({
+                ...context.repo,
+                ref: `refs/${ref}`,
+                sha: context.sha,
+              });
+            }
