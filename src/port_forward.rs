@@ -144,7 +144,7 @@ async fn connect_and_login(
                             interface.set_auth_retry_after(lr.retry_after_seconds);
                             match lr.union {
                             Some(login_response::Union::Error(err)) => {
-                                if !interface.handle_login_error(&err) {
+                                if !interface.handle_login_error(&err).await {
                                     return Ok(None);
                                 }
                             }

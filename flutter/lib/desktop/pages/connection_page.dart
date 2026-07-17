@@ -22,7 +22,7 @@ import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 
 class OnlineStatusWidget extends StatefulWidget {
   const OnlineStatusWidget({Key? key, this.onSvcStatusChanged})
-    : super(key: key);
+      : super(key: key);
 
   final VoidCallback? onSvcStatusChanged;
 
@@ -56,43 +56,43 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
   Widget build(BuildContext context) {
     final isIncomingOnly = bind.isIncomingOnly();
     startServiceWidget() => Offstage(
-      offstage: !_svcStopped.value,
-      child: InkWell(
-        onTap: () async {
-          await start_service(true);
-        },
-        child: Text(
-          translate("Start service"),
-          style: TextStyle(decoration: TextDecoration.underline, fontSize: em),
-        ),
-      ).marginOnly(left: em),
-    );
+          offstage: !_svcStopped.value,
+          child: InkWell(
+            onTap: () async {
+              await start_service(true);
+            },
+            child: Text(
+              translate("Start service"),
+              style:
+                  TextStyle(decoration: TextDecoration.underline, fontSize: em),
+            ),
+          ).marginOnly(left: em),
+        );
 
     basicWidget() => Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Container(
-          height: 8,
-          width: 8,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-            color:
-                _svcStopped.value ||
-                    stateGlobal.svcStatus.value == SvcStatus.connecting
-                ? kColorWarn
-                : (stateGlobal.svcStatus.value == SvcStatus.ready
-                      ? Color.fromARGB(255, 50, 190, 166)
-                      : Color.fromARGB(255, 224, 79, 95)),
-          ),
-        ).marginSymmetric(horizontal: em),
-        Container(
-          width: isIncomingOnly ? 226 : null,
-          child: _buildConnStatusMsg(),
-        ),
-        // stop
-        if (!isIncomingOnly) startServiceWidget(),
-      ],
-    );
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              height: 8,
+              width: 8,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                color: _svcStopped.value ||
+                        stateGlobal.svcStatus.value == SvcStatus.connecting
+                    ? kColorWarn
+                    : (stateGlobal.svcStatus.value == SvcStatus.ready
+                        ? Color.fromARGB(255, 50, 190, 166)
+                        : Color.fromARGB(255, 224, 79, 95)),
+              ),
+            ).marginSymmetric(horizontal: em),
+            Container(
+              width: isIncomingOnly ? 226 : null,
+              child: _buildConnStatusMsg(),
+            ),
+            // stop
+            if (!isIncomingOnly) startServiceWidget(),
+          ],
+        );
 
     return Container(
       height: height,
@@ -118,10 +118,10 @@ class _OnlineStatusWidgetState extends State<OnlineStatusWidget> {
       _svcStopped.value
           ? translate("Service is not running")
           : stateGlobal.svcStatus.value == SvcStatus.connecting
-          ? translate("connecting_status")
-          : stateGlobal.svcStatus.value == SvcStatus.notReady
-          ? translate("not_ready_status")
-          : translate('Ready'),
+              ? translate("connecting_status")
+              : stateGlobal.svcStatus.value == SvcStatus.notReady
+                  ? translate("not_ready_status")
+                  : translate('Ready'),
       style: TextStyle(fontSize: em),
     );
   }
@@ -164,6 +164,7 @@ class _ConnectionPageState extends State<ConnectionPage>
   final TextEditingController _idEditingController = TextEditingController();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  bool _rememberPassword = false;
 
   String selectedConnectionType = 'Connect';
 
@@ -298,17 +299,20 @@ class _ConnectionPageState extends State<ConnectionPage>
     final endpoint = _idController.id;
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
-    if (endpoint.isEmpty || username.isEmpty || password.isEmpty) {
+    if (endpoint.isEmpty || (username.isEmpty && password.isNotEmpty)) {
       showToast(
         '${translate('Local Address')} · ${translate('Username')} · ${translate('Password')}',
       );
       return;
     }
-    final credentialPayload = jsonEncode({
-      'lan_version': 1,
-      'username': username,
-      'password': password,
-    });
+    final credentialPayload = password.isEmpty
+        ? null
+        : jsonEncode({
+            'lan_version': 1,
+            'username': username,
+            'password': password,
+            'remember': _rememberPassword,
+          });
     await connect(
       context,
       endpoint,
@@ -355,8 +359,8 @@ class _ConnectionPageState extends State<ConnectionPage>
                         );
                         _autocompleteOpts = [emptyPeer];
                       } else {
-                        String textWithoutSpaces = textEditingValue.text
-                            .replaceAll(" ", "");
+                        String textWithoutSpaces =
+                            textEditingValue.text.replaceAll(" ", "");
                         if (int.tryParse(textWithoutSpaces) != null) {
                           textEditingValue = TextEditingValue(
                             text: textWithoutSpaces,
@@ -369,11 +373,11 @@ class _ConnectionPageState extends State<ConnectionPage>
                               (peer) =>
                                   peer.id.toLowerCase().contains(textToFind) ||
                                   peer.username.toLowerCase().contains(
-                                    textToFind,
-                                  ) ||
+                                        textToFind,
+                                      ) ||
                                   peer.hostname.toLowerCase().contains(
-                                    textToFind,
-                                  ) ||
+                                        textToFind,
+                                      ) ||
                                   peer.alias.toLowerCase().contains(textToFind),
                             )
                             .toList();
@@ -382,132 +386,128 @@ class _ConnectionPageState extends State<ConnectionPage>
                     },
                     focusNode: _idFocusNode,
                     textEditingController: _idEditingController,
-                    fieldViewBuilder:
-                        (
-                          BuildContext context,
-                          TextEditingController fieldTextEditingController,
-                          FocusNode fieldFocusNode,
-                          VoidCallback onFieldSubmitted,
-                        ) {
-                          updateTextAndPreserveSelection(
-                            fieldTextEditingController,
-                            _idController.text,
-                          );
-                          return Obx(
-                            () => TextField(
-                              autocorrect: false,
-                              enableSuggestions: false,
-                              keyboardType: TextInputType.visiblePassword,
-                              focusNode: fieldFocusNode,
-                              style: const TextStyle(
-                                fontFamily: 'WorkSans',
-                                fontSize: 22,
-                                height: 1.4,
-                              ),
-                              maxLines: 1,
-                              cursorColor: Theme.of(
-                                context,
-                              ).textTheme.titleLarge?.color,
-                              decoration: InputDecoration(
-                                filled: false,
-                                counterText: '',
-                                hintText: _idInputFocused.value
-                                    ? null
-                                    : '${translate('Local Address')} (IP / DNS)',
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 15,
-                                  vertical: 13,
-                                ),
-                              ),
-                              controller: fieldTextEditingController,
-                              inputFormatters: [IDTextInputFormatter()],
-                              onChanged: (v) {
-                                _idController.id = v;
-                              },
-                              onSubmitted: (_) {
-                                onConnect();
-                              },
-                            ).workaroundFreezeLinuxMint(),
-                          );
-                        },
+                    fieldViewBuilder: (
+                      BuildContext context,
+                      TextEditingController fieldTextEditingController,
+                      FocusNode fieldFocusNode,
+                      VoidCallback onFieldSubmitted,
+                    ) {
+                      updateTextAndPreserveSelection(
+                        fieldTextEditingController,
+                        _idController.text,
+                      );
+                      return Obx(
+                        () => TextField(
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          keyboardType: TextInputType.visiblePassword,
+                          focusNode: fieldFocusNode,
+                          style: const TextStyle(
+                            fontFamily: 'WorkSans',
+                            fontSize: 22,
+                            height: 1.4,
+                          ),
+                          maxLines: 1,
+                          cursorColor: Theme.of(
+                            context,
+                          ).textTheme.titleLarge?.color,
+                          decoration: InputDecoration(
+                            filled: false,
+                            counterText: '',
+                            hintText: _idInputFocused.value
+                                ? null
+                                : '${translate('Local Address')} (IP / DNS)',
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 15,
+                              vertical: 13,
+                            ),
+                          ),
+                          controller: fieldTextEditingController,
+                          inputFormatters: [IDTextInputFormatter()],
+                          onChanged: (v) {
+                            _idController.id = v;
+                          },
+                          onSubmitted: (_) {
+                            onConnect();
+                          },
+                        ).workaroundFreezeLinuxMint(),
+                      );
+                    },
                     onSelected: (option) {
                       setState(() {
                         _idController.id = option.id;
                         FocusScope.of(context).unfocus();
                       });
                     },
-                    optionsViewBuilder:
-                        (
-                          BuildContext context,
-                          AutocompleteOnSelected<Peer> onSelected,
-                          Iterable<Peer> options,
-                        ) {
-                          options = _autocompleteOpts;
-                          double maxHeight = options.length * 50;
-                          if (options.length == 1) {
-                            maxHeight = 52;
-                          } else if (options.length == 3) {
-                            maxHeight = 146;
-                          } else if (options.length == 4) {
-                            maxHeight = 193;
-                          }
-                          maxHeight = maxHeight.clamp(0, 200);
+                    optionsViewBuilder: (
+                      BuildContext context,
+                      AutocompleteOnSelected<Peer> onSelected,
+                      Iterable<Peer> options,
+                    ) {
+                      options = _autocompleteOpts;
+                      double maxHeight = options.length * 50;
+                      if (options.length == 1) {
+                        maxHeight = 52;
+                      } else if (options.length == 3) {
+                        maxHeight = 146;
+                      } else if (options.length == 4) {
+                        maxHeight = 193;
+                      }
+                      maxHeight = maxHeight.clamp(0, 200);
 
-                          return Align(
-                            alignment: Alignment.topLeft,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.3),
-                                    blurRadius: 5,
-                                    spreadRadius: 1,
-                                  ),
-                                ],
+                      return Align(
+                        alignment: Alignment.topLeft,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.3),
+                                blurRadius: 5,
+                                spreadRadius: 1,
                               ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(5),
-                                child: Material(
-                                  elevation: 4,
-                                  child: ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      maxHeight: maxHeight,
-                                      maxWidth: 319,
-                                    ),
-                                    child:
-                                        _allPeersLoader.peers.isEmpty &&
-                                            !_allPeersLoader.isPeersLoaded
-                                        ? Container(
-                                            height: 80,
-                                            child: Center(
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                              ),
-                                            ),
-                                          )
-                                        : Padding(
-                                            padding: const EdgeInsets.only(
-                                              top: 5,
-                                            ),
-                                            child: ListView(
-                                              children: options
-                                                  .map(
-                                                    (peer) =>
-                                                        AutocompletePeerTile(
-                                                          onSelect: () =>
-                                                              onSelected(peer),
-                                                          peer: peer,
-                                                        ),
-                                                  )
-                                                  .toList(),
-                                            ),
-                                          ),
-                                  ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(5),
+                            child: Material(
+                              elevation: 4,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight: maxHeight,
+                                  maxWidth: 319,
                                 ),
+                                child: _allPeersLoader.peers.isEmpty &&
+                                        !_allPeersLoader.isPeersLoaded
+                                    ? Container(
+                                        height: 80,
+                                        child: Center(
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      )
+                                    : Padding(
+                                        padding: const EdgeInsets.only(
+                                          top: 5,
+                                        ),
+                                        child: ListView(
+                                          children: options
+                                              .map(
+                                                (peer) => AutocompletePeerTile(
+                                                  onSelect: () =>
+                                                      onSelected(peer),
+                                                  peer: peer,
+                                                ),
+                                              )
+                                              .toList(),
+                                        ),
+                                      ),
                               ),
                             ),
-                          );
-                        },
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -533,6 +533,15 @@ class _ConnectionPageState extends State<ConnectionPage>
                 prefixIcon: const Icon(Icons.lock_outline),
               ),
               onSubmitted: (_) => onConnect(),
+            ),
+            CheckboxListTile(
+              value: _rememberPassword,
+              onChanged: (value) =>
+                  setState(() => _rememberPassword = value == true),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(translate('Remember password')),
             ),
             Padding(
               padding: const EdgeInsets.only(top: 13.0),
@@ -577,73 +586,67 @@ class _ConnectionPageState extends State<ConnectionPage>
                                 final y = offset.dy;
                                 await mod_menu
                                     .showMenu(
-                                      context: context,
-                                      position: RelativeRect.fromLTRB(
-                                        x,
-                                        y,
-                                        x,
-                                        y,
-                                      ),
-                                      items:
-                                          [
-                                                (
-                                                  'Transfer file',
-                                                  () => onConnect(
-                                                    isFileTransfer: true,
-                                                  ),
-                                                ),
-                                                (
-                                                  'View camera',
-                                                  () => onConnect(
-                                                    isViewCamera: true,
-                                                  ),
-                                                ),
-                                                (
-                                                  '${translate('Terminal')} (beta)',
-                                                  () => onConnect(
-                                                    isTerminal: true,
-                                                  ),
-                                                ),
-                                              ]
-                                              .map(
-                                                (e) => MenuEntryButton<String>(
-                                                  childBuilder:
-                                                      (TextStyle? style) =>
-                                                          Text(
-                                                            translate(e.$1),
-                                                            style: style,
-                                                          ),
-                                                  proc: () => e.$2(),
-                                                  padding: EdgeInsets.symmetric(
-                                                    horizontal:
-                                                        kDesktopMenuPadding
-                                                            .left,
-                                                  ),
-                                                  dismissOnClicked: true,
-                                                ),
-                                              )
-                                              .map(
-                                                (e) => e.build(
-                                                  context,
-                                                  const MenuConfig(
-                                                    commonColor:
-                                                        CustomPopupMenuTheme
-                                                            .commonColor,
-                                                    height: CustomPopupMenuTheme
-                                                        .height,
-                                                    dividerHeight:
-                                                        CustomPopupMenuTheme
-                                                            .dividerHeight,
-                                                  ),
-                                                ),
-                                              )
-                                              .expand((i) => i)
-                                              .toList(),
-                                      elevation: 8,
-                                    )
+                                  context: context,
+                                  position: RelativeRect.fromLTRB(
+                                    x,
+                                    y,
+                                    x,
+                                    y,
+                                  ),
+                                  items: [
+                                    (
+                                      'Transfer file',
+                                      () => onConnect(
+                                            isFileTransfer: true,
+                                          ),
+                                    ),
+                                    (
+                                      'View camera',
+                                      () => onConnect(
+                                            isViewCamera: true,
+                                          ),
+                                    ),
+                                    (
+                                      '${translate('Terminal')} (beta)',
+                                      () => onConnect(
+                                            isTerminal: true,
+                                          ),
+                                    ),
+                                  ]
+                                      .map(
+                                        (e) => MenuEntryButton<String>(
+                                          childBuilder: (TextStyle? style) =>
+                                              Text(
+                                            translate(e.$1),
+                                            style: style,
+                                          ),
+                                          proc: () => e.$2(),
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal:
+                                                kDesktopMenuPadding.left,
+                                          ),
+                                          dismissOnClicked: true,
+                                        ),
+                                      )
+                                      .map(
+                                        (e) => e.build(
+                                          context,
+                                          const MenuConfig(
+                                            commonColor: CustomPopupMenuTheme
+                                                .commonColor,
+                                            height: CustomPopupMenuTheme.height,
+                                            dividerHeight: CustomPopupMenuTheme
+                                                .dividerHeight,
+                                          ),
+                                        ),
+                                      )
+                                      .expand((i) => i)
+                                      .toList(),
+                                  elevation: 8,
+                                )
                                     .then((_) {
-                                      _menuOpen.value = false;
-                                    });
+                                  _menuOpen.value = false;
+                                });
                               },
                             ),
                           );

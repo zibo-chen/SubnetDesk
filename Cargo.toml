@@ -154,6 +154,7 @@ foreign-types = "0.3"
 tray-icon = { git = "https://github.com/tauri-apps/tray-icon", version = "0.21.3" }
 tao = { git = "https://github.com/rustdesk-org/tao", branch = "dev" }
 image = "0.24"
+keyring = "2.3.3"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 keepawake = { git = "https://github.com/rustdesk-org/keepawake-rs" }

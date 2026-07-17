@@ -105,6 +105,10 @@ pub const LOGIN_MSG_DESKTOP_SESSION_NOT_READY_PASSWORD_WRONG: &str =
 pub const LOGIN_MSG_PASSWORD_EMPTY: &str = "Empty Password";
 pub const LOGIN_MSG_PASSWORD_WRONG: &str = "Wrong Password";
 pub const LOGIN_MSG_LAN_CREDENTIALS_WRONG: &str = "Username or password is incorrect";
+const LAN_CREDENTIAL_CONFIG_PREFIX: &str = "lan-credential-";
+const LAN_CREDENTIAL_USERNAME_OPTION: &str = "lan-access-username";
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+const LAN_CREDENTIAL_KEYRING_SERVICE: &str = "com.zibochen.SubnetDesk.LANCredentials";
 pub const LOGIN_MSG_OFFLINE: &str = "Offline";
 pub const LOGIN_SCREEN_WAYLAND: &str = "Wayland login screen is not supported";
 #[cfg(target_os = "linux")]
@@ -1058,6 +1062,106 @@ impl LoginConfigHandler {
     pub fn save_config(&mut self, config: PeerConfig) {
         config.store(&self.id);
         self.config = config;
+    }
+
+    fn lan_credential_config_id(&self) -> Option<String> {
+        if self.lan_fingerprint.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "{LAN_CREDENTIAL_CONFIG_PREFIX}{}",
+                self.lan_fingerprint
+            ))
+        }
+    }
+
+    pub fn load_remembered_lan_credential(&self) -> Option<(String, Vec<u8>)> {
+        let config_id = self.lan_credential_config_id()?;
+        let config = PeerConfig::load(&config_id);
+        let username = config
+            .options
+            .get(LAN_CREDENTIAL_USERNAME_OPTION)
+            .cloned()?;
+        if hbb_common::lan::validate_username(&username).is_err() {
+            return None;
+        }
+        #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+        {
+            let entry = match keyring::Entry::new(LAN_CREDENTIAL_KEYRING_SERVICE, &config_id) {
+                Ok(entry) => entry,
+                Err(err) => {
+                    log::warn!("Failed to open the operating system credential store: {err}");
+                    return None;
+                }
+            };
+            let mut password = match entry.get_password() {
+                Ok(password) => password,
+                Err(keyring::Error::NoEntry) => return None,
+                Err(err) => {
+                    log::warn!("Failed to read the remembered LAN credential: {err}");
+                    return None;
+                }
+            };
+            if hbb_common::lan::validate_password(password.as_bytes()).is_err() {
+                password.zeroize();
+                return None;
+            }
+            let password_bytes = password.as_bytes().to_vec();
+            password.zeroize();
+            Some((username, password_bytes))
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        {
+            None
+        }
+    }
+
+    pub fn save_remembered_lan_credential(
+        &self,
+        username: &str,
+        password: &[u8],
+    ) -> ResultType<()> {
+        let config_id = self
+            .lan_credential_config_id()
+            .ok_or_else(|| anyhow!("LAN device fingerprint is not available"))?;
+        let username = hbb_common::lan::validate_username(username)?;
+        hbb_common::lan::validate_password(password)?;
+        #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+        {
+            let password = std::str::from_utf8(password)
+                .map_err(|_| anyhow!("LAN password is not valid UTF-8"))?;
+            keyring::Entry::new(LAN_CREDENTIAL_KEYRING_SERVICE, &config_id)
+                .map_err(|err| {
+                    anyhow!("Failed to open the operating system credential store: {err}")
+                })?
+                .set_password(password)
+                .map_err(|err| anyhow!("Failed to save the LAN credential: {err}"))?;
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        {
+            let _ = password;
+            bail!("Remembering LAN passwords is not supported on this platform");
+        }
+        let mut config = PeerConfig::load(&config_id);
+        config.password.clear();
+        config
+            .options
+            .insert(LAN_CREDENTIAL_USERNAME_OPTION.to_owned(), username);
+        config.store(&config_id);
+        Ok(())
+    }
+
+    pub fn clear_remembered_lan_credential(&self) {
+        if let Some(config_id) = self.lan_credential_config_id() {
+            #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+            match keyring::Entry::new(LAN_CREDENTIAL_KEYRING_SERVICE, &config_id)
+                .and_then(|entry| entry.delete_password())
+            {
+                Ok(()) | Err(keyring::Error::NoEntry) => {}
+                Err(err) => log::warn!("Failed to delete the remembered LAN credential: {err}"),
+            }
+            PeerConfig::remove(&config_id);
+        }
     }
 
     /// Set an option for handler's [`PeerConfig`].
@@ -2417,8 +2521,8 @@ lazy_static::lazy_static! {
 
 /// Handle login error.
 /// Return true if the password is wrong, return false if there's an actual error.
-pub fn handle_login_error(
-    _lc: Arc<RwLock<LoginConfigHandler>>,
+pub async fn handle_login_error(
+    lc: Arc<RwLock<LoginConfigHandler>>,
     err: &str,
     interface: &impl Interface,
 ) -> bool {
@@ -2426,6 +2530,13 @@ pub fn handle_login_error(
         interface.msgbox("input-password", "Password Required", "", "");
         true
     } else if err == LOGIN_MSG_LAN_CREDENTIALS_WRONG {
+        if let Err(err) = tokio::task::spawn_blocking(move || {
+            lc.read().unwrap().clear_remembered_lan_credential();
+        })
+        .await
+        {
+            log::warn!("Failed to clear the remembered LAN credential: {err}");
+        }
         interface.msgbox(
             "lan-login-required",
             "Username or password is incorrect",
@@ -2563,7 +2674,7 @@ pub trait Interface: Send + Clone + 'static + Sized {
     /// Send message data to remote peer.
     fn send(&self, data: Data);
     fn msgbox(&self, msgtype: &str, title: &str, text: &str, link: &str);
-    fn handle_login_error(&self, err: &str) -> bool;
+    async fn handle_login_error(&self, err: &str) -> bool;
     fn handle_peer_info(&self, pi: PeerInfo);
     fn set_multiple_windows_session(&self, sessions: Vec<WindowsSession>);
     fn on_error(&self, err: &str) {

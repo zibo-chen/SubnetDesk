@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:back_button_interceptor/back_button_interceptor.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -2577,12 +2576,6 @@ connectMainDesktop(
   required bool isRDP,
   String? password,
 }) async {
-  if (password == null || password.isEmpty) {
-    final context = Get.context;
-    if (context == null) return;
-    password = await _requestLanCredentialPayload(context, username: '');
-    if (password == null) return;
-  }
   if (isFileTransfer) {
     await rustDeskWinManager.newFileTransfer(id, password: password);
   } else if (isViewCamera) {
@@ -2613,13 +2606,6 @@ connect(
   String? username,
 }) async {
   if (id == '') return;
-  if (password == null || password.isEmpty) {
-    password = await _requestLanCredentialPayload(
-      context,
-      username: username ?? '',
-    );
-    if (password == null) return;
-  }
   if (!isDesktop || desktopType == DesktopType.main) {
     try {
       if (Get.isRegistered<IDTextEditingController>()) {
@@ -2750,104 +2736,6 @@ connect(
   if (!currentFocus.hasPrimaryFocus) {
     currentFocus.unfocus();
   }
-}
-
-Future<String?> _requestLanCredentialPayload(
-  BuildContext context, {
-  required String username,
-}) async {
-  final usernameController = TextEditingController(text: username);
-  final passwordController = TextEditingController();
-  String error = '';
-  final payload = await showDialog<String>(
-    context: context,
-    barrierDismissible: false,
-    builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-        title: Text(translate('LAN access credentials')),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: usernameController,
-                autofocus: usernameController.text.isEmpty,
-                maxLength: 64,
-                decoration: InputDecoration(labelText: translate('Username')),
-              ),
-              TextField(
-                controller: passwordController,
-                autofocus: usernameController.text.isNotEmpty,
-                obscureText: true,
-                enableSuggestions: false,
-                autocorrect: false,
-                maxLength: 256,
-                decoration: InputDecoration(labelText: translate('Password')),
-                onSubmitted: (_) {
-                  final username = usernameController.text.trim();
-                  final password = passwordController.text;
-                  if (username.isEmpty || password.isEmpty) {
-                    setDialogState(
-                      () => error = translate('Credentials are required'),
-                    );
-                    return;
-                  }
-                  Navigator.of(dialogContext).pop(
-                    jsonEncode({
-                      'lan_version': 1,
-                      'username': username,
-                      'password': password,
-                    }),
-                  );
-                },
-              ),
-              if (error.isNotEmpty)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    error,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(translate('Cancel')),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final username = usernameController.text.trim();
-              final password = passwordController.text;
-              if (username.isEmpty || password.isEmpty) {
-                setDialogState(
-                  () => error = translate('Credentials are required'),
-                );
-                return;
-              }
-              Navigator.of(dialogContext).pop(
-                jsonEncode({
-                  'lan_version': 1,
-                  'username': username,
-                  'password': password,
-                }),
-              );
-            },
-            child: Text(translate('Connect')),
-          ),
-        ],
-      ),
-    ),
-  );
-  passwordController.clear();
-  usernameController.dispose();
-  passwordController.dispose();
-  return payload;
 }
 
 // Simple wrapper of built-in types for reference use.

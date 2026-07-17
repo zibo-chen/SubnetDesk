@@ -306,6 +306,7 @@ _connectDialog(
 }) async {
   final errUsername = ''.obs;
   final errPassword = ''.obs;
+  bool rememberPassword = false;
   if (osUsernameController != null) {
     osUsernameController.addListener(() {
       if (errUsername.value.isNotEmpty) {
@@ -342,6 +343,7 @@ _connectDialog(
           sessionId: sessionId,
           username: osUsername,
           password: osPassword,
+          remember: rememberPassword,
         );
         osPasswordController?.clear();
         if (error.isNotEmpty) {
@@ -447,6 +449,16 @@ _connectDialog(
               ? Offstage()
               : Container(height: 12),
           passwdWidget(),
+          if (lanAccess && isDesktop)
+            CheckboxListTile(
+              value: rememberPassword,
+              onChanged: (value) =>
+                  setState(() => rememberPassword = value == true),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(translate('Remember password')),
+            ),
         ],
       ),
       actions: [

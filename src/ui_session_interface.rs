@@ -57,6 +57,7 @@ const CHANGE_RESOLUTION_VALID_TIMEOUT_SECS: u64 = 15;
 pub struct LanSessionCredential {
     pub username: String,
     pub password: Vec<u8>,
+    pub remember: bool,
 }
 
 #[derive(Clone, Default)]
@@ -206,14 +207,17 @@ impl<T: InvokeUiSession> Session<T> {
         &self,
         username: String,
         mut password: String,
+        remember: bool,
     ) -> hbb_common::ResultType<()> {
         let username = hbb_common::lan::validate_username(&username)?;
         hbb_common::lan::validate_password(password.as_bytes())?;
         let credential = LanSessionCredential {
-            username,
+            username: username.clone(),
             password: password.as_bytes().to_vec(),
+            remember,
         };
         password.zeroize();
+        self.lc.write().unwrap().lan_access_username = username;
         *self.lan_credential.lock().unwrap() = Some(credential);
         self.send(Data::SubmitLanCredentials);
         Ok(())
@@ -1716,8 +1720,8 @@ impl<T: InvokeUiSession> Interface for Session<T> {
         self.ui_handler.msgbox(msgtype, title, text, link, retry);
     }
 
-    fn handle_login_error(&self, err: &str) -> bool {
-        handle_login_error(self.lc.clone(), err, self)
+    async fn handle_login_error(&self, err: &str) -> bool {
+        handle_login_error(self.lc.clone(), err, self).await
     }
 
     fn set_multiple_windows_session(&self, sessions: Vec<WindowsSession>) {
@@ -1768,6 +1772,25 @@ impl<T: InvokeUiSession> Interface for Session<T> {
             );
         }
         self.update_privacy_mode();
+        // Authentication succeeded. Persist or remove the fingerprint-bound LAN
+        // credential only now, never when the user merely submits the dialog.
+        if let Some(credential) = self.lan_credential.lock().unwrap().take() {
+            let lc = self.lc.clone();
+            let interface = self.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let lc = lc.read().unwrap();
+                if credential.remember {
+                    if let Err(err) = lc
+                        .save_remembered_lan_credential(&credential.username, &credential.password)
+                    {
+                        log::error!("Failed to remember LAN credential: {err}");
+                        interface.msgbox("error", "Failed", "Remember password", "");
+                    }
+                } else {
+                    lc.clear_remembered_lan_credential();
+                }
+            });
+        }
         // Save recent peers, then push event to flutter. So flutter can refresh peer page.
         self.lc.write().unwrap().handle_peer_info(&pi);
         self.set_peer_info(&pi);
@@ -1808,7 +1831,32 @@ impl<T: InvokeUiSession> Interface for Session<T> {
     }
 
     async fn send_initial_lan_login(&self, peer: &mut Stream) {
-        if let Some(mut credential) = self.lan_credential() {
+        let mut credential = self.lan_credential();
+        if credential.is_none() {
+            let lc = self.lc.clone();
+            let remembered = match tokio::task::spawn_blocking(move || {
+                lc.read().unwrap().load_remembered_lan_credential()
+            })
+            .await
+            {
+                Ok(remembered) => remembered,
+                Err(err) => {
+                    log::warn!("Failed to read the remembered LAN credential: {err}");
+                    None
+                }
+            };
+            if let Some((username, password)) = remembered {
+                let remembered = LanSessionCredential {
+                    username,
+                    password,
+                    remember: true,
+                };
+                self.lc.write().unwrap().lan_access_username = remembered.username.clone();
+                *self.lan_credential.lock().unwrap() = Some(remembered.clone());
+                credential = Some(remembered);
+            }
+        }
+        if let Some(mut credential) = credential {
             crate::client::send_lan_login(
                 self.lc.clone(),
                 std::mem::take(&mut credential.username),

@@ -184,6 +184,8 @@ impl<T: InvokeUiSession> Remote<T> {
                     self.handle_disconnected(round);
                     return;
                 }
+                let fingerprint = crate::lan_protocol::fingerprint(&device_public_key);
+                self.handler.get_lch().write().unwrap().lan_fingerprint = fingerprint.clone();
                 self.handler.send_initial_lan_login(&mut peer).await;
                 self.handler
                     .connection_round_state
@@ -193,8 +195,6 @@ impl<T: InvokeUiSession> Remote<T> {
                 let is_secured = peer.is_secured();
                 self.handler.set_connection_type(is_secured, true, "TCP"); // flutter -> connection_ready
                 self.handler.update_direct(Some(true));
-                let fingerprint = crate::lan_protocol::fingerprint(&device_public_key);
-                self.handler.get_lch().write().unwrap().lan_fingerprint = fingerprint.clone();
                 if conn_type == ConnType::DEFAULT_CONN || conn_type == ConnType::VIEW_CAMERA {
                     self.handler.set_fingerprint(fingerprint);
                 }
@@ -1346,7 +1346,7 @@ impl<T: InvokeUiSession> Remote<T> {
                     self.handler.set_auth_retry_after(lr.retry_after_seconds);
                     match lr.union {
                         Some(login_response::Union::Error(err)) => {
-                            if !self.handler.handle_login_error(&err) {
+                            if !self.handler.handle_login_error(&err).await {
                                 return false;
                             }
                         }

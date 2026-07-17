@@ -5,7 +5,6 @@ import 'package:auto_size_text_field/auto_size_text_field.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
 import 'package:flutter_hbb/common/widgets/connection_page_title.dart';
-import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
@@ -102,7 +101,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
     final endpoint = _idController.id;
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
-    if (endpoint.isEmpty || username.isEmpty || password.isEmpty) {
+    if (endpoint.isEmpty || (username.isEmpty && password.isNotEmpty)) {
       showToast(
         '${translate('Local Address')} · ${translate('Username')} · ${translate('Password')}',
       );
@@ -114,11 +113,14 @@ class _ConnectionPageState extends State<ConnectionPage> {
       isFileTransfer: isFileTransfer,
       isViewCamera: isViewCamera,
       isTerminal: isTerminal,
-      password: jsonEncode({
-        'lan_version': 1,
-        'username': username,
-        'password': password,
-      }),
+      password: password.isEmpty
+          ? null
+          : jsonEncode({
+              'lan_version': 1,
+              'username': username,
+              'password': password,
+              'remember': false,
+            }),
     );
     _passwordController.clear();
   }
@@ -174,8 +176,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
                         );
                         _autocompleteOpts = [emptyPeer];
                       } else {
-                        String textWithoutSpaces = textEditingValue.text
-                            .replaceAll(" ", "");
+                        String textWithoutSpaces =
+                            textEditingValue.text.replaceAll(" ", "");
                         if (int.tryParse(textWithoutSpaces) != null) {
                           textEditingValue = TextEditingValue(
                             text: textWithoutSpaces,
@@ -189,11 +191,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
                               (peer) =>
                                   peer.id.toLowerCase().contains(textToFind) ||
                                   peer.username.toLowerCase().contains(
-                                    textToFind,
-                                  ) ||
+                                        textToFind,
+                                      ) ||
                                   peer.hostname.toLowerCase().contains(
-                                    textToFind,
-                                  ) ||
+                                        textToFind,
+                                      ) ||
                                   peer.alias.toLowerCase().contains(textToFind),
                             )
                             .toList();
@@ -202,129 +204,124 @@ class _ConnectionPageState extends State<ConnectionPage> {
                     },
                     focusNode: _idFocusNode,
                     textEditingController: _idEditingController,
-                    fieldViewBuilder:
-                        (
-                          BuildContext context,
-                          TextEditingController fieldTextEditingController,
-                          FocusNode fieldFocusNode,
-                          VoidCallback onFieldSubmitted,
-                        ) {
-                          updateTextAndPreserveSelection(
-                            fieldTextEditingController,
-                            _idController.text,
-                          );
-                          return AutoSizeTextField(
-                            controller: fieldTextEditingController,
-                            focusNode: fieldFocusNode,
-                            minFontSize: 18,
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            keyboardType: TextInputType.visiblePassword,
-                            // keyboardType: TextInputType.number,
-                            onChanged: (String text) {
-                              _idController.id = text;
-                            },
-                            style: const TextStyle(
-                              fontFamily: 'WorkSans',
-                              fontWeight: FontWeight.bold,
-                              fontSize: 30,
-                              color: MyTheme.idColor,
-                            ),
-                            decoration: InputDecoration(
-                              labelText:
-                                  '${translate('Local Address')} (IP / DNS)',
-                              border: InputBorder.none,
-                              helperStyle: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: MyTheme.darkGray,
-                              ),
-                              labelStyle: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 16,
-                                letterSpacing: 0.2,
-                                color: MyTheme.darkGray,
-                              ),
-                            ),
-                            inputFormatters: [IDTextInputFormatter()],
-                            onSubmitted: (_) {
-                              onConnect();
-                            },
-                          );
+                    fieldViewBuilder: (
+                      BuildContext context,
+                      TextEditingController fieldTextEditingController,
+                      FocusNode fieldFocusNode,
+                      VoidCallback onFieldSubmitted,
+                    ) {
+                      updateTextAndPreserveSelection(
+                        fieldTextEditingController,
+                        _idController.text,
+                      );
+                      return AutoSizeTextField(
+                        controller: fieldTextEditingController,
+                        focusNode: fieldFocusNode,
+                        minFontSize: 18,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        keyboardType: TextInputType.visiblePassword,
+                        // keyboardType: TextInputType.number,
+                        onChanged: (String text) {
+                          _idController.id = text;
                         },
+                        style: const TextStyle(
+                          fontFamily: 'WorkSans',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 30,
+                          color: MyTheme.idColor,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: '${translate('Local Address')} (IP / DNS)',
+                          border: InputBorder.none,
+                          helperStyle: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: MyTheme.darkGray,
+                          ),
+                          labelStyle: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                            letterSpacing: 0.2,
+                            color: MyTheme.darkGray,
+                          ),
+                        ),
+                        inputFormatters: [IDTextInputFormatter()],
+                        onSubmitted: (_) {
+                          onConnect();
+                        },
+                      );
+                    },
                     onSelected: (option) {
                       setState(() {
                         _idController.id = option.id;
                         FocusScope.of(context).unfocus();
                       });
                     },
-                    optionsViewBuilder:
-                        (
-                          BuildContext context,
-                          AutocompleteOnSelected<Peer> onSelected,
-                          Iterable<Peer> options,
-                        ) {
-                          options = _autocompleteOpts;
-                          double maxHeight = options.length * 50;
-                          if (options.length == 1) {
-                            maxHeight = 52;
-                          } else if (options.length == 3) {
-                            maxHeight = 146;
-                          } else if (options.length == 4) {
-                            maxHeight = 193;
-                          }
-                          maxHeight = maxHeight.clamp(0, 200);
-                          return Align(
-                            alignment: Alignment.topLeft,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.3),
-                                    blurRadius: 5,
-                                    spreadRadius: 1,
-                                  ),
-                                ],
+                    optionsViewBuilder: (
+                      BuildContext context,
+                      AutocompleteOnSelected<Peer> onSelected,
+                      Iterable<Peer> options,
+                    ) {
+                      options = _autocompleteOpts;
+                      double maxHeight = options.length * 50;
+                      if (options.length == 1) {
+                        maxHeight = 52;
+                      } else if (options.length == 3) {
+                        maxHeight = 146;
+                      } else if (options.length == 4) {
+                        maxHeight = 193;
+                      }
+                      maxHeight = maxHeight.clamp(0, 200);
+                      return Align(
+                        alignment: Alignment.topLeft,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.3),
+                                blurRadius: 5,
+                                spreadRadius: 1,
                               ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(5),
-                                child: Material(
-                                  elevation: 4,
-                                  child: ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      maxHeight: maxHeight,
-                                      maxWidth: 320,
-                                    ),
-                                    child:
-                                        _allPeersLoader.peers.isEmpty &&
-                                            !_allPeersLoader.isPeersLoaded
-                                        ? Container(
-                                            height: 80,
-                                            child: Center(
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                              ),
-                                            ),
-                                          )
-                                        : ListView(
-                                            padding: EdgeInsets.only(top: 5),
-                                            children: options
-                                                .map(
-                                                  (peer) =>
-                                                      AutocompletePeerTile(
-                                                        onSelect: () =>
-                                                            onSelected(peer),
-                                                        peer: peer,
-                                                      ),
-                                                )
-                                                .toList(),
-                                          ),
-                                  ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(5),
+                            child: Material(
+                              elevation: 4,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight: maxHeight,
+                                  maxWidth: 320,
                                 ),
+                                child: _allPeersLoader.peers.isEmpty &&
+                                        !_allPeersLoader.isPeersLoaded
+                                    ? Container(
+                                        height: 80,
+                                        child: Center(
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      )
+                                    : ListView(
+                                        padding: EdgeInsets.only(top: 5),
+                                        children: options
+                                            .map(
+                                              (peer) => AutocompletePeerTile(
+                                                onSelect: () =>
+                                                    onSelected(peer),
+                                                peer: peer,
+                                              ),
+                                            )
+                                            .toList(),
+                                      ),
                               ),
                             ),
-                          );
-                        },
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),

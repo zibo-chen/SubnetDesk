@@ -49,6 +49,8 @@ struct LanCredentialPayload {
     lan_version: u32,
     username: String,
     password: String,
+    #[serde(default)]
+    remember: bool,
 }
 
 lazy_static::lazy_static! {
@@ -1354,6 +1356,7 @@ pub fn session_add(
         Some(LanSessionCredential {
             username,
             password: payload.password.into_bytes(),
+            remember: payload.remember,
         })
     };
     let lan_access_username = lan_credential

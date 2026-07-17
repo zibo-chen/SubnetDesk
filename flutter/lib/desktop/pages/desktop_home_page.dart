@@ -9,7 +9,6 @@ import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
-import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/plugin/ui_manager.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_hbb/utils/platform_channel.dart';
@@ -39,6 +38,27 @@ class LanServerInfoPanel extends StatefulWidget {
 
 class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
   Timer? _timer;
+  bool _showAllAddresses = false;
+
+  int _addressPriority(String address) {
+    final parsed = InternetAddress.tryParse(address);
+    if (parsed == null) return 5;
+    if (parsed.isLoopback) return 4;
+    final bytes = parsed.rawAddress;
+    if (parsed.type == InternetAddressType.IPv4) {
+      if (bytes[0] == 169 && bytes[1] == 254) return 3;
+      final isPrivate = bytes[0] == 10 ||
+          (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) ||
+          (bytes[0] == 192 && bytes[1] == 168);
+      return isPrivate ? 0 : 2;
+    }
+    if (bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80) return 3;
+    if ((bytes[0] & 0xfe) == 0xfc) return 1;
+    return 2;
+  }
+
+  String _formatEndpoint(String address, String port) =>
+      address.contains(':') ? '[$address]:$port' : '$address:$port';
 
   Map<String, dynamic> get _info {
     try {
@@ -69,13 +89,29 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     final running = info['running'] == true;
     final addresses = (info['addresses'] as List<dynamic>? ?? const [])
         .map((value) => value.toString())
-        .toList();
+        .toSet()
+        .toList()
+      ..sort((a, b) {
+        final priority = _addressPriority(a).compareTo(_addressPriority(b));
+        return priority == 0 ? a.compareTo(b) : priority;
+      });
     final port = info['port']?.toString() ?? '21118';
-    final endpoints = addresses
-        .map(
-          (address) =>
-              address.contains(':') ? '[$address]:$port' : '$address:$port',
-        )
+    final preferredAddresses =
+        addresses.where((address) => _addressPriority(address) < 3).toList();
+    final primaryAddress = preferredAddresses.isNotEmpty
+        ? preferredAddresses.first
+        : addresses.isEmpty
+            ? null
+            : addresses.first;
+    final hiddenAddressCount =
+        primaryAddress == null ? 0 : addresses.length - 1;
+    final visibleAddresses = _showAllAddresses
+        ? addresses
+        : primaryAddress == null
+            ? const <String>[]
+            : <String>[primaryAddress];
+    final endpoints = visibleAddresses
+        .map((address) => _formatEndpoint(address, port))
         .join('\n');
     final fingerprint = info['fingerprint']?.toString() ?? '';
     return Card(
@@ -111,6 +147,24 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             SelectableText(endpoints.isEmpty ? '-' : endpoints),
+            if (hiddenAddressCount > 0)
+              TextButton.icon(
+                onPressed: () => setState(
+                  () => _showAllAddresses = !_showAllAddresses,
+                ),
+                icon: Icon(
+                  _showAllAddresses
+                      ? Icons.keyboard_arrow_up
+                      : Icons.keyboard_arrow_down,
+                  size: 18,
+                ),
+                label: Text('$hiddenAddressCount ${translate('More')}'),
+                style: TextButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
             if (!widget.compact) ...[
               const SizedBox(height: 8),
               Text(
@@ -459,11 +513,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ],
           ),
           SizedBox(height: 10.0),
-         if (!isOutgoingOnly)
-           Text(
+          if (!isOutgoingOnly)
+            Text(
               '${translate("Local Address")} · ${translate("Username")} · ${translate("Password")}',
-             overflow: TextOverflow.clip,
-             style: Theme.of(context).textTheme.bodySmall,
+              overflow: TextOverflow.clip,
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           if (isOutgoingOnly)
             Text(
@@ -659,8 +713,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.start,
-              children:
-                  (title.isNotEmpty
+              children: (title.isNotEmpty
                       ? <Widget>[
                           Center(
                             child: Text(
@@ -778,20 +831,20 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     rustDeskWinManager.registerActiveWindowListener(onActiveWindowChanged);
 
     screenToMap(window_size.Screen screen) => {
-      'frame': {
-        'l': screen.frame.left,
-        't': screen.frame.top,
-        'r': screen.frame.right,
-        'b': screen.frame.bottom,
-      },
-      'visibleFrame': {
-        'l': screen.visibleFrame.left,
-        't': screen.visibleFrame.top,
-        'r': screen.visibleFrame.right,
-        'b': screen.visibleFrame.bottom,
-      },
-      'scaleFactor': screen.scaleFactor,
-    };
+          'frame': {
+            'l': screen.frame.left,
+            't': screen.frame.top,
+            'r': screen.frame.right,
+            'b': screen.frame.bottom,
+          },
+          'visibleFrame': {
+            'l': screen.visibleFrame.left,
+            't': screen.visibleFrame.top,
+            'r': screen.visibleFrame.right,
+            'b': screen.visibleFrame.bottom,
+          },
+          'scaleFactor': screen.scaleFactor,
+        };
 
     bool isChattyMethod(String methodName) {
       switch (methodName) {

@@ -224,10 +224,11 @@ pub fn session_login_lan(
     session_id: SessionID,
     username: String,
     password: String,
+    remember: bool,
 ) -> SyncReturn<String> {
     let result = sessions::get_session_by_session_id(&session_id)
         .ok_or_else(|| hbb_common::anyhow::anyhow!("Session is no longer available"))
-        .and_then(|session| session.submit_lan_credentials(username, password));
+        .and_then(|session| session.submit_lan_credentials(username, password, remember));
     SyncReturn(result.err().map(|err| err.to_string()).unwrap_or_default())
 }
 
