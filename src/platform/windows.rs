@@ -3672,7 +3672,7 @@ fn get_import_config(exe: &str) -> String {
     format!("
 sc stop {app_name}
 sc delete {app_name}
-sc create {app_name} binpath= \"\\\"{exe}\\\" --import-config \\\"{config_path}\\\"\" start= auto DisplayName= \"{app_name} Service\"
+sc create {app_name} binpath= \"\\\"{exe}\\\" --import-config-force \\\"{config_path}\\\"\" start= auto DisplayName= \"{app_name} Service\"
 sc start {app_name}
 sc stop {app_name}
 sc delete {app_name}
