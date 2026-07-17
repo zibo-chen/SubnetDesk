@@ -1582,7 +1582,7 @@ pub fn main_apply_lan_settings(
     listen_port: String,
     allowed_networks: String,
     discovery_enabled: bool,
-) -> SyncReturn<String> {
+) -> String {
     let result = (|| -> ResultType<()> {
         let username = hbb_common::lan::validate_username(&username)?;
         let port = listen_port
@@ -1616,7 +1616,19 @@ pub fn main_apply_lan_settings(
         Ok(())
     })();
     password.zeroize();
-    SyncReturn(result.err().map(|err| err.to_string()).unwrap_or_default())
+    if let Err(err) = result {
+        return err.to_string();
+    }
+
+    #[cfg(target_os = "windows")]
+    if crate::platform::is_self_service_running() {
+        if let Err(err) = crate::ipc::sync_current_config_to_server(2_000) {
+            log::error!("Failed to synchronize LAN settings to the Windows service: {err}");
+            return "Failed to update the Windows background service. Please retry.".to_owned();
+        }
+    }
+
+    String::new()
 }
 
 pub fn cm_get_clients_state() -> String {

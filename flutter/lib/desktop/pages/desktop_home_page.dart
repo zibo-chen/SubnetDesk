@@ -231,6 +231,7 @@ Future<void> showLanSettingsDialog(
   );
   var discoveryEnabled = info['discovery_enabled'] == true;
   var error = '';
+  var saving = false;
 
   await showDialog<void>(
     context: context,
@@ -310,24 +311,40 @@ Future<void> showLanSettingsDialog(
             child: Text(translate('Cancel')),
           ),
           ElevatedButton(
-            onPressed: () {
-              final result = bind.mainApplyLanSettings(
-                username: username.text,
-                password: password.text,
-                listenAddresses: listenAddresses.text,
-                listenPort: listenPort.text,
-                allowedNetworks: allowedNetworks.text,
-                discoveryEnabled: discoveryEnabled,
-              );
-              password.clear();
-              if (result.isEmpty) {
-                Navigator.of(dialogContext).pop();
-                onSaved?.call();
-              } else {
-                setDialogState(() => error = result);
-              }
-            },
-            child: Text(translate('Save')),
+            onPressed: saving
+                ? null
+                : () async {
+                    setDialogState(() {
+                      saving = true;
+                      error = '';
+                    });
+                    final result = await bind.mainApplyLanSettings(
+                      username: username.text,
+                      password: password.text,
+                      listenAddresses: listenAddresses.text,
+                      listenPort: listenPort.text,
+                      allowedNetworks: allowedNetworks.text,
+                      discoveryEnabled: discoveryEnabled,
+                    );
+                    password.clear();
+                    if (!dialogContext.mounted) return;
+                    if (result.isEmpty) {
+                      Navigator.of(dialogContext).pop();
+                      onSaved?.call();
+                    } else {
+                      setDialogState(() {
+                        saving = false;
+                        error = result;
+                      });
+                    }
+                  },
+            child: saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(translate('Save')),
           ),
         ],
       ),

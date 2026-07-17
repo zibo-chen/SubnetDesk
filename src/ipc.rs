@@ -1438,6 +1438,25 @@ pub async fn set_options(value: HashMap<String, String>) -> ResultType<()> {
     Ok(())
 }
 
+fn is_sync_config_ack(data: Option<Data>) -> bool {
+    matches!(data, Some(Data::SyncConfig(None)))
+}
+
+#[tokio::main(flavor = "current_thread")]
+pub async fn sync_current_config_to_server(ms_timeout: u64) -> ResultType<()> {
+    let mut connection = connect(ms_timeout, "").await?;
+    connection
+        .send(&Data::SyncConfig(Some(
+            (Config::get(), Config2::get()).into(),
+        )))
+        .await?;
+    let response = connection.next_timeout(ms_timeout).await?;
+    if !is_sync_config_ack(response) {
+        bail!("Background server did not acknowledge the configuration update");
+    }
+    Ok(())
+}
+
 #[tokio::main(flavor = "current_thread")]
 pub async fn send_url_scheme(url: String) -> ResultType<()> {
     connect(1_000, "_url")
@@ -1689,6 +1708,13 @@ mod test {
     fn verify_ffi_enum_data_size() {
         println!("{}", std::mem::size_of::<Data>());
         assert!(std::mem::size_of::<Data>() <= 120);
+    }
+
+    #[test]
+    fn sync_config_ack_requires_the_expected_response() {
+        assert!(is_sync_config_ack(Some(Data::SyncConfig(None))));
+        assert!(!is_sync_config_ack(Some(Data::Empty)));
+        assert!(!is_sync_config_ack(None));
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
