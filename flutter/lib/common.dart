@@ -28,6 +28,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 
 import '../consts.dart';
+import 'common/platform_font_fallback.dart';
 import 'common/widgets/overlay.dart';
 import 'mobile/pages/file_manager_page.dart';
 import 'mobile/pages/remote_page.dart';
@@ -586,6 +587,11 @@ class MyTheme {
       TabbarTheme.dark,
     ],
   );
+
+  static void applyPlatformFontFallback(TargetPlatform platform) {
+    lightTheme = applySafePlatformFontFallback(lightTheme, platform);
+    darkTheme = applySafePlatformFontFallback(darkTheme, platform);
+  }
 
   static ThemeMode getThemeModePreference() {
     return themeModeFromString(bind.mainGetLocalOption(key: kCommConfKeyTheme));

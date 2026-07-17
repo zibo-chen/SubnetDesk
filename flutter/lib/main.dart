@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:bot_toast/bot_toast.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/widgets/overlay.dart';
@@ -24,6 +25,7 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'common.dart';
+import 'common/platform_font_fallback.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
@@ -40,6 +42,7 @@ late List<String> kBootArgs;
 Future<void> main(List<String> args) async {
   earlyAssert();
   WidgetsFlutterBinding.ensureInitialized();
+  MyTheme.applyPlatformFontFallback(defaultTargetPlatform);
 
   if (isWeb) {
     runApp(const MaterialApp(home: _LanOnlyWebUnavailablePage()));
@@ -374,7 +377,10 @@ void _runApp(String title, Widget home, ThemeMode themeMode) {
         builder: (context, child) {
           child = _keepScaleBuilder(context, child);
           child = botToastBuilder(context, child);
-          return child;
+          return safePlatformDefaultTextStyle(
+            platform: defaultTargetPlatform,
+            child: child,
+          );
         },
       ),
     ),
@@ -534,10 +540,14 @@ class _AppState extends State<App> with WidgetsBindingObserver {
                       child = keyListenerBuilder(context, child);
                     }
                     if (isLinux) {
-                      return buildVirtualWindowFrame(context, child);
+                      child = buildVirtualWindowFrame(context, child);
                     } else {
-                      return workaroundWindowBorder(context, child);
+                      child = workaroundWindowBorder(context, child);
                     }
+                    return safePlatformDefaultTextStyle(
+                      platform: defaultTargetPlatform,
+                      child: child,
+                    );
                   },
           ),
         );
