@@ -8,6 +8,7 @@ import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
+import 'package:flutter_hbb/desktop/lan_server_status.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/plugin/ui_manager.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
@@ -86,7 +87,19 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
   @override
   Widget build(BuildContext context) {
     final info = _info;
+    final configured = info['configured'] == true;
     final running = info['running'] == true;
+    final displayStatus = lanServerDisplayStatus(
+      configured: configured,
+      running: running,
+    );
+    final statusLabel = switch (displayStatus) {
+      LanServerDisplayStatus.authenticationRequired =>
+        translate('Authentication Required'),
+      LanServerDisplayStatus.ready => translate('Ready'),
+      LanServerDisplayStatus.serviceStopped =>
+        translate('Service is not running'),
+    };
     final addresses = (info['addresses'] as List<dynamic>? ?? const [])
         .map((value) => value.toString())
         .toSet()
@@ -130,9 +143,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    running
-                        ? 'LAN · ${translate('Ready')}'
-                        : 'LAN · ${translate('Authentication Required')}',
+                    'LAN · $statusLabel',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),

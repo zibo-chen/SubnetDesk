@@ -37,6 +37,30 @@ lazy_static::lazy_static! {
     static ref TEXTURE_RENDER_KEY: Arc<AtomicI32> = Arc::new(AtomicI32::new(0));
 }
 
+#[cfg(test)]
+mod lan_server_info_tests {
+    use super::{
+        lan_server_running_for_ui, should_sync_lan_settings_to_background,
+    };
+
+    #[test]
+    fn configured_enabled_service_is_ready_in_a_separate_ui_process() {
+        assert!(lan_server_running_for_ui(true, false));
+    }
+
+    #[test]
+    fn missing_credentials_or_stopped_service_is_not_ready() {
+        assert!(!lan_server_running_for_ui(false, false));
+        assert!(!lan_server_running_for_ui(true, true));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_lan_settings_are_synchronized_to_the_background_host() {
+        assert!(should_sync_lan_settings_to_background());
+    }
+}
+
 fn initialize(app_dir: &str, custom_client_config: &str) {
     // `APP_DIR` is set in `main_get_data_dir_ios()` on iOS.
     #[cfg(not(target_os = "ios"))]
@@ -1002,9 +1026,12 @@ pub fn main_get_lan_peers() -> String {
 }
 
 pub fn main_get_connect_status() -> String {
-    let status_num = if Config::lan_credentials_configured()
-        && !config::option2bool("stop-service", &Config::get_option("stop-service"))
-    {
+    let configured = Config::lan_credentials_configured();
+    let service_stopped = config::option2bool(
+        "stop-service",
+        &Config::get_option_from_file("stop-service"),
+    );
+    let status_num = if lan_server_running_for_ui(configured, service_stopped) {
         1
     } else {
         -1
@@ -1517,6 +1544,12 @@ pub fn main_get_fingerprint() -> String {
 }
 
 pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
+    let configured = Config::lan_credentials_configured();
+    let service_stopped = config::option2bool(
+        "stop-service",
+        &Config::get_option_from_file("stop-service"),
+    );
+    let running = lan_server_running_for_ui(configured, service_stopped);
     #[cfg(not(target_os = "ios"))]
     let configured_listen_addresses: std::collections::HashSet<String> =
         Config::get_option("lan-listen-addresses")
@@ -1560,8 +1593,8 @@ pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
         .filter(|value| *value > 0)
         .unwrap_or(hbb_common::lan::DEFAULT_PORT);
     let data = serde_json::json!({
-        "configured": Config::lan_credentials_configured(),
-        "running": crate::lan_server::LanServer::is_running(),
+        "configured": configured,
+        "running": running,
         "username": Config::get_lan_access_username(),
         "credential_revision": Config::get_credential_revision(),
         "device_name": crate::whoami_hostname(),
@@ -1573,6 +1606,25 @@ pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
         "discovery_enabled": Config::get_option("lan-discovery-enabled") != "N",
     });
     SyncReturn(data.to_string())
+}
+
+fn lan_server_running_for_ui(configured: bool, service_stopped: bool) -> bool {
+    configured && !service_stopped
+}
+
+fn should_sync_lan_settings_to_background() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        true
+    }
+    #[cfg(target_os = "windows")]
+    {
+        crate::platform::is_self_service_running()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        false
+    }
 }
 
 pub fn main_apply_lan_settings(
@@ -1620,11 +1672,11 @@ pub fn main_apply_lan_settings(
         return err.to_string();
     }
 
-    #[cfg(target_os = "windows")]
-    if crate::platform::is_self_service_running() {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if should_sync_lan_settings_to_background() {
         if let Err(err) = crate::ipc::sync_current_config_to_server(2_000) {
-            log::error!("Failed to synchronize LAN settings to the Windows service: {err}");
-            return "Failed to update the Windows background service. Please retry.".to_owned();
+            log::error!("Failed to synchronize LAN settings to the background service: {err}");
+            return "Failed to update the background service. Please retry.".to_owned();
         }
     }
 
