@@ -27,6 +27,13 @@ type Message = RendezvousMessage;
 
 #[cfg(not(target_os = "ios"))]
 pub(super) fn start_listening() -> ResultType<()> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    std::thread::spawn(|| {
+        if let Err(err) = crate::lan_mdns::start_publisher() {
+            log::warn!("mDNS publisher stopped: {err}");
+        }
+    });
+
     let addr = SocketAddr::from(([0, 0, 0, 0], get_broadcast_port()));
     let socket = std::net::UdpSocket::bind(addr)?;
     socket.set_read_timeout(Some(std::time::Duration::from_millis(1000)))?;
@@ -91,8 +98,24 @@ pub(super) fn start_listening() -> ResultType<()> {
 
 #[tokio::main(flavor = "current_thread")]
 pub async fn discover() -> ResultType<()> {
-    let sockets = send_query()?;
-    let rx = spawn_wait_responses(sockets);
+    let (tx, rx) = unbounded_channel::<_>();
+    let mut worker_started = false;
+    match send_query() {
+        Ok(sockets) => {
+            spawn_wait_responses(sockets, tx.clone());
+            worker_started = true;
+        }
+        Err(err) => log::warn!("UDP LAN discovery unavailable: {err}"),
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    match crate::lan_mdns::spawn_browse(tx.clone()) {
+        Ok(()) => worker_started = true,
+        Err(err) => log::warn!("mDNS discovery unavailable: {err}"),
+    }
+    drop(tx);
+    if !worker_started {
+        bail!("No LAN discovery transport is available");
+    }
     handle_received_peers(rx).await?;
 
     log::info!("discover ping done");
@@ -319,8 +342,10 @@ fn wait_response(
     Ok(())
 }
 
-fn spawn_wait_responses(sockets: Vec<UdpSocket>) -> UnboundedReceiver<config::DiscoveryPeer> {
-    let (tx, rx) = unbounded_channel::<_>();
+fn spawn_wait_responses(
+    sockets: Vec<UdpSocket>,
+    tx: UnboundedSender<config::DiscoveryPeer>,
+) {
     for socket in sockets {
         let tx_clone = tx.clone();
         std::thread::spawn(move || {
@@ -331,7 +356,6 @@ fn spawn_wait_responses(sockets: Vec<UdpSocket>) -> UnboundedReceiver<config::Di
             ));
         });
     }
-    rx
 }
 
 async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>) -> ResultType<()> {

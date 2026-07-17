@@ -17,6 +17,8 @@ pub mod common;
 #[cfg(not(any(target_os = "ios")))]
 pub mod ipc;
 mod lan;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod lan_mdns;
 mod lan_protocol;
 mod lan_server;
 #[cfg(not(any(target_os = "android", target_os = "ios", feature = "flutter")))]

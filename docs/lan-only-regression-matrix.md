@@ -2,7 +2,7 @@
 
 This matrix separates repository-verifiable checks from tests that require multiple machines, platform permissions, installers, or VPN infrastructure. Do not convert a lab row to **Pass** without recording date, package hash, controller/host OS, and evidence location.
 
-Latest repository verification: **2026-07-16**, macOS arm64, after the SubnetDesk branding, dependency-fork integration, and release-CI changes. The final unified `cargo check --workspace --all-targets --features flutter` and `cargo test --workspace --features flutter` passed. The suite passed **170 tests**, failed none, and explicitly ignored one Enigo key-state test because it requires an interactive desktop plus input-injection permission. Flutter 3.24.5 analysis completed with no errors (existing warnings/info remain), and both the LAN-only residual gate and the SubnetDesk branding/icon manifest gate passed.
+Latest repository verification: **2026-07-17**, macOS arm64, after the Windows live service-config sync and mDNS discovery changes. The final unified `cargo check --workspace --all-targets --features flutter` and `cargo test --workspace --features flutter` passed. The suite passed **176 tests**, failed none, and explicitly ignored one Enigo key-state test because it requires an interactive desktop plus input-injection permission. Focused Flutter analysis of the modified desktop files completed with no errors (existing info-level deprecations remain); the previous full Flutter 3.24.5 analysis, LAN-only residual gate, and SubnetDesk branding/icon manifest gate remain recorded as passed.
 
 ## Automated and source-level matrix
 
@@ -12,6 +12,9 @@ Latest repository verification: **2026-07-16**, macOS arm64, after the SubnetDes
 | Endpoint | Empty, whitespace/control characters, invalid labels and ports | `libs/hbb_common/src/lan.rs` tests | Pass |
 | Listener | Default private/CGNAT/ULA policy and custom CIDR normalization | `src/lan_server.rs` tests | Pass |
 | Listener | IPv4-mapped IPv6 sources are canonicalized before allowlist/rate-limit handling | `src/lan_server.rs` mapped-address assertions and macOS dual-stack E2E | Pass |
+| Windows service | Saving LAN settings sends the hash-only current config to the running privileged server and requires its exact IPC acknowledgement | `ipc::test::sync_config_ack_requires_the_expected_response`, protected main-IPC authorization | Automated contract; Windows installed-service lab pending |
+| Discovery | mDNS advertises only version/name/OS/fingerprint, validates remote metadata, filters addresses, skips self, and deduplicates by fingerprint | `src/lan_mdns.rs` tests plus shared `LanPeers` merge path | Pass |
+| Discovery | UDP broadcast remains available when mDNS is unavailable and neither transport is required for direct endpoint connection | `src/lan.rs` dual-transport orchestration and direct connector | Source verified |
 | Transport | Direct TCP is the only connector | `Client::start`, `socket_client::connect_tcp_local`, residual gate | Implemented |
 | Transport | Real loopback TCP handshake secures the stream and hides an application payload from the forwarding capture | `lan_protocol::tests::loopback_handshake_encrypts_application_payload` | Pass |
 | Identity | Signed transcript binds version, both nonces, and ephemeral key | `src/lan_protocol.rs` tests | Pass |
@@ -51,7 +54,7 @@ A real same-machine macOS UI E2E then connected through that pre-brand release b
 | IPv4 default port | Two LAN hosts | Desktop connects to `host-ip`, fingerprint and login succeed | Partial: macOS same-machine release E2E passed; two-host route not run |
 | IPv4 custom port | Host configured to non-default port | All selected session types connect to `host-ip:port` | Partial: live rebind and macOS same-machine desktop E2E passed; two-host/other session types not run |
 | IPv6 ULA | Routed IPv6 LAN/VPN | Bracketed endpoint connects; unallowed source is rejected | Not run |
-| Internal DNS/mDNS | Local resolver entry | Hostname resolves without public DNS and connects | Not run |
+| Internal DNS/mDNS | Two hosts on the same multicast-capable LAN | mDNS card shows hostname/OS/address and connects without manual IP entry | Parser/security automation passed; two-host browse not run |
 | WireGuard | Routed VPN CIDR | Direct TCP works with internet route removed | Not run |
 | Tailscale/CGNAT | `100.64.0.0/10` path | Direct TCP works under default allowlist | Not run |
 | OpenVPN/custom CIDR | Non-default VPN range | Rejected before configuration; accepted after explicit CIDR | Not run |

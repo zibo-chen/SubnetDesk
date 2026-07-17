@@ -450,6 +450,7 @@ server-account / group / address-book cloud state
 - [x] 客户端建立统一 endpoint parser 和 TCP direct connector。
 - [x] 删除客户端建连流中的 ID/rendezvous/NAT/relay 分支。
 - [x] 保留 LAN 发现，但连接不依赖发现成功。
+- [x] 增加 `_subnetdesk._tcp.local.` mDNS 发布与浏览，发现结果按设备指纹去重，并保留原 UDP 广播作为兼容回退。
 - [x] 让默认桌面、文件传输、摄像头、端口转发和终端都走新 connector。
 
 完成门槛：拔掉互联网或屏蔽所有 RustDesk 服务域名后，同 LAN 两台设备的所有连接类型仍能到达登录阶段，且应用空闲时无任何外部网络请求。
@@ -492,11 +493,14 @@ server-account / group / address-book cloud state
 - [x] 增加被控端单用户凭据和 LAN 监听配置页。
 - [x] 增加首次指纹确认和指纹变更阻断界面。
 - [x] 保留近期连接和 LAN 发现，替换其 ID 字段。
+- [x] LAN 发现卡片以主机名为主标题，并明确显示系统类型和实际连接地址；用户可直接从发现列表发起连接。
 - [x] 删除账号、云地址簿、组织、ID server、relay、NAT 和 proxy 的 UI 入口。
 - [x] 同步改造移动端对应连接与被控设置界面。
 - [x] 更新用户可见文案，避免可达产品界面遗留 ID、relay 和服务器语义。
 
 完成门槛：新用户不需理解 RustDesk ID 或中继服务器，仅通过被控端页面和三个连接输入就能完成首次配置和连接。
+
+补充实现说明：mDNS TXT 记录只发布协议版本、主机名、系统类型和设备指纹，不发布用户名、密码、密码哈希、MAC 或其他凭据。Windows 已安装服务运行时，设置页保存 LAN 用户名、密码或监听配置后，会通过现有受保护主 IPC 将当前配置同步给实际的 `--server` 进程并等待确认，不再要求用户手动停止、启动服务才能生效；明文密码在同步前已清理，IPC 中只包含现有配置结构内的密码哈希。
 
 ### Phase 5：删除无效公网代码和配置
 
@@ -515,7 +519,7 @@ server-account / group / address-book cloud state
 
 ### Phase 6：全功能回归、安全验证和发布
 
-- [x] 在当前 macOS arm64 构建环境完成一次统一的 workspace `cargo check` 与 `cargo test`；170 个自动化用例通过，需交互桌面权限的 Enigo 键状态用例明确标记为平台实验室测试。
+- [x] 在当前 macOS arm64 构建环境完成一次统一的 workspace `cargo check` 与 `cargo test`；176 个自动化用例通过，需交互桌面权限的 Enigo 键状态用例明确标记为平台实验室测试。
 - [x] 完成 Flutter 静态分析错误检查和 LAN-only 源码残留门禁；无 Flutter error，残留扫描通过。
 - [ ] 执行第 10 节的全部测试矩阵。
 - [ ] 在无互联网 LAN 和 VPN 环境分别验证。

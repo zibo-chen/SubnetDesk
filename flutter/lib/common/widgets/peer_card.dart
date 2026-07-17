@@ -49,6 +49,28 @@ class _PeerCardState extends State<_PeerCard>
   final double _tileRadius = 5;
   final double _borderWidth = 2;
 
+  bool get _isDiscoveredPeer => widget.tab == PeerTabIndex.lan;
+
+  String _primaryLabel(Peer peer) {
+    if (!_isDiscoveredPeer) {
+      return peer.alias.isEmpty ? formatID(peer.id) : peer.alias;
+    }
+    if (peer.alias.isNotEmpty) return peer.alias;
+    if (peer.hostname.isNotEmpty) return peer.hostname;
+    return formatID(peer.id);
+  }
+
+  String _secondaryLabel(Peer peer) {
+    if (!_isDiscoveredPeer) {
+      return hideUsernameOnCard == true
+          ? peer.hostname
+          : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
+    }
+    return [peer.platform, formatID(peer.id)]
+        .where((value) => value.isNotEmpty)
+        .join(' · ');
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -135,9 +157,8 @@ class _PeerCardState extends State<_PeerCard>
   }
 
   makeChild(bool isPortrait, Peer peer) {
-    final name = hideUsernameOnCard == true
-        ? peer.hostname
-        : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
+    final primaryLabel = _primaryLabel(peer);
+    final secondaryLabel = _secondaryLabel(peer);
     final greyStyle = TextStyle(
       fontSize: 11,
       color: Theme.of(context).textTheme.titleLarge?.color?.withOpacity(0.6),
@@ -192,9 +213,7 @@ class _PeerCardState extends State<_PeerCard>
                           getOnline(isPortrait ? 4 : 8, peer.online),
                           Expanded(
                             child: Text(
-                              peer.alias.isEmpty
-                                  ? formatID(peer.id)
-                                  : peer.alias,
+                              primaryLabel,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
@@ -205,12 +224,12 @@ class _PeerCardState extends State<_PeerCard>
                         children: [
                           Flexible(
                             child: Tooltip(
-                              message: name,
+                              message: secondaryLabel,
                               waitDuration: const Duration(seconds: 1),
                               child: Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
-                                  name,
+                                  secondaryLabel,
                                   style: isPortrait ? null : greyStyle,
                                   textAlign: TextAlign.start,
                                   overflow: TextOverflow.ellipsis,
@@ -258,9 +277,10 @@ class _PeerCardState extends State<_PeerCard>
   ) {
     hideUsernameOnCard ??=
         bind.mainGetBuildinOption(key: kHideUsernameOnCard) == 'Y';
-    final name = hideUsernameOnCard == true
-        ? peer.hostname
-        : '${peer.username}${peer.username.isNotEmpty && peer.hostname.isNotEmpty ? '@' : ''}${peer.hostname}';
+    final primaryLabel = _primaryLabel(peer);
+    final secondaryLabel = _secondaryLabel(peer);
+    final heroLabel = _isDiscoveredPeer ? primaryLabel : secondaryLabel;
+    final footerLabel = _isDiscoveredPeer ? secondaryLabel : primaryLabel;
     final child = Card(
       color: Colors.transparent,
       elevation: 0,
@@ -297,10 +317,10 @@ class _PeerCardState extends State<_PeerCard>
                                 children: [
                                   Expanded(
                                     child: Tooltip(
-                                      message: name,
+                                      message: heroLabel,
                                       waitDuration: const Duration(seconds: 1),
                                       child: Text(
-                                        name,
+                                        heroLabel,
                                         style: const TextStyle(
                                           color: Colors.white70,
                                           fontSize: 12,
@@ -330,9 +350,7 @@ class _PeerCardState extends State<_PeerCard>
                             getOnline(8, peer.online),
                             Expanded(
                               child: Text(
-                                peer.alias.isEmpty
-                                    ? formatID(peer.id)
-                                    : peer.alias,
+                                footerLabel,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.titleSmall,
                               ),
