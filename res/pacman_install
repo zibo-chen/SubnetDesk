@@ -5,37 +5,44 @@
 # arg 1:  the new package version
 post_install() {
 	# do something here
-	cp /usr/share/rustdesk/files/rustdesk.service /etc/systemd/system/rustdesk.service
+	rm -f /etc/systemd/system/rustdesk.service
+	cp /usr/share/rustdesk/files/subnetdesk.service /etc/systemd/system/subnetdesk.service
 	cp /usr/share/rustdesk/files/rustdesk.desktop /usr/share/applications/
 	cp /usr/share/rustdesk/files/rustdesk-link.desktop /usr/share/applications/
 	systemctl daemon-reload
-	systemctl enable rustdesk
-	systemctl start rustdesk
+	systemctl enable subnetdesk
+	systemctl start subnetdesk
 	update-desktop-database
 }
 
 # arg 1:  the new package version
 # arg 2:  the old package version
 pre_upgrade() {
+	systemctl stop subnetdesk || true
     systemctl stop rustdesk || true
 }
 
 # arg 1:  the new package version
 # arg 2:  the old package version
 post_upgrade() {
-	cp /usr/share/rustdesk/files/rustdesk.service /etc/systemd/system/rustdesk.service
+	systemctl disable rustdesk || true
+	rm -f /etc/systemd/system/rustdesk.service
+	cp /usr/share/rustdesk/files/subnetdesk.service /etc/systemd/system/subnetdesk.service
 	cp /usr/share/rustdesk/files/rustdesk.desktop /usr/share/applications/
 	cp /usr/share/rustdesk/files/rustdesk-link.desktop /usr/share/applications/
 	systemctl daemon-reload
-	systemctl enable rustdesk
-	systemctl start rustdesk
+	systemctl enable subnetdesk
+	systemctl start subnetdesk
 	update-desktop-database
 }
 
 # arg 1:  the old package version
 pre_remove() {
+	systemctl stop subnetdesk || true
+	systemctl disable subnetdesk || true
 	systemctl stop rustdesk || true
 	systemctl disable rustdesk || true
+	rm /etc/systemd/system/subnetdesk.service || true
 	rm /etc/systemd/system/rustdesk.service || true
 }
 

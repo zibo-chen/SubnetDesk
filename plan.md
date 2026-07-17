@@ -531,6 +531,7 @@ server-account / group / address-book cloud state
 
 - [x] 在当前 macOS arm64 构建环境完成一次统一的 workspace `cargo check` 与 `cargo test`；181 个自动化用例通过，需交互桌面权限的 Enigo 键状态用例明确标记为平台实验室测试。
 - [x] 完成 Flutter 静态分析错误检查和 LAN-only 源码残留门禁；无 Flutter error，残留扫描通过。
+- [x] Linux DEB、RPM/SUSE 和 Arch 打包统一注册 `subnetdesk.service`，升级时清理旧 `rustdesk.service`，并由源码门禁覆盖服务生命周期命令。
 - [ ] 执行第 10 节的全部测试矩阵。
 - [ ] 在无互联网 LAN 和 VPN 环境分别验证。
 - [ ] 进行升级、卸载、重装、服务重启和密钥/凭据迁移测试。

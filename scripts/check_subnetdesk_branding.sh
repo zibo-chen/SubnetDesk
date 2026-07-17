@@ -29,7 +29,7 @@ require_fixed flutter/linux/CMakeLists.txt 'set(APPLICATION_ID "com.zibochen.sub
 require_fixed flatpak/rustdesk.json '"id": "com.zibochen.SubnetDesk"'
 require_fixed flatpak/com.zibochen.SubnetDesk.metainfo.xml '<name>SubnetDesk</name>'
 require_fixed res/rustdesk.desktop 'Name=SubnetDesk'
-require_fixed res/rustdesk.service 'Description=SubnetDesk'
+require_fixed res/subnetdesk.service 'Description=SubnetDesk'
 require_fixed .gitmodules 'https://github.com/zibo-chen/hbb_common.git'
 require_fixed build.py 'Build/Products/Release/SubnetDesk.app'
 require_fixed .github/workflows/flutter-build.yml 'Build/Products/Release/SubnetDesk.app'
@@ -52,4 +52,5 @@ for stale in \
 done
 
 python3 scripts/generate_subnetdesk_icons.py --check
+bash scripts/check_linux_service_branding.sh
 printf 'SubnetDesk branding and generated icons are consistent.\n'

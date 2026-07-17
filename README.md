@@ -16,6 +16,8 @@ On the controlled device:
 4. Optionally restrict listen addresses and allowed CIDR networks.
 5. Verify that the service status is running and copy the displayed device fingerprint.
 
+Linux packages register the host as `subnetdesk.service`. Upgrading from an older package stops, disables, and removes the legacy `rustdesk.service` unit before enabling the SubnetDesk unit, so service controls and package lifecycle scripts address the same systemd service.
+
 On the controller, enter:
 
 - an endpoint such as `192.168.1.20`, `host.lan:21118`, or `[fd00::20]:21118`;

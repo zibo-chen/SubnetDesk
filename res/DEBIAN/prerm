@@ -3,24 +3,33 @@
 set -e
 
 case $1 in
-    remove|upgrade)
+	remove|upgrade)
 		INITSYS=$(ls -al /proc/1/exe | awk -F' ' '{print $NF}' | awk -F'/' '{print $NF}')
-		rm -f /usr/bin/rustdesk
-		
-		if [ "systemd" == "${INITSYS}" ]; then
 
+		if [ "systemd" == "${INITSYS}" ]; then
+			systemctl stop subnetdesk || true
+			systemctl disable subnetdesk || true
+			# Clean up the old unit as well when removing/upgrading a package that
+			# predates the SubnetDesk service-name migration.
 			systemctl stop rustdesk || true
 			systemctl disable rustdesk || true
-			rm /etc/systemd/system/rustdesk.service /usr/lib/systemd/system/rustdesk.service || true
+			rm -f /etc/systemd/system/subnetdesk.service \
+				/usr/lib/systemd/system/subnetdesk.service \
+				/etc/systemd/system/rustdesk.service \
+				/usr/lib/systemd/system/rustdesk.service
 			
 			# workaround temp dev build between 1.1.9 and 1.2.0
 			serverUser=$(ps -ef | grep -E 'rustdesk +--server' | grep -v 'sudo ' | awk '{print $1}' | head -1)
 			if [ "$serverUser" != "" ] && [ "$serverUser" != "root" ]
 			then
+				systemctl --machine=${serverUser}@.host --user stop subnetdesk >/dev/null 2>&1 || true
 				systemctl --machine=${serverUser}@.host --user stop rustdesk >/dev/null 2>&1 || true
 			fi
+			rm /usr/lib/systemd/user/subnetdesk.service >/dev/null 2>&1 || true
 			rm /usr/lib/systemd/user/rustdesk.service >/dev/null 2>&1 || true
+			systemctl daemon-reload
 		fi
+		rm -f /usr/bin/rustdesk
         ;;
 esac
 
