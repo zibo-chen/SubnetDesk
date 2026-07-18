@@ -4,12 +4,13 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common.dart' hide Dialog;
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/desktop/lan_server_status.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
+import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/plugin/ui_manager.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_hbb/utils/platform_channel.dart';
@@ -127,8 +128,165 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
         .map((address) => _formatEndpoint(address, port))
         .join('\n');
     final fingerprint = info['fingerprint']?.toString() ?? '';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark ? Colors.white54 : const Color(0xFF7A8290);
+    final statusColor = displayStatus == LanServerDisplayStatus.ready
+        ? const Color(0xFF27B980)
+        : const Color(0xFFF59E0B);
+    if (widget.compact) {
+      return Card(
+        color: isDark ? const Color(0xFF24262D) : Colors.white,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: isDark ? Colors.white12 : const Color(0xFFE3E8F0),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF3FF),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.laptop_mac_rounded,
+                      size: 18,
+                      color: Color(0xFF1677FF),
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      translate('Your Desktop'),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(isDark ? 0.18 : 0.10),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: statusColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 78),
+                          child: Text(
+                            statusLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: 'LAN · ${translate('Settings')}',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 28,
+                      height: 28,
+                    ),
+                    onPressed: () => showLanSettingsDialog(
+                      context,
+                      onSaved: () {
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    icon: Icon(Icons.tune_rounded, size: 16, color: muted),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Divider(
+                height: 1,
+                color: isDark ? Colors.white10 : const Color(0xFFF0F2F6),
+              ),
+              const SizedBox(height: 4),
+              _buildCompactInfoRow(
+                icon: Icons.badge_outlined,
+                label: translate('Name'),
+                value: info['device_name']?.toString() ?? '-',
+                muted: muted,
+              ),
+              _buildCompactInfoRow(
+                icon: Icons.person_outline_rounded,
+                label: translate('Username'),
+                value: info['username']?.toString() ?? '-',
+                muted: muted,
+              ),
+              _buildCompactInfoRow(
+                icon: Icons.lan_outlined,
+                label: translate('Local Address'),
+                value: primaryAddress == null
+                    ? '-'
+                    : _formatEndpoint(primaryAddress, port),
+                muted: muted,
+                trailing: hiddenAddressCount > 0
+                    ? TextButton(
+                        onPressed: () => _showAddressList(
+                          context,
+                          addresses,
+                          port,
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 5),
+                          minimumSize: const Size(0, 26),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text(
+                          '+$hiddenAddressCount',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      )
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Card(
-      margin: const EdgeInsets.all(12),
+      elevation: 0,
+      margin: widget.compact ? EdgeInsets.zero : const EdgeInsets.all(12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isDark ? Colors.white12 : const Color(0xFFDDE2EA),
+        ),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -136,27 +294,68 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
           children: [
             Row(
               children: [
-                Icon(
-                  running ? Icons.lan : Icons.warning_amber_rounded,
-                  color: running ? Colors.green : Colors.orange,
-                ),
-                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'LAN · $statusLabel',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    translate('Your Desktop'),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: displayStatus == LanServerDisplayStatus.ready
+                        ? const Color(0xFF27B980)
+                        : Colors.orange,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    statusLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                if (widget.compact)
+                  IconButton(
+                    tooltip: 'LAN · ${translate('Settings')}',
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.only(left: 6),
+                    constraints: const BoxConstraints(),
+                    onPressed: () => showLanSettingsDialog(
+                      context,
+                      onSaved: () {
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    icon: Icon(Icons.tune_rounded, size: 16, color: muted),
+                  ),
               ],
             ),
-            const SizedBox(height: 10),
-            Text('${translate('Name')}: ${info['device_name'] ?? ''}'),
-            Text('${translate('Username')}: ${info['username'] ?? '-'}'),
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
+            Text(translate('Name'),
+                style: TextStyle(fontSize: 12, color: muted)),
+            const SizedBox(height: 3),
+            SelectableText(info['device_name']?.toString() ?? '-'),
+            const SizedBox(height: 11),
+            Text(
+              translate('Username'),
+              style: TextStyle(fontSize: 12, color: muted),
+            ),
+            const SizedBox(height: 3),
+            SelectableText(info['username']?.toString() ?? '-'),
+            const SizedBox(height: 11),
             Text(
               translate('Local Address'),
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: TextStyle(fontSize: 12, color: muted),
             ),
+            const SizedBox(height: 3),
             SelectableText(endpoints.isEmpty ? '-' : endpoints),
             if (hiddenAddressCount > 0)
               TextButton.icon(
@@ -184,34 +383,127 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
               ),
               SelectableText(fingerprint),
             ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () => showLanSettingsDialog(
-                    context,
-                    onSaved: () {
-                      if (mounted) setState(() {});
-                    },
+            if (!widget.compact) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => showLanSettingsDialog(
+                      context,
+                      onSaved: () {
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                    icon: const Icon(Icons.settings_ethernet),
+                    label: Text('LAN · ${translate('Settings')}'),
                   ),
-                  icon: const Icon(Icons.settings_ethernet),
-                  label: Text('LAN · ${translate('Settings')}'),
-                ),
-                if (fingerprint.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: translate('Copy fingerprint'),
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: fingerprint));
-                      showToast(translate('Copied'));
-                    },
-                    icon: const Icon(Icons.copy_outlined),
-                  ),
+                  if (fingerprint.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: translate('Copy fingerprint'),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: fingerprint));
+                        showToast(translate('Copied'));
+                      },
+                      icon: const Icon(Icons.copy_outlined),
+                    ),
+                  ],
                 ],
-              ],
-            ),
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildCompactInfoRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color muted,
+    Widget? trailing,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 16, color: muted),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(fontSize: 10, color: muted)),
+                const SizedBox(height: 2),
+                Tooltip(
+                  message: value,
+                  child: Text(
+                    value,
+                    maxLines: _showAllAddresses ? null : 1,
+                    overflow: _showAllAddresses ? null : TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) trailing,
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAddressList(
+    BuildContext context,
+    List<String> addresses,
+    String port,
+  ) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(translate('Local Address')),
+        content: SizedBox(
+          width: 420,
+          height: 300,
+          child: ListView.separated(
+            itemCount: addresses.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final endpoint = _formatEndpoint(addresses[index], port);
+              return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.lan_outlined, size: 18),
+                title: SelectableText(
+                  endpoint,
+                  style: const TextStyle(fontSize: 13),
+                ),
+                trailing: IconButton(
+                  tooltip: translate('Copy'),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: endpoint));
+                    showToast(translate('Copied'));
+                  },
+                  icon: const Icon(Icons.copy_outlined, size: 18),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(translate('Close')),
+          ),
+        ],
       ),
     );
   }
@@ -247,118 +539,300 @@ Future<void> showLanSettingsDialog(
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-        title: Text('LAN · ${translate('Settings')}'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: username,
-                  autocorrect: false,
-                  decoration: InputDecoration(labelText: translate('Username')),
-                ),
-                TextField(
-                  controller: password,
-                  obscureText: true,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: InputDecoration(
-                    labelText: translate('Password'),
-                    helperText: info['configured'] == true
-                        ? translate('Leave blank to keep current password')
-                        : null,
+      builder: (context, setDialogState) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final primary = Theme.of(context).colorScheme.primary;
+        final muted = isDark ? Colors.white60 : const Color(0xFF737B8C);
+        final fieldFill =
+            isDark ? const Color(0xFF292C33) : const Color(0xFFF7F9FC);
+        final border = isDark ? Colors.white12 : const Color(0xFFE1E6EE);
+
+        InputDecoration fieldDecoration({
+          required String label,
+          required IconData icon,
+          String? help,
+        }) {
+          return InputDecoration(
+            labelText: label,
+            labelStyle: TextStyle(color: muted, fontSize: 13),
+            prefixIcon: Icon(icon, size: 19, color: muted),
+            suffixIcon: help == null
+                ? null
+                : Tooltip(
+                    message: help,
+                    child: Icon(Icons.info_outline_rounded,
+                        size: 17, color: muted),
                   ),
-                ),
-                TextField(
-                  controller: listenAddresses,
-                  decoration: InputDecoration(
-                    labelText: translate('Local Address'),
-                    helperText: translate(
-                      'Comma-separated IP addresses; blank listens on all interfaces',
+            filled: true,
+            fillColor: fieldFill,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 15,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: border),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(color: primary, width: 1.4),
+            ),
+          );
+        }
+
+        return Dialog(
+          backgroundColor: isDark ? const Color(0xFF202228) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: SizedBox(
+            width: 590,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: primary.withOpacity(isDark ? 0.18 : 0.10),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.settings_ethernet_rounded,
+                            color: primary,
+                            size: 23,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'LAN · ${translate('Settings')}',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                '${translate('Your Desktop')} · ${translate('Local Address')}',
+                                style: TextStyle(fontSize: 12, color: muted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: translate('Close'),
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          icon: Icon(Icons.close_rounded, color: muted),
+                        ),
+                      ],
                     ),
-                  ),
-                ),
-                TextField(
-                  controller: listenPort,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(labelText: translate('Port')),
-                ),
-                TextField(
-                  controller: allowedNetworks,
-                  decoration: InputDecoration(
-                    labelText: translate('Network'),
-                    helperText: translate(
-                      'Comma-separated CIDR ranges; blank uses safe LAN/VPN defaults',
+                    const SizedBox(height: 22),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: username,
+                            autocorrect: false,
+                            decoration: fieldDecoration(
+                              label: translate('Username'),
+                              icon: Icons.person_outline_rounded,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: password,
+                            obscureText: true,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            decoration: fieldDecoration(
+                              label: translate('Password'),
+                              icon: Icons.lock_outline_rounded,
+                              help: info['configured'] == true
+                                  ? translate(
+                                      'Leave blank to keep current password')
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: discoveryEnabled,
-                  title: Text(translate('Enable LAN discovery')),
-                  onChanged: (value) =>
-                      setDialogState(() => discoveryEnabled = value),
-                ),
-                if (error.isNotEmpty)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      error,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                    const SizedBox(height: 14),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: listenAddresses,
+                            decoration: fieldDecoration(
+                              label: translate('Local Address'),
+                              icon: Icons.lan_outlined,
+                              help: translate(
+                                'Comma-separated IP addresses; blank listens on all interfaces',
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 140,
+                          child: TextField(
+                            controller: listenPort,
+                            keyboardType: TextInputType.number,
+                            decoration: fieldDecoration(
+                              label: translate('Port'),
+                              icon: Icons.tag_rounded,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: allowedNetworks,
+                      decoration: fieldDecoration(
+                        label: translate('Network'),
+                        icon: Icons.route_outlined,
+                        help: translate(
+                          'Comma-separated CIDR ranges; blank uses safe LAN/VPN defaults',
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+                      decoration: BoxDecoration(
+                        color: primary.withOpacity(isDark ? 0.12 : 0.06),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: primary.withOpacity(isDark ? 0.24 : 0.12),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.radar_rounded, size: 20, color: primary),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              translate('Enable LAN discovery'),
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          Switch(
+                            value: discoveryEnabled,
+                            onChanged: (value) => setDialogState(
+                              () => discoveryEnabled = value,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (error.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .error
+                              .withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          error,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    Divider(height: 1, color: border),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          child: Text(translate('Cancel')),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton.icon(
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  setDialogState(() {
+                                    saving = true;
+                                    error = '';
+                                  });
+                                  final result =
+                                      await bind.mainApplyLanSettings(
+                                    username: username.text,
+                                    password: password.text,
+                                    listenAddresses: listenAddresses.text,
+                                    listenPort: listenPort.text,
+                                    allowedNetworks: allowedNetworks.text,
+                                    discoveryEnabled: discoveryEnabled,
+                                  );
+                                  password.clear();
+                                  if (!dialogContext.mounted) return;
+                                  if (result.isEmpty) {
+                                    Navigator.of(dialogContext).pop();
+                                    onSaved?.call();
+                                  } else {
+                                    setDialogState(() {
+                                      saving = false;
+                                      error = result;
+                                    });
+                                  }
+                                },
+                          icon: saving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.check_rounded, size: 18),
+                          label: Text(translate('Save')),
+                          style: ElevatedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 13,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(translate('Cancel')),
-          ),
-          ElevatedButton(
-            onPressed: saving
-                ? null
-                : () async {
-                    setDialogState(() {
-                      saving = true;
-                      error = '';
-                    });
-                    final result = await bind.mainApplyLanSettings(
-                      username: username.text,
-                      password: password.text,
-                      listenAddresses: listenAddresses.text,
-                      listenPort: listenPort.text,
-                      allowedNetworks: allowedNetworks.text,
-                      discoveryEnabled: discoveryEnabled,
-                    );
-                    password.clear();
-                    if (!dialogContext.mounted) return;
-                    if (result.isEmpty) {
-                      Navigator.of(dialogContext).pop();
-                      onSaved?.call();
-                    } else {
-                      setDialogState(() {
-                        saving = false;
-                        error = result;
-                      });
-                    }
-                  },
-            child: saving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(translate('Save')),
-          ),
-        ],
-      ),
+        );
+      },
     ),
   );
   password.clear();
@@ -384,6 +858,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   bool isCardClosed = false;
+  PeerTabIndex _selectedPeerTab = PeerTabIndex.lan;
 
   final RxBool _editHover = false.obs;
   final RxBool _block = false.obs;
@@ -394,6 +869,19 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   Widget build(BuildContext context) {
     super.build(context);
     final isIncomingOnly = bind.isIncomingOnly();
+    if (!isIncomingOnly) {
+      return _buildBlock(
+        child: Row(
+          children: [
+            _buildNavigationSidebar(context),
+            const VerticalDivider(width: 1, thickness: 1),
+            Expanded(
+              child: ConnectionPage(selectedPeerTab: _selectedPeerTab),
+            ),
+          ],
+        ),
+      );
+    }
     return _buildBlock(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -402,6 +890,198 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           if (!isIncomingOnly) const VerticalDivider(width: 1),
           if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNavigationSidebar(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark ? Colors.white60 : const Color(0xFF6F7786);
+    final panelColor =
+        isDark ? const Color(0xFF1E2026) : const Color(0xFFFBFCFE);
+    return Container(
+      width: 280,
+      color: panelColor,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 20, 18, 18),
+            child: Row(
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF2684FF), Color(0xFF1266E3)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(13),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF1677FF).withOpacity(0.22),
+                        blurRadius: 12,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.desktop_windows_rounded,
+                    color: Colors.white,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'SubnetDesk',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'LAN · ${translate('Discovered')}',
+                        style: TextStyle(fontSize: 11, color: muted),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(
+            height: 1,
+            indent: 18,
+            endIndent: 18,
+            color: isDark ? Colors.white10 : const Color(0xFFF0F2F6),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  _buildSidebarItem(
+                    context,
+                    icon: Icons.devices_outlined,
+                    label: translate('Discovered'),
+                    tab: PeerTabIndex.lan,
+                  ),
+                  _buildSidebarItem(
+                    context,
+                    icon: Icons.history_rounded,
+                    label: translate('Recent sessions'),
+                    tab: PeerTabIndex.recent,
+                  ),
+                  _buildSidebarItem(
+                    context,
+                    icon: Icons.star_border_rounded,
+                    label: translate('Favorites'),
+                    tab: PeerTabIndex.fav,
+                  ),
+                  _buildSidebarItem(
+                    context,
+                    icon: Icons.settings_outlined,
+                    label: translate('Settings'),
+                    onTap: () => DesktopSettingPage.switch2page(
+                      DesktopSettingPage.tabKeys.first,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  if (!bind.isOutgoingOnly())
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 14),
+                      child: LanServerInfoPanel(compact: true),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 10, 20, 18),
+            child: Row(
+              children: [
+                Icon(Icons.help_outline_rounded, size: 19, color: muted),
+                const SizedBox(width: 9),
+                Text(
+                  translate('Help'),
+                  style: TextStyle(fontSize: 13, color: muted),
+                ),
+                const Spacer(),
+                Text(
+                  version.isEmpty ? '' : 'v$version',
+                  style: TextStyle(fontSize: 11, color: muted),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebarItem(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    PeerTabIndex? tab,
+    VoidCallback? onTap,
+  }) {
+    final selected = tab != null && _selectedPeerTab == tab;
+    final primary = Theme.of(context).colorScheme.primary;
+    final foreground = selected
+        ? primary
+        : Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.68);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 3),
+      child: Material(
+        color: selected
+            ? primary.withOpacity(
+                Theme.of(context).brightness == Brightness.dark ? 0.16 : 0.08,
+              )
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap ??
+              () {
+                if (tab != null) {
+                  setState(() => _selectedPeerTab = tab);
+                  gFFI.peerTabModel.setCurrentTab(tab.index);
+                }
+              },
+          child: Container(
+            height: 46,
+            decoration: selected
+                ? BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: primary, width: 3),
+                    ),
+                  )
+                : null,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Icon(icon, size: 21, color: foreground),
+                const SizedBox(width: 13),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -511,7 +1191,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   buildRightPane(BuildContext context) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
-      child: ConnectionPage(),
+      child: ConnectionPage(selectedPeerTab: _selectedPeerTab),
     );
   }
 

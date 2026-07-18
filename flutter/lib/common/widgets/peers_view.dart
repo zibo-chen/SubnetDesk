@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:dynamic_layouts/dynamic_layouts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
@@ -151,10 +150,8 @@ class _PeersViewState extends State<_PeersView> {
                   ? Obx(() => peerCardUiType.value == PeerUiType.list
                       ? Container(height: 45, child: peerCard)
                       : peerCardUiType.value == PeerUiType.grid
-                          ? SizedBox(
-                              width: 220, height: 140, child: peerCard)
-                          : SizedBox(
-                              width: 220, height: 42, child: peerCard))
+                          ? SizedBox.expand(child: peerCard)
+                          : SizedBox(width: 220, height: 42, child: peerCard))
                   : Container(child: peerCard);
             }
 
@@ -180,14 +177,32 @@ class _PeersViewState extends State<_PeersView> {
                               bottom: space / 2);
                         },
                       )
-                    : DynamicGridView.builder(
-                        gridDelegate: SliverGridDelegateWithWrapping(
-                            mainAxisSpacing: space / 2,
-                            crossAxisSpacing: space),
-                        itemCount: peers.length,
-                        itemBuilder: (BuildContext context, int index) {
-                          return buildOnePeer(peers[index], false);
-                        }));
+                    : LayoutBuilder(
+                        builder: (context, constraints) {
+                          final columnCount =
+                              ((constraints.maxWidth + space) / (220 + space))
+                                  .floor()
+                                  .clamp(1, 6)
+                                  .toInt();
+                          final cardWidth = (constraints.maxWidth -
+                                  space * (columnCount - 1)) /
+                              columnCount;
+                          return GridView.builder(
+                            controller: _scrollController,
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: columnCount,
+                              mainAxisSpacing: space,
+                              crossAxisSpacing: space,
+                              childAspectRatio: cardWidth / 250,
+                            ),
+                            itemCount: peers.length,
+                            itemBuilder: (BuildContext context, int index) {
+                              return buildOnePeer(peers[index], false);
+                            },
+                          );
+                        },
+                      ));
 
             return child;
           } else {
