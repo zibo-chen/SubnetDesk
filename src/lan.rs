@@ -22,8 +22,38 @@ use std::{
 };
 
 const LAN_DISCOVERY_PORT: u16 = 21_119;
+pub(crate) const LAN_DEVICE_NAME_OPTION: &str = "lan-device-name";
 
 type Message = RendezvousMessage;
+
+pub(crate) fn sanitize_lan_device_name(value: &str) -> String {
+    value
+        .trim()
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(64)
+        .collect()
+}
+
+fn select_device_display_name(custom_name: &str, system_hostname: &str) -> String {
+    let custom_name = sanitize_lan_device_name(custom_name);
+    if !custom_name.is_empty() {
+        return custom_name;
+    }
+    let system_hostname = sanitize_lan_device_name(system_hostname);
+    if system_hostname.is_empty() {
+        "SubnetDesk".to_owned()
+    } else {
+        system_hostname
+    }
+}
+
+pub(crate) fn device_display_name() -> String {
+    select_device_display_name(
+        &Config::get_option(LAN_DEVICE_NAME_OPTION),
+        &crate::hostname(),
+    )
+}
 
 #[cfg(not(target_os = "ios"))]
 pub(super) fn start_listening() -> ResultType<()> {
@@ -60,16 +90,11 @@ pub(super) fn start_listening() -> ResultType<()> {
                             }
                             if let Some(self_addr) = get_ipaddr_by_peer(&addr) {
                                 let mut msg_out = Message::new();
-                                let mut hostname = crate::whoami_hostname();
-                                // The default hostname is "localhost" which is a bit confusing
-                                if hostname == "localhost" {
-                                    hostname = "unknown".to_owned();
-                                }
                                 let peer = PeerDiscovery {
                                     cmd: "pong".to_owned(),
                                     mac: get_mac(&self_addr),
                                     id: fingerprint.clone(),
-                                    hostname,
+                                    hostname: device_display_name(),
                                     username: String::new(),
                                     platform: whoami::platform().to_string(),
                                     misc: serde_json::json!({
@@ -402,4 +427,26 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
     #[cfg(feature = "flutter")]
     crate::flutter_ffi::main_load_lan_peers();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_device_name_is_trimmed_filtered_and_bounded() {
+        assert_eq!(sanitize_lan_device_name("  Meeting Room  "), "Meeting Room");
+        assert_eq!(sanitize_lan_device_name("会议\n室"), "会议室");
+        assert_eq!(sanitize_lan_device_name(&"a".repeat(80)).len(), 64);
+    }
+
+    #[test]
+    fn custom_device_name_overrides_hostname_and_empty_value_restores_it() {
+        assert_eq!(
+            select_device_display_name("Studio Mac", "host.local"),
+            "Studio Mac"
+        );
+        assert_eq!(select_device_display_name("", "host.local"), "host.local");
+        assert_eq!(select_device_display_name("", "\n"), "SubnetDesk");
+    }
 }

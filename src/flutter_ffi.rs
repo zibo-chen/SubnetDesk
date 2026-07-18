@@ -957,10 +957,13 @@ pub fn main_show_option(_key: String) -> SyncReturn<bool> {
     SyncReturn(false)
 }
 
-pub fn main_set_option(key: String, value: String) {
+pub fn main_set_option(key: String, mut value: String) {
     if config::is_lan_only_obsolete_option(&key) {
         log::warn!("Ignored obsolete public-network option in LAN-only mode: {key}");
         return;
+    }
+    if key == crate::lan::LAN_DEVICE_NAME_OPTION {
+        value = crate::lan::sanitize_lan_device_name(&value);
     }
     let restart_lan = matches!(
         key.as_str(),
@@ -1597,7 +1600,8 @@ pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
         "running": running,
         "username": Config::get_lan_access_username(),
         "credential_revision": Config::get_credential_revision(),
-        "device_name": crate::hostname(),
+        "device_name": crate::lan::device_display_name(),
+        "system_device_name": crate::hostname(),
         "fingerprint": crate::lan_protocol::fingerprint(&Config::get_key_pair().1),
         "addresses": addresses,
         "port": port,

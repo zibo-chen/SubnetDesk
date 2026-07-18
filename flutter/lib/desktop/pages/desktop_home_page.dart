@@ -8,7 +8,9 @@ import 'package:flutter_hbb/common.dart' hide Dialog;
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/connection_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
+import 'package:flutter_hbb/desktop/lan_device_name.dart';
 import 'package:flutter_hbb/desktop/lan_server_status.dart';
+import 'package:flutter_hbb/desktop/setup_readiness.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/plugin/ui_manager.dart';
@@ -28,6 +30,7 @@ class DesktopHomePage extends StatefulWidget {
 }
 
 const borderColor = Color(0xFF2F65BA);
+const _lanDeviceNameOption = 'lan-device-name';
 
 class LanServerInfoPanel extends StatefulWidget {
   const LanServerInfoPanel({Key? key, this.compact = false}) : super(key: key);
@@ -240,6 +243,20 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                 label: translate('Name'),
                 value: info['device_name']?.toString() ?? '-',
                 muted: muted,
+                trailing: IconButton(
+                  tooltip: translate('Change'),
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 28,
+                    height: 28,
+                  ),
+                  onPressed: () => _showDeviceNameDialog(
+                    context,
+                    systemName: info['system_device_name']?.toString() ?? '',
+                  ),
+                  icon: const Icon(Icons.edit_outlined, size: 15),
+                ),
               ),
               _buildCompactInfoRow(
                 icon: Icons.person_outline_rounded,
@@ -341,8 +358,24 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
             const SizedBox(height: 14),
             Text(translate('Name'),
                 style: TextStyle(fontSize: 12, color: muted)),
-            const SizedBox(height: 3),
-            SelectableText(info['device_name']?.toString() ?? '-'),
+            Row(
+              children: [
+                Expanded(
+                  child: SelectableText(
+                    info['device_name']?.toString() ?? '-',
+                  ),
+                ),
+                IconButton(
+                  tooltip: translate('Change'),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _showDeviceNameDialog(
+                    context,
+                    systemName: info['system_device_name']?.toString() ?? '',
+                  ),
+                  icon: const Icon(Icons.edit_outlined, size: 17),
+                ),
+              ],
+            ),
             const SizedBox(height: 11),
             Text(
               translate('Username'),
@@ -459,6 +492,105 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
         ],
       ),
     );
+  }
+
+  Future<void> _showDeviceNameDialog(
+    BuildContext context, {
+    required String systemName,
+  }) async {
+    final storedName = bind.mainGetOptionSync(key: _lanDeviceNameOption);
+    final controller = TextEditingController(text: storedName);
+    var errorText = validateLanDeviceName(storedName);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF3FF),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(
+                  Icons.badge_outlined,
+                  color: Color(0xFF1677FF),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                translate('Name'),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 420,
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: maxLanDeviceNameLength,
+              inputFormatters: [
+                LengthLimitingTextInputFormatter(maxLanDeviceNameLength),
+              ],
+              onChanged: (value) => setDialogState(
+                () => errorText = validateLanDeviceName(value),
+              ),
+              decoration: InputDecoration(
+                labelText: translate('Name'),
+                hintText: systemName,
+                errorText: errorText == null ? null : translate(errorText!),
+                helperText: systemName.isEmpty
+                    ? translate('Default')
+                    : '${translate('Default')}: $systemName',
+                prefixIcon: const Icon(Icons.desktop_windows_outlined),
+                suffixIcon: TextButton(
+                  onPressed: () {
+                    controller.clear();
+                    setDialogState(() => errorText = null);
+                  },
+                  child: Text(translate('Default')),
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(translate('Cancel')),
+            ),
+            ElevatedButton(
+              onPressed: errorText != null
+                  ? null
+                  : () async {
+                      await bind.mainSetOption(
+                        key: _lanDeviceNameOption,
+                        value: normalizeLanDeviceName(controller.text),
+                      );
+                      if (!dialogContext.mounted) return;
+                      Navigator.of(dialogContext).pop();
+                      if (mounted) setState(() {});
+                    },
+              child: Text(translate('OK')),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
   }
 
   Future<void> _showAddressList(
@@ -855,6 +987,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   var watchIsCanScreenRecording = false;
   var watchIsProcessTrust = false;
   var watchIsInputMonitoring = false;
+  var watchIsInstalledDaemon = false;
   var watchIsCanRecordAudio = false;
   Timer? _updateTimer;
   bool isCardClosed = false;
@@ -899,6 +1032,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final muted = isDark ? Colors.white60 : const Color(0xFF6F7786);
     final panelColor =
         isDark ? const Color(0xFF1E2026) : const Color(0xFFFBFCFE);
+    final setupIssues = _setupReadinessIssues;
     return Container(
       width: 280,
       color: panelColor,
@@ -994,6 +1128,14 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     ),
                   ),
                   const SizedBox(height: 18),
+                  if (setupIssues.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                      child: _buildSetupReadinessCard(
+                        context,
+                        setupIssues,
+                      ),
+                    ),
                   if (!bind.isOutgoingOnly())
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 14),
@@ -1021,6 +1163,432 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  SetupReadinessPlatform get _setupReadinessPlatform {
+    if (isWindows) return SetupReadinessPlatform.windows;
+    if (isMacOS) return SetupReadinessPlatform.macos;
+    if (isLinux) return SetupReadinessPlatform.linux;
+    return SetupReadinessPlatform.other;
+  }
+
+  List<SetupReadinessIssue> get _setupReadinessIssues {
+    final platform = _setupReadinessPlatform;
+    final isMac = platform == SetupReadinessPlatform.macos;
+    final isWin = platform == SetupReadinessPlatform.windows;
+    final isLinuxPlatform = platform == SetupReadinessPlatform.linux;
+    final appInstalled = isMac || isWin ? bind.mainIsInstalled() : true;
+
+    return resolveSetupReadinessIssues(
+      SetupReadinessSnapshot(
+        platform: platform,
+        systemError: systemError,
+        outgoingOnly: bind.isOutgoingOnly(),
+        serviceStopped: svcStopped.value,
+        installationDisabled: isWin && bind.isDisableInstallation(),
+        appInstalled: appInstalled,
+        canScreenRecord: !isMac || bind.mainIsCanScreenRecording(prompt: false),
+        processTrusted: !isMac || bind.mainIsProcessTrusted(prompt: false),
+        canMonitorInput: !isMac || bind.mainIsCanInputMonitoring(prompt: false),
+        daemonInstalled: !isMac || bind.mainIsInstalledDaemon(prompt: false),
+        selinuxEnforcing: isLinuxPlatform && bind.isSelinuxEnforcing(),
+        currentSessionWayland: isLinuxPlatform && bind.mainCurrentIsWayland(),
+        loginSessionWayland: isLinuxPlatform && bind.mainIsLoginWayland(),
+      ),
+    );
+  }
+
+  String _setupIssueTitle(SetupReadinessIssue issue) {
+    switch (issue) {
+      case SetupReadinessIssue.systemError:
+        return translate('Error');
+      case SetupReadinessIssue.applicationInstall:
+        return translate('Installation');
+      case SetupReadinessIssue.screenRecording:
+      case SetupReadinessIssue.accessibility:
+      case SetupReadinessIssue.inputMonitoring:
+        return translate('Permissions');
+      case SetupReadinessIssue.daemon:
+        return translate('Service');
+      case SetupReadinessIssue.selinux:
+      case SetupReadinessIssue.wayland:
+      case SetupReadinessIssue.loginWayland:
+        return translate('Warning');
+    }
+  }
+
+  String _setupIssueDescription(SetupReadinessIssue issue) {
+    switch (issue) {
+      case SetupReadinessIssue.systemError:
+        return systemError;
+      case SetupReadinessIssue.applicationInstall:
+        return bind.isOutgoingOnly() ? '' : translate('install_tip');
+      case SetupReadinessIssue.screenRecording:
+        return translate('config_screen');
+      case SetupReadinessIssue.accessibility:
+        return translate('config_acc');
+      case SetupReadinessIssue.inputMonitoring:
+        return translate('config_input');
+      case SetupReadinessIssue.daemon:
+        return translate('install_daemon_tip');
+      case SetupReadinessIssue.selinux:
+        return translate('selinux_tip');
+      case SetupReadinessIssue.wayland:
+        return translate('wayland_experiment_tip');
+      case SetupReadinessIssue.loginWayland:
+        return translate('Login screen using Wayland is not supported');
+    }
+  }
+
+  IconData _setupIssueIcon(SetupReadinessIssue issue) {
+    switch (issue) {
+      case SetupReadinessIssue.systemError:
+        return Icons.error_outline_rounded;
+      case SetupReadinessIssue.applicationInstall:
+        return Icons.download_for_offline_outlined;
+      case SetupReadinessIssue.screenRecording:
+        return Icons.screen_share_outlined;
+      case SetupReadinessIssue.accessibility:
+        return Icons.accessibility_new_rounded;
+      case SetupReadinessIssue.inputMonitoring:
+        return Icons.keyboard_alt_outlined;
+      case SetupReadinessIssue.daemon:
+        return Icons.settings_suggest_outlined;
+      case SetupReadinessIssue.selinux:
+      case SetupReadinessIssue.wayland:
+      case SetupReadinessIssue.loginWayland:
+        return Icons.warning_amber_rounded;
+    }
+  }
+
+  bool _setupIssueHasAction(SetupReadinessIssue issue) {
+    switch (issue) {
+      case SetupReadinessIssue.applicationInstall:
+      case SetupReadinessIssue.screenRecording:
+      case SetupReadinessIssue.accessibility:
+      case SetupReadinessIssue.inputMonitoring:
+      case SetupReadinessIssue.daemon:
+        return true;
+      case SetupReadinessIssue.systemError:
+      case SetupReadinessIssue.selinux:
+      case SetupReadinessIssue.wayland:
+      case SetupReadinessIssue.loginWayland:
+        return false;
+    }
+  }
+
+  String _setupIssueActionLabel(SetupReadinessIssue issue) {
+    switch (issue) {
+      case SetupReadinessIssue.applicationInstall:
+      case SetupReadinessIssue.daemon:
+        return translate('Install');
+      case SetupReadinessIssue.screenRecording:
+      case SetupReadinessIssue.accessibility:
+      case SetupReadinessIssue.inputMonitoring:
+        return translate('Configure');
+      case SetupReadinessIssue.systemError:
+      case SetupReadinessIssue.selinux:
+      case SetupReadinessIssue.wayland:
+      case SetupReadinessIssue.loginWayland:
+        return '';
+    }
+  }
+
+  Future<void> _performSetupIssueAction(SetupReadinessIssue issue) async {
+    switch (issue) {
+      case SetupReadinessIssue.applicationInstall:
+        await rustDeskWinManager.closeAllSubWindows();
+        bind.mainGotoInstall();
+        break;
+      case SetupReadinessIssue.screenRecording:
+        bind.mainIsCanScreenRecording(prompt: true);
+        watchIsCanScreenRecording = true;
+        break;
+      case SetupReadinessIssue.accessibility:
+        bind.mainIsProcessTrusted(prompt: true);
+        watchIsProcessTrust = true;
+        break;
+      case SetupReadinessIssue.inputMonitoring:
+        bind.mainIsCanInputMonitoring(prompt: true);
+        watchIsInputMonitoring = true;
+        break;
+      case SetupReadinessIssue.daemon:
+        bind.mainIsInstalledDaemon(prompt: true);
+        watchIsInstalledDaemon = true;
+        break;
+      case SetupReadinessIssue.systemError:
+      case SetupReadinessIssue.selinux:
+      case SetupReadinessIssue.wayland:
+      case SetupReadinessIssue.loginWayland:
+        break;
+    }
+    if (mounted) setState(() {});
+  }
+
+  Widget _buildSetupReadinessCard(
+    BuildContext context,
+    List<SetupReadinessIssue> issues,
+  ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final firstIssue = issues.first;
+    final warningColor = firstIssue == SetupReadinessIssue.systemError
+        ? Theme.of(context).colorScheme.error
+        : const Color(0xFFF59E0B);
+    final description = _setupIssueDescription(firstIssue);
+
+    return Material(
+      color: warningColor.withOpacity(isDark ? 0.13 : 0.07),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _showSetupReadinessDialog(issues),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(13, 12, 11, 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: warningColor.withOpacity(0.28)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: warningColor.withOpacity(0.13),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: Icon(
+                      _setupIssueIcon(firstIssue),
+                      color: warningColor,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      translate('Status'),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: warningColor.withOpacity(0.13),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${issues.length}',
+                      style: TextStyle(
+                        color: warningColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: warningColor,
+                    size: 19,
+                  ),
+                ],
+              ),
+              if (description.isNotEmpty) ...[
+                const SizedBox(height: 9),
+                Text(
+                  description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.color
+                        ?.withOpacity(0.72),
+                    fontSize: 11,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+              if (_setupIssueHasAction(firstIssue)) ...[
+                const SizedBox(height: 9),
+                SizedBox(
+                  width: double.infinity,
+                  height: 32,
+                  child: OutlinedButton(
+                    onPressed: () => _performSetupIssueAction(firstIssue),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: warningColor,
+                      side: BorderSide(color: warningColor.withOpacity(0.42)),
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: Text(
+                      _setupIssueActionLabel(firstIssue),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSetupReadinessDialog(
+    List<SetupReadinessIssue> issues,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          titlePadding: const EdgeInsets.fromLTRB(22, 20, 14, 8),
+          contentPadding: const EdgeInsets.fromLTRB(22, 8, 22, 10),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+          title: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF4DD),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(
+                  Icons.fact_check_outlined,
+                  color: Color(0xFFF59E0B),
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  translate('Status'),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: translate('Close'),
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 540),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (var index = 0; index < issues.length; index++) ...[
+                    _buildSetupIssueDialogRow(dialogContext, issues[index]),
+                    if (index != issues.length - 1)
+                      Divider(
+                        height: 1,
+                        color:
+                            isDark ? Colors.white10 : const Color(0xFFE8ECF2),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(translate('Close')),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSetupIssueDialogRow(
+    BuildContext dialogContext,
+    SetupReadinessIssue issue,
+  ) {
+    final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
+    final hasAction = _setupIssueHasAction(issue);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF59E0B).withOpacity(isDark ? 0.16 : 0.10),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              _setupIssueIcon(issue),
+              size: 18,
+              color: const Color(0xFFF59E0B),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _setupIssueTitle(issue),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _setupIssueDescription(issue),
+                  style: TextStyle(
+                    color: Theme.of(dialogContext)
+                        .textTheme
+                        .bodyMedium
+                        ?.color
+                        ?.withOpacity(0.65),
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (hasAction) ...[
+            const SizedBox(width: 14),
+            OutlinedButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                await _performSetupIssueAction(issue);
+              },
+              child: Text(_setupIssueActionLabel(issue)),
+            ),
+          ],
         ],
       ),
     );
@@ -1517,6 +2085,12 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           // Monitoring may not take effect until the process is restarted.
           // rustDeskWinManager.call(
           //     WindowType.RemoteDesktop, kWindowDisableGrabKeyboard, '');
+          setState(() {});
+        }
+      }
+      if (watchIsInstalledDaemon) {
+        if (bind.mainIsInstalledDaemon(prompt: false)) {
+          watchIsInstalledDaemon = false;
           setState(() {});
         }
       }

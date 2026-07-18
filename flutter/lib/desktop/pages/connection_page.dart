@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/widgets/peer_card.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
 import 'package:flutter_hbb/consts.dart';
+import 'package:flutter_hbb/desktop/lan_discovery_refresh.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
@@ -165,6 +166,7 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _rememberPassword = false;
+  Timer? _lanDiscoveryTimer;
 
   bool isWindowMinimized = false;
 
@@ -194,6 +196,14 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
     Get.put<IDTextEditingController>(_idController);
     windowManager.addListener(this);
     _loadSelectedPeers();
+    _lanDiscoveryTimer = Timer.periodic(lanDiscoveryRefreshInterval, (_) {
+      if (shouldRefreshLanDiscovery(
+        lanTabSelected: widget.selectedPeerTab == PeerTabIndex.lan,
+        windowMinimized: isWindowMinimized,
+      )) {
+        bind.mainDiscover();
+      }
+    });
   }
 
   @override
@@ -223,6 +233,7 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
 
   @override
   void dispose() {
+    _lanDiscoveryTimer?.cancel();
     _idController.dispose();
     windowManager.removeListener(this);
     _idFocusNode.removeListener(onFocusChanged);

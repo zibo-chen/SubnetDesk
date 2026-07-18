@@ -40,7 +40,7 @@ impl Announcement {
         if !valid_fingerprint(&fingerprint) {
             return None;
         }
-        let display_name = safe_display_name(&crate::whoami_hostname());
+        let display_name = safe_display_name(&crate::lan::device_display_name());
         let addresses = advertised_addresses();
         if addresses.is_empty() {
             return None;
