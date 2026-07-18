@@ -1597,7 +1597,7 @@ pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
         "running": running,
         "username": Config::get_lan_access_username(),
         "credential_revision": Config::get_credential_revision(),
-        "device_name": crate::whoami_hostname(),
+        "device_name": crate::hostname(),
         "fingerprint": crate::lan_protocol::fingerprint(&Config::get_key_pair().1),
         "addresses": addresses,
         "port": port,

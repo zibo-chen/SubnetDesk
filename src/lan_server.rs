@@ -15,6 +15,7 @@ use hbb_common::{
     ResultType, Stream,
 };
 
+#[cfg(not(target_os = "ios"))]
 use crate::server::{new as new_server, ServerPtr};
 
 static RESTART_GENERATION: AtomicU64 = AtomicU64::new(0);
@@ -32,6 +33,7 @@ impl LanServer {
         ACTIVE_LISTENERS.load(Ordering::SeqCst) > 0
     }
 
+    #[cfg(not(target_os = "ios"))]
     pub async fn start() {
         let server = new_server();
         start_auxiliary_services_once();
@@ -254,8 +256,8 @@ fn normalize_source_ip(ip: IpAddr) -> IpAddr {
     }
 }
 
+#[cfg(not(target_os = "ios"))]
 fn start_auxiliary_services_once() {
-    #[cfg(not(target_os = "ios"))]
     std::thread::spawn(|| {
         if let Err(err) = crate::lan::start_listening() {
             log::warn!("LAN discovery stopped: {err}");
