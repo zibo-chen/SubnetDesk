@@ -16,6 +16,8 @@ cert.pfx
 *.bak
 *png
 !flutter/assets/icon.png
+!assets/screenshots/device-discovery.png
+!assets/screenshots/lan-settings.png
 *svg
 !res/subnetdesk-icon.svg
 *jpg
