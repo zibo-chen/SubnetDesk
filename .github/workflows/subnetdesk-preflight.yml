@@ -50,6 +50,9 @@ jobs:
             grep -Fq "$artifact" .github/workflows/flutter-build.yml
           done
 
+      - name: Check release upload retry contract
+        run: bash scripts/check_release_upload_retry.sh
+
       - name: Check Python scripts
         run: python3 -m py_compile build.py scripts/generate_subnetdesk_icons.py
 
