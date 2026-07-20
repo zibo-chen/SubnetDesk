@@ -56,7 +56,10 @@ pub(crate) fn try_acquire_lan_auth_gate() -> Result<OwnedSemaphorePermit, ()> {
 }
 
 pub(crate) fn lan_auth_retry_after(keys: &[String]) -> u32 {
-    let now_ms = get_time();
+    lan_auth_retry_after_at(keys, get_time())
+}
+
+fn lan_auth_retry_after_at(keys: &[String], now_ms: i64) -> u32 {
     let mut failures = LAN_AUTH_FAILURES.lock().unwrap();
     failures.retain(|_, state| {
         now_ms.saturating_sub(state.last_failure_ms) < LAN_AUTH_BACKOFF_IDLE_RESET_MS
@@ -72,7 +75,10 @@ pub(crate) fn lan_auth_retry_after(keys: &[String]) -> u32 {
 }
 
 pub(crate) fn record_lan_auth_failure(keys: &[String]) -> u32 {
-    let now_ms = get_time();
+    record_lan_auth_failure_at(keys, get_time())
+}
+
+fn record_lan_auth_failure_at(keys: &[String], now_ms: i64) -> u32 {
     let mut failures = LAN_AUTH_FAILURES.lock().unwrap();
     let mut retry_after = 0;
     for key in keys {
@@ -264,6 +270,24 @@ mod tests {
         assert!(lan_auth_retry_after(&keys) > 0);
         clear_lan_auth_source(&keys[0]);
         assert!(lan_auth_retry_after(&keys) > 0);
+        clear_lan_auth_failure_state();
+    }
+
+    #[test]
+    fn lan_auth_failures_expire_after_the_idle_window() {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        clear_lan_auth_failure_state();
+        let keys = vec!["192.168.1.20".to_owned()];
+        let now_ms = 1_000_000;
+
+        assert_eq!(record_lan_auth_failure_at(&keys, now_ms), 0);
+        assert_eq!(record_lan_auth_failure_at(&keys, now_ms + 1), 1);
+        assert_eq!(lan_auth_retry_after_at(&keys, now_ms + 2), 1);
+        assert_eq!(
+            lan_auth_retry_after_at(&keys, now_ms + LAN_AUTH_BACKOFF_IDLE_RESET_MS + 2,),
+            0
+        );
+
         clear_lan_auth_failure_state();
     }
 

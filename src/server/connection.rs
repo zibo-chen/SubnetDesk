@@ -1817,10 +1817,6 @@ impl Connection {
             .await;
             return true;
         }
-        let (failure, allowed) = self.check_failure(0).await;
-        if !allowed {
-            return true;
-        }
         let permit = match try_acquire_lan_auth_gate() {
             Ok(permit) => permit,
             Err(_) => {
@@ -1847,7 +1843,6 @@ impl Connection {
         };
         if !verified {
             let retry_after = record_lan_auth_failure(&failure_keys);
-            self.update_failure_with_scope(failure, false, 0, FailureScope::Default);
             self.send_login_error_with_retry(
                 crate::client::LOGIN_MSG_LAN_CREDENTIALS_WRONG,
                 retry_after,
@@ -1856,7 +1851,6 @@ impl Connection {
             return true;
         }
         clear_lan_auth_source(&self.ip);
-        self.update_failure_with_scope(failure, true, 0, FailureScope::Default);
         self.credential_revision_at_auth = Config::get_credential_revision();
         self.set_conn_audit_primary_auth(ConnAuditPrimaryAuth::LanCredential);
         self.keyboard = true;
