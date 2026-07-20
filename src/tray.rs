@@ -262,7 +262,7 @@ fn make_tray(show_icon: bool) -> hbb_common::ResultType<()> {
     }
 
     let (icon_rgba, icon_width, icon_height) = {
-        let image = load_icon_from_asset()
+        let image = runtime_icon_override()
             .unwrap_or(image::load_from_memory(icon).context("Failed to open icon path")?)
             .into_rgba8();
         let (width, height) = image.dimensions();
@@ -567,7 +567,14 @@ async fn start_query_session_count(sender: std::sync::mpsc::Sender<Data>) {
     }
 }
 
-fn load_icon_from_asset() -> Option<image::DynamicImage> {
+fn runtime_icon_override_enabled() -> bool {
+    !cfg!(target_os = "macos")
+}
+
+fn runtime_icon_override() -> Option<image::DynamicImage> {
+    if !runtime_icon_override_enabled() {
+        return None;
+    }
     let Some(path) = std::env::current_exe().map_or(None, |x| x.parent().map(|x| x.to_path_buf()))
     else {
         return None;
@@ -645,6 +652,12 @@ mod tests {
         assert_eq!(entries[0].label, "Lab && Mac - 10.0.0.1:21118");
         assert_eq!(entries[1].label, "10.0.0.2:21118");
         assert_eq!(entries[2].label, "10.0.0.3:21118");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_tray_never_uses_the_full_color_app_icon() {
+        assert!(!runtime_icon_override_enabled());
     }
 
     #[test]

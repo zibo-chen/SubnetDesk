@@ -1,70 +1,57 @@
 <p align="center">
-  <img src="res/subnetdesk-icon.svg" alt="SubnetDesk icon" width="128">
+  <img src="res/subnetdesk-icon.svg" alt="SubnetDesk" width="112">
 </p>
 
 # SubnetDesk
 
-SubnetDesk is a LAN/VPN-only fork of [RustDesk](https://github.com/rustdesk/rustdesk). This repository builds a native remote desktop client and host that does not use a device ID, rendezvous server, relay, NAT traversal, cloud account, cloud address book, proxy setting, or automatic public update service.
+<p align="center">
+  A simple, LAN-first remote desktop application based on <a href="https://github.com/rustdesk/rustdesk">RustDesk</a>.
+</p>
 
-## Connect
+<p align="center">
+  English · <a href="README.zh-CN.md">简体中文</a>
+</p>
 
-On the controlled device:
+SubnetDesk is an independently maintained fork of RustDesk for direct remote access inside a LAN or VPN. It removes the public device-ID, rendezvous, relay, cloud account, proxy, and automatic public-update paths, replacing them with direct endpoint connections and local device discovery.
 
-1. Open LAN server settings.
-2. Set the single access username and password.
-3. Keep the default TCP port `21118`, or choose another port.
-4. Optionally restrict listen addresses and allowed CIDR networks.
-5. Verify that the service status is running and copy the displayed device fingerprint.
+![Discovered devices](assets/screenshots/device-discovery.png)
 
-Linux packages register the host as `subnetdesk.service`. Upgrading from an older package stops, disables, and removes the legacy `rustdesk.service` unit before enabling the SubnetDesk unit, so service controls and package lifecycle scripts address the same systemd service.
+## Highlights
 
-On the controller, enter:
+- Discover nearby devices automatically over mDNS.
+- Connect directly by IP address or hostname, with a configurable TCP port.
+- Protect access with a username and password; passwords are stored as Argon2id hashes.
+- Verify device fingerprints before trusting a new endpoint.
+- Restrict incoming connections to selected CIDR networks.
+- Keep recent devices and favorites for quick reconnection.
+- Use the familiar RustDesk remote-control experience without a public coordination server.
 
-- an endpoint such as `192.168.1.20`, `host.lan:21118`, or `[fd00::20]:21118`;
-- the access username;
-- the access password.
+> SubnetDesk does not provide Internet rendezvous or relay services. Devices must be reachable through the same LAN, a routed private network, or a VPN such as WireGuard, Tailscale, or OpenVPN.
 
-The first connection displays the controlled device fingerprint. Compare it with the value shown on that device before choosing **Trust and connect**. A later fingerprint change blocks automatic trust and requires explicit verification.
+## Quick start
 
-VPN products such as WireGuard, Tailscale, or OpenVPN only provide a routable address. The application still uses the same direct TCP protocol. Add the VPN CIDR to the allowed-network list when it is outside the default private, ULA, link-local, loopback, or CGNAT ranges.
+1. Install and open SubnetDesk on both devices.
+2. On the controlled device, open **LAN settings**, set a username and password, and enable LAN discovery. The default port is `21118`.
+3. On the controller, select a discovered device or enter its address manually, then verify the fingerprint and connect.
 
-## LAN performance and host sessions
+![LAN settings](assets/screenshots/lan-settings.png)
 
-New peer profiles default to 100% custom image quality and 60 FPS. SubnetDesk does not apply RustDesk's WAN-oriented delay-based bitrate or frame-rate downshifts to LAN/VPN sessions. A user can still select a lower quality or FPS, and decoder-capacity feedback remains active to prevent an overloaded controller from building an unbounded video queue.
+## Download and build
 
-After encrypted credential authentication, the controlled device runs the connection manager in headless mode. No separate incoming-connection window is created; the background manager remains responsible for session cleanup, file operations, chat transport, and other retained features.
+Prebuilt desktop packages for Windows, macOS, and Linux are published on the [Releases](https://github.com/zibo-chen/SubnetDesk/releases) page. Continuous builds are also available from [GitHub Actions](https://github.com/zibo-chen/SubnetDesk/actions).
 
-## Security model
-
-- A long-term Ed25519 device identity signs an ephemeral key exchange.
-- Every application message after the handshake is encrypted and authenticated; there is no plaintext downgrade.
-- Credentials are sent only after encryption and fingerprint verification.
-- The host stores the password as an Argon2id PHC hash with a random salt.
-- Unix configuration files are written with mode `0600`; Windows uses the application's per-user/service configuration location and inherited ACLs.
-- Authentication has per-source exponential backoff, IPv6 prefix accounting, and a global Argon2 concurrency gate.
-- Changing credentials increments a revision and disconnects sessions authenticated with the old revision.
-- Client passwords are not written to peer history. Recent connections store endpoint, username, peer metadata, and device fingerprint only.
-
-See [security details](docs/lan-only-security.md), the [regression matrix](docs/lan-only-regression-matrix.md), and [upgrade/rollback guidance](docs/lan-only-upgrade-and-rollback.md).
-
-## Release targets
-
-The LAN-only release targets native Flutter desktop and mobile clients. Web builds and deprecated Sciter builds are disabled in the release workflow. The optional plugin framework is not enabled in release commands.
-
-Every push to `master` runs **SubnetDesk Installers CI** and uploads Windows x64/ARM64 MSI and portable EXE packages, macOS x86_64/ARM64 DMG packages, and Linux DEB/RPM/AppImage/Flatpak packages to the workflow run's **Artifacts** section. Ordinary branch CI does not create or modify a GitHub Release. Tag and nightly workflows publish the same packages to their configured prerelease after artifact generation. Packages are unsigned unless the repository signing secrets are configured.
-
-For local native development, generate the Rust/Flutter bridge as described by the existing build tooling and build with the `flutter` feature. The release workflow remains the source of truth for platform-specific packaging commands.
-
-## Verification
-
-The source residual gate is:
+To build from source, clone the submodules and use the platform-specific commands in the release workflow:
 
 ```bash
-scripts/check_lan_only_residuals.sh
+git clone --recurse-submodules https://github.com/zibo-chen/SubnetDesk.git
+cd SubnetDesk
+./build.py --flutter --hwcodec
 ```
 
-The final implementation verification is one workspace `cargo check` followed by one workspace `cargo test`, after all implementation items are complete. Platform and hardware checks that cannot run on a single host are recorded separately in the regression matrix.
+The build requires Rust, Flutter, and native platform dependencies. The GitHub Actions workflow is the source of truth for pinned tool versions and packaging steps.
 
-## Licensing and acceptable use
+## Credits and license
 
-The repository retains its existing license files. Use remote-control functionality only on systems you own or are authorized to administer.
+SubnetDesk is based on [RustDesk](https://github.com/rustdesk/rustdesk) and retains its open-source foundations. SubnetDesk is an independent project and is not an official RustDesk release.
+
+Licensed under the [GNU Affero General Public License v3.0](LICENCE). Use remote-control software only on systems you own or are authorized to administer.
