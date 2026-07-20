@@ -1,6 +1,6 @@
 [package]
 name = "rustdesk"
-version = "1.4.9"
+version = "1.0.0"
 authors = ["SubnetDesk contributors"]
 edition = "2021"
 build= "build.rs"
