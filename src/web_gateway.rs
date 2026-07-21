@@ -16,7 +16,7 @@ use axum::{
     },
     http::{
         header::{CACHE_CONTROL, CONTENT_TYPE, HOST, ORIGIN},
-        HeaderMap, HeaderValue, Request, StatusCode,
+        HeaderMap, HeaderValue, Request, StatusCode, Uri,
     },
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -90,6 +90,21 @@ fn valid_authority(authority: &str) -> bool {
         && url.path() == "/"
         && url.query().is_none()
         && url.fragment().is_none()
+}
+
+fn request_authority<'a>(headers: &'a HeaderMap, uri: &'a Uri) -> Option<&'a str> {
+    let header_authority = match headers.get(HOST) {
+        Some(value) => Some(value.to_str().ok()?),
+        None => None,
+    };
+    let uri_authority = uri.authority().map(|value| value.as_str());
+    match (header_authority, uri_authority) {
+        (Some(header), Some(uri)) if header == uri => Some(header),
+        (Some(_), Some(_)) => None,
+        (Some(header), None) => Some(header),
+        (None, Some(uri)) => Some(uri),
+        (None, None) => None,
+    }
 }
 
 fn origin_allowed(origin: Option<&str>, authority: &str, secure: bool) -> bool {
@@ -387,11 +402,7 @@ async fn restrict_request(
         .get::<ConnectInfo<SocketAddr>>()
         .map(|connect| crate::lan_server::source_allowed(connect.0.ip()))
         .unwrap_or(false);
-    let authority = request
-        .headers()
-        .get(HOST)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
+    let authority = request_authority(request.headers(), request.uri()).unwrap_or_default();
     if !source_allowed || !authority_host_allowed(authority, &state.allowed_hosts) {
         return (StatusCode::FORBIDDEN, "Forbidden").into_response();
     }
@@ -427,12 +438,10 @@ async fn websocket_upgrade(
     State(state): State<WebState>,
     ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
+    uri: Uri,
     websocket: WebSocketUpgrade,
 ) -> Response {
-    let authority = headers
-        .get(HOST)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
+    let authority = request_authority(&headers, &uri).unwrap_or_default();
     let origin = headers.get(ORIGIN).and_then(|value| value.to_str().ok());
     if !crate::lan_server::source_allowed(remote_addr.ip())
         || !authority_host_allowed(authority, &state.allowed_hosts)
@@ -674,6 +683,31 @@ mod tests {
         assert!(authority_host_allowed("[fd00::20]:18123", &allowed));
         assert!(authority_host_allowed("subnetdesk.local:18123", &allowed));
         assert!(!authority_host_allowed("attacker.example:18123", &allowed));
+    }
+
+    #[test]
+    fn request_authority_supports_http1_and_http2_without_host_confusion() {
+        let mut http1_headers = HeaderMap::new();
+        http1_headers.insert(HOST, HeaderValue::from_static("10.1.1.124:18123"));
+        let origin_form = "/".parse().unwrap();
+        assert_eq!(
+            request_authority(&http1_headers, &origin_form),
+            Some("10.1.1.124:18123")
+        );
+
+        let http2_headers = HeaderMap::new();
+        let absolute_form = "https://10.1.1.124:18123/".parse().unwrap();
+        assert_eq!(
+            request_authority(&http2_headers, &absolute_form),
+            Some("10.1.1.124:18123")
+        );
+
+        let mut conflicting_headers = HeaderMap::new();
+        conflicting_headers.insert(HOST, HeaderValue::from_static("attacker.example:18123"));
+        assert_eq!(
+            request_authority(&conflicting_headers, &absolute_form),
+            None
+        );
     }
 
     #[test]
