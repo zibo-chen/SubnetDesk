@@ -39,7 +39,8 @@ jobs:
           grep -Fq 'build-mobile: false' .github/workflows/flutter-ci.yml
           grep -Fq 'publish-release: true' .github/workflows/flutter-tag.yml
           grep -Fq 'publish-release: true' .github/workflows/flutter-nightly.yml
-          grep -Fq 'git reset --hard ${{ env.FLUTTER_ELINUX_VERSION }}' .github/workflows/flutter-build.yml
+          grep -Fq 'flutter build linux --release --target-platform linux-arm64' .github/workflows/flutter-build.yml
+          ! grep -Fq 'flutter-elinux' .github/workflows/flutter-build.yml
           sed -n '/^  build-for-windows-flutter:/,/^  build-for-windows-sciter:/p' .github/workflows/flutter-build.yml | grep -Fq 'toolchain: ${{ env.RUST_VERSION }}'
           ! sed -n '/^  build-for-windows-flutter:/,/^  build-for-windows-sciter:/p' .github/workflows/flutter-build.yml | grep -Fq 'toolchain: ${{ env.SCITER_RUST_VERSION }}'
           for artifact in \

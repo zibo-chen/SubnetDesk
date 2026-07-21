@@ -33,8 +33,6 @@ env:
   LLVM_VERSION: "15.0.6"
   FLUTTER_VERSION: "3.44.1"
   ANDROID_FLUTTER_VERSION: "3.44.1"
-  # for arm64 linux because official Dart SDK does not work
-  FLUTTER_ELINUX_VERSION: "3.16.9"
   TAG_NAME: "${{ inputs.upload-tag }}"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   # vcpkg version: 2025.08.27
@@ -1560,8 +1558,8 @@ jobs:
             pushd /workspace
             case ${{ matrix.job.arch }} in
               aarch64)
-                export PATH=/opt/flutter-elinux/bin:$PATH
-                sed -i "s/flutter build linux --release/flutter-elinux build linux --verbose/g" ./build.py
+                export PATH=/opt/flutter/bin:$PATH
+                sed -i "s/flutter build linux --release/flutter build linux --release --target-platform linux-arm64/g" ./build.py
                 sed -i "s/x64\/release/arm64\/release/g" ./build.py
               ;;
               x86_64)
@@ -1572,23 +1570,7 @@ jobs:
             pushd /opt
             wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
             tar xf flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
-            case ${{ matrix.job.arch }} in
-              aarch64)
-                # flutter-elinux has its own release tags, independent of Flutter desktop.
-                git clone https://github.com/sony/flutter-elinux.git || true
-                pushd flutter-elinux
-                  git fetch
-                  git reset --hard ${{ env.FLUTTER_ELINUX_VERSION }}
-                  bin/flutter-elinux doctor -v
-                  bin/flutter-elinux precache --linux
-                popd
-                cp -R flutter/bin/cache/artifacts/engine/linux-x64/shader_lib flutter-elinux/flutter/bin/cache/artifacts/engine/linux-arm64
-                rm -rf flutter
-              ;;
-              x86_64)
-                flutter doctor -v
-              ;;
-            esac
+            flutter doctor -v
 
             # build flutter
             pushd /workspace
