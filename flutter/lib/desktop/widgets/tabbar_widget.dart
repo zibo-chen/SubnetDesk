@@ -512,8 +512,7 @@ class _DesktopTabState extends State<DesktopTab>
   Widget build(BuildContext context) {
     return Column(children: [
       Obx(() {
-        if (stateGlobal.showTabBar.isTrue &&
-            !(kUseCompatibleUiMode && isHideSingleItem())) {
+        if (stateGlobal.showTabBar.isTrue) {
           final showBottomDivider = _showTabBarBottomDivider(tabType);
           return SizedBox(
             height: _kTabBarHeight,
@@ -632,7 +631,7 @@ class _DesktopTabState extends State<DesktopTab>
                           width: 78,
                         )),
                     Offstage(
-                      offstage: kUseCompatibleUiMode || isMacOS,
+                      offstage: isMacOS,
                       child: Row(children: [
                         Offstage(
                           offstage: !showLogo,
@@ -766,8 +765,7 @@ class WindowActionPanelState extends State<WindowActionPanel> {
           }
         }),
         if (widget.tail != null) widget.tail!,
-        if (!kUseCompatibleUiMode)
-          Row(
+        Row(
             children: [
               if (widget.showMinimize && !isMacOS)
                 ActionIcon(

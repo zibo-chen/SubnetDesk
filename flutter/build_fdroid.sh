@@ -23,7 +23,7 @@
 # Start of functions
 
 # Install Flutter of version `VERSION` from Github repository
-# into directory `FLUTTER_DIR` and apply patches if needed
+# into directory `FLUTTER_DIR`.
 
 prepare_flutter() {
 	VERSION="${1}"
@@ -37,12 +37,6 @@ prepare_flutter() {
 
 	git restore .
 	git checkout "${VERSION}"
-
-	# Patch flutter
-
-	if dpkg --compare-versions "${VERSION}" ge "3.24.4"; then
-		git apply "${ROOTDIR}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff"
-	fi
 
 	flutter config --no-analytics
 
@@ -305,67 +299,6 @@ prebuild)
 	# Patch the RustDesk sources
 
 	git apply res/fdroid/patches/*.patch
-
-	# If Flutter version used to generate bridge files differs from Flutter
-	# version used to compile Rustdesk library, generate bridge using the
-	# `FLUTTER_BRIDGE_VERSION` an restore the pubspec later
-
-	if [ "${FLUTTER_VERSION}" != "${FLUTTER_BRIDGE_VERSION}" ]; then
-		# Find first libclang.so and set BRIDGE_LLVM_PATH
-
-		BRIDGE_LLVM_PATH="$(find /usr/lib/ -name libclang.so | head -n1)"
-
-		if [ -z "${BRIDGE_LLVM_PATH}" ]; then
-			echo 'ERROR: Can not find libclang.so for bridge generator!' >&2
-			exit 1
-		fi
-
-		BRIDGE_LLVM_PATH="$(dirname "${BRIDGE_LLVM_PATH}")"
-		BRIDGE_LLVM_PATH="$(dirname "${BRIDGE_LLVM_PATH}")"
-
-		# Install Flutter bridge version
-
-		prepare_flutter "${FLUTTER_BRIDGE_VERSION}" "${HOME}/flutter"
-
-		# Save changes
-
-		git add .
-
-		# Edit pubspec to make flutter bridge version work
-
-		sed \
-			-i \
-			-e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' \
-			flutter/pubspec.yaml
-
-		# Download Flutter dependencies
-
-		pushd flutter
-
-		flutter clean
-		flutter packages pub get
-
-		popd # flutter
-
-		# Generate FFI bindings
-
-		flutter_rust_bridge_codegen \
-			--rust-input ./src/flutter_ffi.rs \
-			--dart-output ./flutter/lib/generated_bridge.dart \
-			--llvm-path "${BRIDGE_LLVM_PATH}"
-
-		# Add bridge files to save-list
-
-		git add -f ./flutter/lib/generated_bridge.* ./src/bridge_generated.*
-
-		# Restore everything
-
-		git checkout '*'
-		git clean -dffx
-		git reset
-
-		unset BRIDGE_LLVM_PATH
-	fi
 
 	# Install Flutter version for RustDesk library build
 

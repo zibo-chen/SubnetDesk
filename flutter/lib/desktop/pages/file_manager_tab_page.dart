@@ -121,7 +121,7 @@ class _FileManagerTabPageState extends State<FileManagerTabPage> {
                   border: Border.all(color: MyTheme.color(context).border!)),
               child: child,
             ));
-    return isMacOS || kUseCompatibleUiMode
+    return isMacOS
         ? tabWidget
         : SubWindowDragToResizeArea(
             child: tabWidget,

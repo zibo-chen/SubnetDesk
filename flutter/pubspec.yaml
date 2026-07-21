@@ -19,7 +19,8 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+68
 
 environment:
-  sdk: '^3.1.0'
+  sdk: '^3.12.0'
+  flutter: '>=3.44.0'
 
 dependencies:
   flutter:
@@ -105,10 +106,10 @@ dependencies:
   pull_down_button: ^0.9.3
   device_info_plus: ^9.1.0
   qr_flutter: ^4.1.0
-  extended_text: 14.0.0
+  extended_text: 15.0.2
   xterm: 4.0.0
   sqflite: 2.2.0
-  google_fonts: ^6.2.1
+  google_fonts: ^8.1.0
   vector_math: ^2.1.4
 
 dev_dependencies:

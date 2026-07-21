@@ -185,7 +185,7 @@ class PlatformFFI {
         id = linuxInfo.machineId ?? linuxInfo.id;
       } else if (isWindows) {
         try {
-          // request windows build number to fix overflow on win7
+          // Windows 10 needs a thin border around custom window chrome.
           windowsBuildNumber = getWindowsTargetBuildNumber();
           WindowsDeviceInfo winInfo = await deviceInfo.windowsInfo;
           name = winInfo.computerName;

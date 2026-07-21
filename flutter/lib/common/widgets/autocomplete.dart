@@ -21,8 +21,10 @@ List<Peer> mergeAutocompletePeers({
     final existingPeer = combinedPeers[peer.id];
     if (existingPeer == null) {
       combinedPeers[peer.id] = Peer.copy(peer);
-    } else if (peer.online) {
-      existingPeer.online = true;
+    } else {
+      final mergedPeer = Peer.copy(peer);
+      mergedPeer.online = existingPeer.online || peer.online;
+      combinedPeers[peer.id] = mergedPeer;
     }
   }
 

@@ -383,9 +383,9 @@ class MyTheme {
     brightness: Brightness.light,
     hoverColor: Color.fromARGB(255, 224, 224, 224),
     scaffoldBackgroundColor: Colors.white,
-    dialogBackgroundColor: Colors.white,
     appBarTheme: AppBarTheme(shadowColor: Colors.transparent),
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
+      backgroundColor: Colors.white,
       elevation: 15,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18.0),
@@ -421,7 +421,7 @@ class MyTheme {
     cardColor: grayBg,
     hintColor: Color(0xFFAAAAAA),
     visualDensity: VisualDensity.adaptivePlatformDensity,
-    tabBarTheme: const TabBarTheme(labelColor: Colors.black87),
+    tabBarTheme: const TabBarThemeData(labelColor: Colors.black87),
     tooltipTheme: tooltipTheme(),
     splashColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
     highlightColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
@@ -489,9 +489,9 @@ class MyTheme {
     brightness: Brightness.dark,
     hoverColor: Color.fromARGB(255, 45, 46, 53),
     scaffoldBackgroundColor: Color(0xFF18191E),
-    dialogBackgroundColor: Color(0xFF18191E),
     appBarTheme: AppBarTheme(shadowColor: Colors.transparent),
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
+      backgroundColor: Color(0xFF18191E),
       elevation: 15,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18.0),
@@ -522,7 +522,7 @@ class MyTheme {
     ),
     cardColor: Color(0xFF24252B),
     visualDensity: VisualDensity.adaptivePlatformDensity,
-    tabBarTheme: const TabBarTheme(labelColor: Colors.white70),
+    tabBarTheme: const TabBarThemeData(labelColor: Colors.white70),
     tooltipTheme: tooltipTheme(),
     splashColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
     highlightColor: (isDesktop || isWebDesktop) ? Colors.transparent : null,
@@ -2903,17 +2903,8 @@ WindowsTarget getWindowsTarget(int buildNumber) {
     return WindowsTarget.w11;
   } else if (buildNumber >= 10240) {
     return WindowsTarget.w10;
-  } else if (buildNumber >= 9600) {
-    return WindowsTarget.w8_1;
-  } else if (buildNumber >= 9200) {
-    return WindowsTarget.w8;
-  } else if (buildNumber >= 7601) {
-    return WindowsTarget.w7;
-  } else if (buildNumber >= 6002) {
-    return WindowsTarget.vista;
   } else {
-    // minimum support
-    return WindowsTarget.xp;
+    return WindowsTarget.unsupported;
   }
 }
 
@@ -2924,14 +2915,6 @@ WindowsTarget getWindowsTarget(int buildNumber) {
 int getWindowsTargetBuildNumber() {
   return getWindowsTargetBuildNumber_();
 }
-
-/// Indicating we need to use compatible ui mode.
-///
-/// [Conditions]
-/// - Windows 7, window will overflow when we use frameless ui.
-bool get kUseCompatibleUiMode =>
-    isWindows &&
-    const [WindowsTarget.w7].contains(windowsBuildNumber.windowsVersion);
 
 bool get isWin10 => windowsBuildNumber.windowsVersion == WindowsTarget.w10;
 

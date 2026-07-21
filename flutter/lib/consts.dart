@@ -292,7 +292,7 @@ double kNewWindowOffset = isWindows
     ? 30.0
     : 50.0;
 
-EdgeInsets get kDragToResizeAreaPadding => !kUseCompatibleUiMode && isLinux
+EdgeInsets get kDragToResizeAreaPadding => isLinux
     ? stateGlobal.fullscreen.isTrue || stateGlobal.isMaximized.value
           ? EdgeInsets.zero
           : EdgeInsets.all(5.0)
@@ -654,11 +654,7 @@ const Map<int, String> physicalKeyMap = <int, String>{
 /// The windows targets in the publish time order.
 enum WindowsTarget {
   naw, // not a windows target
-  xp,
-  vista,
-  w7,
-  w8,
-  w8_1,
+  unsupported,
   w10,
   w11,
 }
