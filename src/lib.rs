@@ -24,6 +24,8 @@ mod lan_server;
 #[cfg(not(any(target_os = "android", target_os = "ios", feature = "flutter")))]
 pub mod ui;
 mod version;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod web_gateway;
 pub use version::*;
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
 mod bridge_generated;

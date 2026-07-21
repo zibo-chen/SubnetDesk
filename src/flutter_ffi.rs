@@ -39,9 +39,7 @@ lazy_static::lazy_static! {
 
 #[cfg(test)]
 mod lan_server_info_tests {
-    use super::{
-        lan_server_running_for_ui, should_sync_lan_settings_to_background,
-    };
+    use super::{lan_server_running_for_ui, should_sync_lan_settings_to_background};
 
     #[test]
     fn configured_enabled_service_is_ready_in_a_separate_ui_process() {
@@ -971,6 +969,9 @@ pub fn main_set_option(key: String, mut value: String) {
             | "lan-listen-port"
             | "lan-allowed-networks"
             | "lan-discovery-enabled"
+            | "web-access-enabled"
+            | "web-listen-port"
+            | "web-https-enabled"
             | "stop-service"
     );
     set_option(key, value);
@@ -1595,6 +1596,13 @@ pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
         .ok()
         .filter(|value| *value > 0)
         .unwrap_or(hbb_common::lan::DEFAULT_PORT);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let (web_listen_port, web_https_enabled) = (
+        crate::web_gateway::configured_port(),
+        crate::web_gateway::is_https_enabled(),
+    );
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let (web_listen_port, web_https_enabled) = (18_123, true);
     let data = serde_json::json!({
         "configured": configured,
         "running": running,
@@ -1608,6 +1616,9 @@ pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
         "listen_addresses": Config::get_option("lan-listen-addresses"),
         "allowed_networks": Config::get_option("lan-allowed-networks"),
         "discovery_enabled": Config::get_option("lan-discovery-enabled") != "N",
+        "web_access_enabled": Config::get_option("web-access-enabled") == "Y",
+        "web_listen_port": web_listen_port,
+        "web_https_enabled": web_https_enabled,
     });
     SyncReturn(data.to_string())
 }
@@ -1638,6 +1649,9 @@ pub fn main_apply_lan_settings(
     listen_port: String,
     allowed_networks: String,
     discovery_enabled: bool,
+    web_access_enabled: bool,
+    web_listen_port: String,
+    web_https_enabled: bool,
 ) -> String {
     let result = (|| -> ResultType<()> {
         let username = hbb_common::lan::validate_username(&username)?;
@@ -1646,6 +1660,15 @@ pub fn main_apply_lan_settings(
             .map_err(|_| hbb_common::anyhow::anyhow!("Listen port must be between 1 and 65535"))?;
         if port == 0 {
             hbb_common::bail!("Listen port must be between 1 and 65535");
+        }
+        let web_port = web_listen_port
+            .parse::<u16>()
+            .map_err(|_| hbb_common::anyhow::anyhow!("Web port must be between 1 and 65535"))?;
+        if web_port == 0 {
+            hbb_common::bail!("Web port must be between 1 and 65535");
+        }
+        if web_access_enabled && web_port == port {
+            hbb_common::bail!("Web port must differ from the native LAN port");
         }
         let listen_addresses = crate::lan_server::normalize_listen_addresses(&listen_addresses)?;
         let allowed_networks = crate::lan_server::normalize_allowed_networks(&allowed_networks)?;
@@ -1666,6 +1689,15 @@ pub fn main_apply_lan_settings(
         Config::set_option(
             "lan-discovery-enabled".to_owned(),
             if discovery_enabled { "Y" } else { "N" }.to_owned(),
+        );
+        Config::set_option(
+            "web-access-enabled".to_owned(),
+            if web_access_enabled { "Y" } else { "N" }.to_owned(),
+        );
+        Config::set_option("web-listen-port".to_owned(), web_port.to_string());
+        Config::set_option(
+            "web-https-enabled".to_owned(),
+            if web_https_enabled { "Y" } else { "N" }.to_owned(),
         );
         Config::set_option("stop-service".to_owned(), String::new());
         crate::lan_server::LanServer::restart();

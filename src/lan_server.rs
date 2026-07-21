@@ -132,11 +132,14 @@ fn listen_addresses() -> Vec<String> {
         .collect()
 }
 
-fn listener_signature() -> (u16, Vec<String>, String) {
+fn listener_signature() -> (u16, Vec<String>, String, String, String, String) {
     (
         listen_port(),
         listen_addresses(),
         Config::get_option("lan-allowed-networks"),
+        Config::get_option("web-access-enabled"),
+        Config::get_option("web-listen-port"),
+        Config::get_option("web-https-enabled"),
     )
 }
 
@@ -158,7 +161,17 @@ async fn bind_listeners(
         }
     }
 
-    let mut handles = Vec::with_capacity(listeners.len());
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let mut handles = match crate::web_gateway::bind(server.clone(), stop_rx.clone()).await {
+        Ok(handles) => handles,
+        Err(err) => {
+            log::error!("Failed to start optional Web access: {err}");
+            Vec::new()
+        }
+    };
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    let mut handles = Vec::new();
+    handles.reserve(listeners.len());
     for listener in listeners {
         let server = server.clone();
         let mut stop_rx = stop_rx.clone();
@@ -281,17 +294,11 @@ mod tests {
             "::ffff:192.168.1.20".parse().unwrap(),
             ""
         ));
-        assert!(source_allowed_with(
-            "::ffff:127.0.0.1".parse().unwrap(),
-            ""
-        ));
+        assert!(source_allowed_with("::ffff:127.0.0.1".parse().unwrap(), ""));
         assert!(source_allowed_with("100.64.10.2".parse().unwrap(), ""));
         assert!(source_allowed_with("fd00::20".parse().unwrap(), ""));
         assert!(!source_allowed_with("8.8.8.8".parse().unwrap(), ""));
-        assert!(!source_allowed_with(
-            "::ffff:8.8.8.8".parse().unwrap(),
-            ""
-        ));
+        assert!(!source_allowed_with("::ffff:8.8.8.8".parse().unwrap(), ""));
         assert!(source_allowed_with(
             "10.23.1.9".parse().unwrap(),
             "10.23.0.0/16"

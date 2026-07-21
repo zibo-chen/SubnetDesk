@@ -1,0 +1,56 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "subnetdesk-web-client",
+      "dependencies": {
+        "@bufbuild/protobuf": "2.6.2",
+        "fast-sha256": "1.3.0",
+        "libsodium-wrappers": "0.8.4",
+      },
+      "devDependencies": {
+        "bun-types": "1.2.21",
+        "ts-proto": "2.7.7",
+        "typescript": "5.9.2",
+      },
+    },
+  },
+  "packages": {
+    "@bufbuild/protobuf": ["@bufbuild/protobuf@2.6.2", "https://registry.npmmirror.com/@bufbuild/protobuf/-/protobuf-2.6.2.tgz", {}, "sha512-vLu7SRY84CV/Dd+NUdgtidn2hS5hSMUC1vDBY0VcviTdgRYkU43vIz3vIFbmx14cX1r+mM7WjzE5Fl1fGEM0RQ=="],
+
+    "@types/node": ["@types/node@26.1.1", "https://registry.npmmirror.com/@types/node/-/node-26.1.1.tgz", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw=="],
+
+    "@types/react": ["@types/react@19.2.17", "https://registry.npmmirror.com/@types/react/-/react-19.2.17.tgz", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw=="],
+
+    "bun-types": ["bun-types@1.2.21", "https://registry.npmmirror.com/bun-types/-/bun-types-1.2.21.tgz", { "dependencies": { "@types/node": "*" }, "peerDependencies": { "@types/react": "^19" } }, "sha512-sa2Tj77Ijc/NTLS0/Odjq/qngmEPZfbfnOERi0KRUYhT9R8M4VBioWVmMWE5GrYbKMc+5lVybXygLdibHaqVqw=="],
+
+    "case-anything": ["case-anything@2.1.13", "https://registry.npmmirror.com/case-anything/-/case-anything-2.1.13.tgz", {}, "sha512-zlOQ80VrQ2Ue+ymH5OuM/DlDq64mEm+B9UTdHULv5osUMD6HalNTblf2b1u/m6QecjsnOkBpqVZ+XPwIVsy7Ng=="],
+
+    "csstype": ["csstype@3.2.3", "https://registry.npmmirror.com/csstype/-/csstype-3.2.3.tgz", {}, "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ=="],
+
+    "detect-libc": ["detect-libc@1.0.3", "https://registry.npmmirror.com/detect-libc/-/detect-libc-1.0.3.tgz", { "bin": { "detect-libc": "./bin/detect-libc.js" } }, "sha512-pGjwhsmsp4kL2RTz08wcOlGN83otlqHeD/Z5T8GXZB+/YcpQ/dgo+lbU8ZsGxV0HIvqqxo9l7mqYwyYMD9bKDg=="],
+
+    "dprint-node": ["dprint-node@1.0.8", "https://registry.npmmirror.com/dprint-node/-/dprint-node-1.0.8.tgz", { "dependencies": { "detect-libc": "^1.0.3" } }, "sha512-iVKnUtYfGrYcW1ZAlfR/F59cUVL8QIhWoBJoSjkkdua/dkWIgjZfiLMeTjiB06X0ZLkQ0M2C1VbUj/CxkIf1zg=="],
+
+    "fast-sha256": ["fast-sha256@1.3.0", "https://registry.npmmirror.com/fast-sha256/-/fast-sha256-1.3.0.tgz", {}, "sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ=="],
+
+    "libsodium": ["libsodium@0.8.4", "https://registry.npmmirror.com/libsodium/-/libsodium-0.8.4.tgz", {}, "sha512-lMcYaRi0zcs7tarATsQUYC7rstliIXZuoq0c6zXSgNtSNtdvBgkSegjWhpMJAXzKX3SUSwIp7+zEsob+j3LuRw=="],
+
+    "libsodium-wrappers": ["libsodium-wrappers@0.8.4", "https://registry.npmmirror.com/libsodium-wrappers/-/libsodium-wrappers-0.8.4.tgz", { "dependencies": { "libsodium": "^0.8.0" } }, "sha512-mu8aAWucZjTB5O/BtGXtW4e1agy7uHxNYG7zPthmmD1jU43LCDmSWZLN4JhflbdPXj3yDO4lxM1O9hLDgIOXDw=="],
+
+    "ts-poet": ["ts-poet@6.12.0", "https://registry.npmmirror.com/ts-poet/-/ts-poet-6.12.0.tgz", { "dependencies": { "dprint-node": "^1.0.8" } }, "sha512-xo+iRNMWqyvXpFTaOAvLPA5QAWO6TZrSUs5s4Odaya3epqofBu/fMLHEWl8jPmjhA0s9sgj9sNvF1BmaQlmQkA=="],
+
+    "ts-proto": ["ts-proto@2.7.7", "https://registry.npmmirror.com/ts-proto/-/ts-proto-2.7.7.tgz", { "dependencies": { "@bufbuild/protobuf": "^2.0.0", "case-anything": "^2.1.13", "ts-poet": "^6.12.0", "ts-proto-descriptors": "2.0.0" }, "bin": { "protoc-gen-ts_proto": "protoc-gen-ts_proto" } }, "sha512-/OfN9/Yriji2bbpOysZ/Jzc96isOKz+eBTJEcKaIZ0PR6x1TNgVm4Lz0zfbo+J0jwFO7fJjJyssefBPQ0o1V9A=="],
+
+    "ts-proto-descriptors": ["ts-proto-descriptors@2.0.0", "https://registry.npmmirror.com/ts-proto-descriptors/-/ts-proto-descriptors-2.0.0.tgz", { "dependencies": { "@bufbuild/protobuf": "^2.0.0" } }, "sha512-wHcTH3xIv11jxgkX5OyCSFfw27agpInAd6yh89hKG6zqIXnjW9SYqSER2CVQxdPj4czeOhGagNvZBEbJPy7qkw=="],
+
+    "typescript": ["typescript@5.9.2", "https://registry.npmmirror.com/typescript/-/typescript-5.9.2.tgz", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-CWBzXQrc/qOkhidw1OzBTQuYRbfyxDXJMVJ1XNwUHGROVmuaeiEm3OslpZ1RV96d7SKKjZKrSJu3+t/xlw3R9A=="],
+
+    "undici-types": ["undici-types@8.3.0", "https://registry.npmmirror.com/undici-types/-/undici-types-8.3.0.tgz", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+
+    "ts-proto/@bufbuild/protobuf": ["@bufbuild/protobuf@2.12.1", "https://registry.npmmirror.com/@bufbuild/protobuf/-/protobuf-2.12.1.tgz", {}, "sha512-BvAMfS6LrgZiryOAZ4pBYucu4wG/Ei/9o9DZ9akbREnMLbPJiom2i8b9C8IsKErQoiKqVhrerzt3kOT/RrzLHg=="],
+
+    "ts-proto-descriptors/@bufbuild/protobuf": ["@bufbuild/protobuf@2.12.1", "https://registry.npmmirror.com/@bufbuild/protobuf/-/protobuf-2.12.1.tgz", {}, "sha512-BvAMfS6LrgZiryOAZ4pBYucu4wG/Ei/9o9DZ9akbREnMLbPJiom2i8b9C8IsKErQoiKqVhrerzt3kOT/RrzLHg=="],
+  }
+}

@@ -635,6 +635,9 @@ pub struct CheckIfRestart {
     lan_listen_addresses: String,
     lan_listen_port: String,
     lan_allowed_networks: String,
+    web_access_enabled: String,
+    web_listen_port: String,
+    web_https_enabled: String,
     audio_input: String,
     voice_call_input: String,
 }
@@ -646,6 +649,9 @@ impl CheckIfRestart {
             lan_listen_addresses: Config::get_option("lan-listen-addresses"),
             lan_listen_port: Config::get_option("lan-listen-port"),
             lan_allowed_networks: Config::get_option("lan-allowed-networks"),
+            web_access_enabled: Config::get_option("web-access-enabled"),
+            web_listen_port: Config::get_option("web-listen-port"),
+            web_https_enabled: Config::get_option("web-https-enabled"),
             audio_input: Config::get_option("audio-input"),
             voice_call_input: Config::get_option("voice-call-input"),
         }
@@ -657,6 +663,9 @@ impl Drop for CheckIfRestart {
             || self.lan_listen_addresses != Config::get_option("lan-listen-addresses")
             || self.lan_listen_port != Config::get_option("lan-listen-port")
             || self.lan_allowed_networks != Config::get_option("lan-allowed-networks")
+            || self.web_access_enabled != Config::get_option("web-access-enabled")
+            || self.web_listen_port != Config::get_option("web-listen-port")
+            || self.web_https_enabled != Config::get_option("web-https-enabled")
         {
             crate::lan_server::LanServer::restart();
         }

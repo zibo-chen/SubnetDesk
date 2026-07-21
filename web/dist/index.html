@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>SubnetDesk Web</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <main id="connect-panel" class="shell">
+      <h1>SubnetDesk Web</h1>
+      <p class="device">远程访问 <strong id="device-name">正在读取设备…</strong></p>
+      <form id="login-form" autocomplete="off">
+        <label for="username">访问用户名</label>
+        <input id="username" name="username" maxlength="64" required autocomplete="username">
+        <label for="password">访问密码</label>
+        <input id="password" name="password" type="password" maxlength="256" required autocomplete="off">
+        <button id="connect" class="primary" type="submit" disabled>连接此电脑</button>
+      </form>
+      <p id="status" aria-live="polite">正在初始化…</p>
+      <p class="fingerprint">设备指纹：<span id="fingerprint">—</span></p>
+    </main>
+    <section id="viewer-panel" hidden>
+      <div class="toolbar">
+        <span id="viewer-status">已连接</span>
+        <button id="fullscreen" type="button">全屏</button>
+        <button id="disconnect" type="button">断开</button>
+      </div>
+      <canvas id="screen" tabindex="0" aria-label="远程桌面"></canvas>
+    </section>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

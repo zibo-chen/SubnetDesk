@@ -130,6 +130,12 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     final endpoints = visibleAddresses
         .map((address) => _formatEndpoint(address, port))
         .join('\n');
+    final webAccessEnabled = info['web_access_enabled'] == true;
+    final webPort = info['web_listen_port']?.toString() ?? '18123';
+    final webScheme = info['web_https_enabled'] == false ? 'http' : 'https';
+    final webEndpoints = visibleAddresses
+        .map((address) => '$webScheme://${_formatEndpoint(address, webPort)}')
+        .join('\n');
     final fingerprint = info['fingerprint']?.toString() ?? '';
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted = isDark ? Colors.white54 : const Color(0xFF7A8290);
@@ -290,6 +296,15 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                       )
                     : null,
               ),
+              if (webAccessEnabled)
+                _buildCompactInfoRow(
+                  icon: Icons.language_rounded,
+                  label: 'Web remote access',
+                  value: primaryAddress == null
+                      ? '-'
+                      : '$webScheme://${_formatEndpoint(primaryAddress, webPort)}',
+                  muted: muted,
+                ),
             ],
           ),
         ),
@@ -390,6 +405,15 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
             ),
             const SizedBox(height: 3),
             SelectableText(endpoints.isEmpty ? '-' : endpoints),
+            if (webAccessEnabled) ...[
+              const SizedBox(height: 11),
+              Text(
+                'Web remote access',
+                style: TextStyle(fontSize: 12, color: muted),
+              ),
+              const SizedBox(height: 3),
+              SelectableText(webEndpoints.isEmpty ? '-' : webEndpoints),
+            ],
             if (hiddenAddressCount > 0)
               TextButton.icon(
                 onPressed: () => setState(
@@ -664,7 +688,12 @@ Future<void> showLanSettingsDialog(
   final allowedNetworks = TextEditingController(
     text: info['allowed_networks']?.toString() ?? '',
   );
+  final webListenPort = TextEditingController(
+    text: info['web_listen_port']?.toString() ?? '18123',
+  );
   var discoveryEnabled = info['discovery_enabled'] == true;
+  var webAccessEnabled = info['web_access_enabled'] == true;
+  var webHttpsEnabled = info['web_https_enabled'] != false;
   var error = '';
   var saving = false;
 
@@ -874,6 +903,99 @@ Future<void> showLanSettingsDialog(
                         ],
                       ),
                     ),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: fieldFill,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: border),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.language_rounded,
+                                  size: 20, color: primary),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Web remote access',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      'Open this computer directly from a browser on the local network',
+                                      style: TextStyle(fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: webAccessEnabled,
+                                onChanged: (value) => setDialogState(
+                                  () => webAccessEnabled = value,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (webAccessEnabled) ...[
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: webListenPort,
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (_) => setDialogState(() {}),
+                                    decoration: fieldDecoration(
+                                      label: 'Web port',
+                                      icon: Icons.tag_rounded,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text(
+                                      'HTTPS',
+                                      style: TextStyle(fontSize: 14),
+                                    ),
+                                    subtitle: const Text(
+                                      'Self-signed certificate',
+                                      style: TextStyle(fontSize: 11),
+                                    ),
+                                    value: webHttpsEnabled,
+                                    onChanged: (value) => setDialogState(
+                                      () => webHttpsEnabled = value,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '${webHttpsEnabled ? 'https' : 'http'}://<LAN-IP>:${webListenPort.text.isEmpty ? '18123' : webListenPort.text}',
+                                style: TextStyle(
+                                  color: muted,
+                                  fontSize: 12,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                     if (error.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Container(
@@ -922,6 +1044,9 @@ Future<void> showLanSettingsDialog(
                                     listenPort: listenPort.text,
                                     allowedNetworks: allowedNetworks.text,
                                     discoveryEnabled: discoveryEnabled,
+                                    webAccessEnabled: webAccessEnabled,
+                                    webListenPort: webListenPort.text,
+                                    webHttpsEnabled: webHttpsEnabled,
                                   );
                                   password.clear();
                                   if (!dialogContext.mounted) return;
@@ -973,6 +1098,7 @@ Future<void> showLanSettingsDialog(
   listenAddresses.dispose();
   listenPort.dispose();
   allowedNetworks.dispose();
+  webListenPort.dispose();
 }
 
 class _DesktopHomePageState extends State<DesktopHomePage>

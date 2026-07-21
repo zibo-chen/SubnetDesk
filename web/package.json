@@ -1,0 +1,20 @@
+{
+  "name": "subnetdesk-web-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/main.ts --outfile dist/app.js --target browser --minify",
+    "generate:proto": "protoc -I ../libs/hbb_common/protos --plugin=protoc-gen-ts_proto=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/generated --ts_proto_opt=esModuleInterop=true,snakeToCamel=false,forceLong=bigint,useOptionals=messages ../libs/hbb_common/protos/message.proto",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.6.2",
+    "fast-sha256": "1.3.0",
+    "libsodium-wrappers": "0.8.4"
+  },
+  "devDependencies": {
+    "bun-types": "1.2.21",
+    "ts-proto": "2.7.7",
+    "typescript": "5.9.2"
+  }
+}

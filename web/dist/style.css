@@ -1,0 +1,22 @@
+:root { font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e8edf4; background: #0c111b; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #18253c, #0c111b 52%); }
+button, input { font: inherit; }
+.shell { width: min(520px, calc(100% - 32px)); margin: 9vh auto; padding: 30px; border: 1px solid #2a3850; border-radius: 18px; background: rgba(18, 27, 43, .94); box-shadow: 0 24px 80px #0008; }
+h1 { margin: 0 0 4px; font-size: 25px; }
+.device { margin: 0 0 24px; color: #9baac0; }
+label { display: block; margin: 14px 0 6px; color: #c8d1df; }
+input { width: 100%; padding: 11px 12px; color: inherit; background: #0c1421; border: 1px solid #34445f; border-radius: 9px; outline: none; }
+input:focus { border-color: #58a6ff; box-shadow: 0 0 0 3px #58a6ff22; }
+button { border: 0; border-radius: 9px; padding: 10px 16px; color: white; background: #1677ff; cursor: pointer; }
+button:disabled { opacity: .55; cursor: wait; }
+.primary { width: 100%; margin-top: 22px; }
+.fingerprint { margin: 18px 0 0; padding-top: 16px; border-top: 1px solid #2a3850; color: #8291a8; font-size: 12px; overflow-wrap: anywhere; }
+#status { min-height: 22px; margin: 14px 0 0; color: #8ba1bd; text-align: center; }
+#status[data-error="true"] { color: #ff8b8b; }
+#viewer-panel { position: fixed; inset: 0; background: #05070b; }
+.toolbar { height: 50px; display: flex; align-items: center; gap: 10px; padding: 7px 12px; background: #121b2b; }
+.toolbar span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toolbar button { padding: 7px 12px; background: #2a3850; }
+#screen { display: block; width: 100vw; height: calc(100vh - 50px); object-fit: contain; outline: none; cursor: default; }
+[hidden] { display: none !important; }
