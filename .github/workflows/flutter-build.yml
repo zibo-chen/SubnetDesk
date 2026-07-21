@@ -32,6 +32,7 @@ env:
   SCITER_NASM_DEBVERSION: "2.15.05-1"
   LLVM_VERSION: "15.0.6"
   FLUTTER_VERSION: "3.44.1"
+  DART_VERSION: "3.12.1"
   ANDROID_FLUTTER_VERSION: "3.44.1"
   TAG_NAME: "${{ inputs.upload-tag }}"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
@@ -1570,6 +1571,12 @@ jobs:
             pushd /opt
             wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
             tar xf flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
+            if [[ "${{ matrix.job.arch }}" == "aarch64" ]]; then
+              rm -rf flutter/bin/cache/dart-sdk
+              wget -O dart-sdk.zip https://storage.googleapis.com/dart-archive/channels/stable/release/${{ env.DART_VERSION }}/sdk/dartsdk-linux-arm64-release.zip
+              unzip -q dart-sdk.zip -d flutter/bin/cache
+              flutter/bin/flutter precache --linux --force
+            fi
             flutter doctor -v
 
             # build flutter

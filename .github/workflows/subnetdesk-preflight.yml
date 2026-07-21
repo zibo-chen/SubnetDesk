@@ -40,6 +40,8 @@ jobs:
           grep -Fq 'publish-release: true' .github/workflows/flutter-tag.yml
           grep -Fq 'publish-release: true' .github/workflows/flutter-nightly.yml
           grep -Fq 'flutter build linux --release --target-platform linux-arm64' .github/workflows/flutter-build.yml
+          grep -Fq 'dartsdk-linux-arm64-release.zip' .github/workflows/flutter-build.yml
+          grep -Fq 'flutter precache --linux --force' .github/workflows/flutter-build.yml
           ! grep -Fq 'flutter-elinux' .github/workflows/flutter-build.yml
           sed -n '/^  build-for-windows-flutter:/,/^  build-for-windows-sciter:/p' .github/workflows/flutter-build.yml | grep -Fq 'toolchain: ${{ env.RUST_VERSION }}'
           ! sed -n '/^  build-for-windows-flutter:/,/^  build-for-windows-sciter:/p' .github/workflows/flutter-build.yml | grep -Fq 'toolchain: ${{ env.SCITER_RUST_VERSION }}'
