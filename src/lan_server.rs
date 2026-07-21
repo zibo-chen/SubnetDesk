@@ -144,6 +144,7 @@ fn listener_signature() -> (u16, Vec<String>, String, String, String, String, St
     )
 }
 
+#[cfg(not(target_os = "ios"))]
 async fn bind_listeners(
     server: ServerPtr,
     stop_rx: watch::Receiver<bool>,
