@@ -1,7 +1,7 @@
+#include <app_links/app_links_plugin_c_api.h>
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <tchar.h>
-#include <uni_links_desktop/uni_links_desktop_plugin.h>
 #include <windows.h>
 
 #include <algorithm>
@@ -105,7 +105,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     if (!allow_multiple_instances) {
       if (!command_line_arguments.empty()) {
         // Dispatch command line arguments
-        DispatchToUniLinksDesktop(hwnd);
+        SendAppLink(hwnd);
       } else {
         // Not called with arguments, or just open the app shortcut on desktop.
         // So we just show the main window instead.
