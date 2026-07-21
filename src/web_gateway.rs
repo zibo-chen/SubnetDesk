@@ -47,6 +47,7 @@ const WEB_PRIVATE_KEY_FILENAME: &str = "web-key.der";
 const INDEX_HTML: &str = include_str!("../web/dist/index.html");
 const APP_JS: &[u8] = include_bytes!("../web/dist/app.js");
 const STYLE_CSS: &str = include_str!("../web/dist/style.css");
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'none'; connect-src 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; worker-src 'self' blob:";
 
 #[derive(Clone)]
 struct WebState {
@@ -415,9 +416,7 @@ async fn security_headers(request: Request<Body>, next: Next) -> Response {
     headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(
         "content-security-policy",
-        HeaderValue::from_static(
-            "default-src 'self'; base-uri 'none'; connect-src 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'; worker-src 'self' blob:",
-        ),
+        HeaderValue::from_static(CONTENT_SECURITY_POLICY),
     );
     headers.insert(
         "x-content-type-options",
@@ -708,6 +707,21 @@ mod tests {
             request_authority(&conflicting_headers, &absolute_form),
             None
         );
+    }
+
+    #[test]
+    fn content_security_policy_allows_wasm_without_general_eval() {
+        let script_sources = CONTENT_SECURITY_POLICY
+            .split(';')
+            .map(str::trim)
+            .find(|directive| directive.starts_with("script-src "))
+            .unwrap();
+        let sources = script_sources.split_whitespace().collect::<Vec<_>>();
+
+        assert!(sources.contains(&"'self'"));
+        assert!(sources.contains(&"'wasm-unsafe-eval'"));
+        assert!(!sources.contains(&"'unsafe-eval'"));
+        assert!(!sources.contains(&"'unsafe-inline'"));
     }
 
     #[test]
