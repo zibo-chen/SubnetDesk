@@ -1674,6 +1674,7 @@ pub fn main_apply_lan_settings(
         if web_access_enabled && web_port == port {
             hbb_common::bail!("Web port must differ from the native LAN port");
         }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         let (web_certificate_path, web_private_key_path) =
             match crate::web_gateway::validate_custom_certificate_files(
                 &web_certificate_path,
@@ -1685,6 +1686,13 @@ pub fn main_apply_lan_settings(
                 ),
                 None => (String::new(), String::new()),
             };
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        let (web_certificate_path, web_private_key_path) = {
+            if web_access_enabled {
+                hbb_common::bail!("Web access is not supported on this platform");
+            }
+            (String::new(), String::new())
+        };
         let listen_addresses = crate::lan_server::normalize_listen_addresses(&listen_addresses)?;
         let allowed_networks = crate::lan_server::normalize_allowed_networks(&allowed_networks)?;
 
