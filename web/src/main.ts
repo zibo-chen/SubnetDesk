@@ -7,10 +7,10 @@ import {
   type DisplayInfo,
   type KeyEvent,
   type PeerInfo,
-  type VideoFrame,
 } from "./generated/message";
 import { LanCryptoSession } from "./crypto";
 import { mapCanvasPoint, mouseMask, normalizeFingerprint } from "./protocol";
+import { decodeVideoBatch } from "./video";
 
 interface ServerInfo {
   app_name: string;
@@ -204,25 +204,6 @@ function configureDecoder(peer: PeerInfo): void {
   viewerStatus.textContent = `${peer.hostname || serverInfo.device_name} · ${display.width}×${display.height}`;
 }
 
-async function decodeVideo(frame: VideoFrame): Promise<void> {
-  const frames = frame.vp9s?.frames;
-  if (!frames || !decoder) return;
-  for (const encoded of frames) {
-    const sourceTimestamp = Number(encoded.pts);
-    frameTimestamp = Number.isSafeInteger(sourceTimestamp) && sourceTimestamp > frameTimestamp
-      ? sourceTimestamp
-      : frameTimestamp + 1;
-    decoder.decode(
-      new EncodedVideoChunk({
-        type: encoded.key ? "key" : "delta",
-        timestamp: frameTimestamp,
-        data: encoded.data,
-      }),
-    );
-  }
-  await decoder.flush();
-}
-
 function authenticate(username: string, password: string): void {
   const passwordBytes = encoder.encode(password);
   try {
@@ -292,7 +273,7 @@ async function handleMessage(payload: Uint8Array, credentials: Credentials): Pro
   }
   if (message.peer_info) configureDecoder(message.peer_info);
   if (message.video_frame) {
-    await decodeVideo(message.video_frame);
+    if (decoder) frameTimestamp = decodeVideoBatch(decoder, message.video_frame, frameTimestamp);
     send(Message.create({ misc: { video_received: true } }));
   }
   if (message.test_delay && !message.test_delay.from_client) {
