@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   run-pr-ci:
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     permissions:
       contents: read
     uses: ./.github/workflows/flutter-build.yml
@@ -31,7 +31,7 @@ jobs:
       build-mobile: false
 
   run-release:
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
     uses: ./.github/workflows/flutter-build.yml
@@ -43,7 +43,7 @@ jobs:
 
   refresh-nightly-tag:
     name: Point nightly at this successful build
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name == 'push' }}
     needs: run-release
     runs-on: ubuntu-24.04
     permissions:
