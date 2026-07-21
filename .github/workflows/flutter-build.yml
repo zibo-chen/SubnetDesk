@@ -1575,6 +1575,7 @@ jobs:
               rm -rf flutter/bin/cache/dart-sdk
               wget -O dart-sdk.zip https://storage.googleapis.com/dart-archive/channels/stable/release/${{ env.DART_VERSION }}/sdk/dartsdk-linux-arm64-release.zip
               unzip -q dart-sdk.zip -d flutter/bin/cache
+              rm -f flutter/bin/cache/flutter_tools.snapshot flutter/bin/cache/flutter_tools.stamp
               flutter/bin/flutter precache --linux --force
             fi
             flutter doctor -v
