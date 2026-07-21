@@ -98,7 +98,7 @@ dependencies:
       url: https://github.com/rustdesk-org/dynamic_layouts.git
       ref: 24cb88413fa5181d949ddacbb30a65d5c459e7d9
   pull_down_button: ^0.9.3
-  device_info_plus: ^11.3.1
+  device_info_plus: 11.3.0
   qr_flutter: ^4.1.0
   extended_text: 15.0.2
   xterm: 4.0.0
@@ -113,7 +113,7 @@ dev_dependencies:
   build_runner: ^2.4.6
   freezed: ^2.4.2
   flutter_lints: ^2.0.2
-  ffigen: ^20.1.1
+  ffigen: ^8.0.2
 
 dependency_overrides:
   intl: ^0.19.0
