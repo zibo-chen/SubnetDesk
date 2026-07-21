@@ -782,9 +782,8 @@ class _GeneralState extends State<_General> {
                             ).exists()) {
                               initialDirectory = user_dir;
                             }
-                            String? selectedDirectory = await FilePicker
-                                .platform
-                                .getDirectoryPath(
+                            String? selectedDirectory =
+                                await FilePicker.getDirectoryPath(
                                   initialDirectory: initialDirectory,
                                 );
                             if (selectedDirectory != null) {

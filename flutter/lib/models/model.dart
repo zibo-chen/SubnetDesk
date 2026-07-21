@@ -523,7 +523,7 @@ class FfiModel with ChangeNotifier {
         close();
         Future.delayed(Duration.zero, () async {
           final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-          String? outputFile = await FilePicker.platform.saveFile(
+          String? outputFile = await FilePicker.saveFile(
             dialogTitle: '${translate('Save as')}...',
             fileName: 'screenshot_$ts.png',
             allowedExtensions: ['png'],

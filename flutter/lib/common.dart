@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:app_links/app_links.dart';
 import 'package:back_button_interceptor/back_button_interceptor.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/foundation.dart';
@@ -20,7 +21,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:get/get.dart';
 import 'package:get/get_rx/src/rx_workers/utils/debouncer.dart';
 import 'package:provider/provider.dart';
-import 'package:uni_links/uni_links.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -2341,6 +2341,7 @@ Future<bool> restoreWindowPosition(
 }
 
 var webInitialLink = "";
+final _appLinks = AppLinks();
 
 /// Initialize uni links for macos/windows
 ///
@@ -2353,7 +2354,7 @@ Future<bool> initUniLinks() async {
   }
   // check cold boot
   try {
-    final initialLink = await getInitialLink();
+    final initialLink = await _appLinks.getInitialLinkString();
     print("initialLink: $initialLink");
     if (initialLink == null || initialLink.isEmpty) {
       return false;
@@ -2380,17 +2381,13 @@ StreamSubscription? listenUniLinks({handleByFlutter = true}) {
     return null;
   }
 
-  final sub = uriLinkStream.listen(
-    (Uri? uri) {
+  final sub = _appLinks.uriLinkStream.listen(
+    (Uri uri) {
       debugPrint("A uri was received: $uri. handleByFlutter $handleByFlutter");
-      if (uri != null) {
-        if (handleByFlutter) {
-          handleUriLink(uri: uri);
-        } else {
-          bind.sendUrlScheme(url: uri.toString());
-        }
+      if (handleByFlutter) {
+        handleUriLink(uri: uri);
       } else {
-        print("uni listen error: uri is empty.");
+        bind.sendUrlScheme(url: uri.toString());
       }
     },
     onError: (err) {
