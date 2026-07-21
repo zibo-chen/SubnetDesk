@@ -1,9 +1,11 @@
 use std::{
     collections::HashSet,
     fs::{self, OpenOptions},
-    io::Write,
+    future::Future,
+    io::{self, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
+    pin::Pin,
     sync::Arc,
     time::Duration,
 };
@@ -23,7 +25,11 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use axum_server::{tls_rustls::RustlsConfig, Handle};
+use axum_server::{
+    accept::Accept,
+    tls_rustls::{RustlsAcceptor, RustlsConfig},
+    Handle,
+};
 use hbb_common::{
     anyhow::{anyhow, bail, Context},
     bytes::Bytes,
@@ -31,11 +37,18 @@ use hbb_common::{
     config::Config,
     futures::{SinkExt, StreamExt},
     log, tcp,
-    tokio::{self, io::duplex, sync::watch},
+    tokio::{
+        self,
+        io::{duplex, AsyncReadExt, AsyncWriteExt},
+        net::TcpStream,
+        sync::watch,
+        time::timeout,
+    },
     tokio_util::codec::Framed,
     ResultType, Stream,
 };
 use rcgen::CertifiedKey;
+use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
 use zeroize::Zeroize;
 
 use crate::server::ServerPtr;
@@ -44,6 +57,10 @@ pub const DEFAULT_WEB_PORT: u16 = 18_123;
 pub const MAX_WEBSOCKET_PAYLOAD_LEN: usize = 32 * 1024 * 1024;
 const WEB_CERTIFICATE_FILENAME: &str = "web-cert.der";
 const WEB_PRIVATE_KEY_FILENAME: &str = "web-key.der";
+const MAX_HTTP_REDIRECT_REQUEST_LEN: usize = 16 * 1024;
+const MAX_CUSTOM_CERTIFICATE_LEN: u64 = 4 * 1024 * 1024;
+const MAX_CUSTOM_PRIVATE_KEY_LEN: u64 = 1024 * 1024;
+const HTTP_REDIRECT_TIMEOUT: Duration = Duration::from_secs(5);
 const INDEX_HTML: &str = include_str!("../web/dist/index.html");
 const APP_JS: &[u8] = include_bytes!("../web/dist/app.js");
 const STYLE_CSS: &str = include_str!("../web/dist/style.css");
@@ -60,8 +77,8 @@ fn option_enabled(value: &str) -> bool {
     value == "Y"
 }
 
-fn https_enabled(value: &str) -> bool {
-    value != "N"
+fn https_required() -> bool {
+    true
 }
 
 fn parse_web_port(value: &str) -> u16 {
@@ -165,7 +182,7 @@ pub fn is_enabled() -> bool {
 }
 
 pub fn is_https_enabled() -> bool {
-    https_enabled(&Config::get_option("web-https-enabled"))
+    https_required()
 }
 
 pub fn configured_port() -> u16 {
@@ -177,6 +194,106 @@ fn certificate_paths() -> (PathBuf, PathBuf) {
         Config::path(WEB_CERTIFICATE_FILENAME),
         Config::path(WEB_PRIVATE_KEY_FILENAME),
     )
+}
+
+fn custom_certificate_paths(
+    certificate_path: &str,
+    private_key_path: &str,
+) -> ResultType<Option<(PathBuf, PathBuf)>> {
+    let certificate_path = certificate_path.trim();
+    let private_key_path = private_key_path.trim();
+    match (certificate_path.is_empty(), private_key_path.is_empty()) {
+        (true, true) => return Ok(None),
+        (true, false) | (false, true) => {
+            bail!("Custom Web certificate and private key must both be configured")
+        }
+        (false, false) => {}
+    }
+    let certificate_path = PathBuf::from(certificate_path);
+    let private_key_path = PathBuf::from(private_key_path);
+    if !certificate_path.is_absolute() || !private_key_path.is_absolute() {
+        bail!("Custom Web certificate and private key paths must be absolute");
+    }
+    Ok(Some((certificate_path, private_key_path)))
+}
+
+pub(crate) fn validate_custom_certificate_files(
+    certificate_path: &str,
+    private_key_path: &str,
+) -> ResultType<Option<(PathBuf, PathBuf)>> {
+    let Some((certificate_path, private_key_path)) =
+        custom_certificate_paths(certificate_path, private_key_path)?
+    else {
+        return Ok(None);
+    };
+    let certificate_metadata = fs::metadata(&certificate_path).with_context(|| {
+        format!(
+            "Failed to read custom Web certificate {}",
+            certificate_path.display()
+        )
+    })?;
+    if !certificate_metadata.is_file()
+        || certificate_metadata.len() == 0
+        || certificate_metadata.len() > MAX_CUSTOM_CERTIFICATE_LEN
+    {
+        bail!("Custom Web certificate must be a PEM file no larger than 4 MiB");
+    }
+    let private_key_metadata = fs::metadata(&private_key_path).with_context(|| {
+        format!(
+            "Failed to read custom Web private key {}",
+            private_key_path.display()
+        )
+    })?;
+    if !private_key_metadata.is_file()
+        || private_key_metadata.len() == 0
+        || private_key_metadata.len() > MAX_CUSTOM_PRIVATE_KEY_LEN
+    {
+        bail!("Custom Web private key must be a PEM file no larger than 1 MiB");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if private_key_metadata.mode() & 0o077 != 0 {
+            bail!("Custom Web private key must not be accessible by group or other users");
+        }
+    }
+    let certificate = fs::read(&certificate_path).with_context(|| {
+        format!(
+            "Failed to read custom Web certificate {}",
+            certificate_path.display()
+        )
+    })?;
+    let mut private_key = fs::read(&private_key_path).with_context(|| {
+        format!(
+            "Failed to read custom Web private key {}",
+            private_key_path.display()
+        )
+    })?;
+    let validation_result = validate_tls_material(&certificate, &private_key);
+    private_key.zeroize();
+    validation_result?;
+    Ok(Some((certificate_path, private_key_path)))
+}
+
+fn validate_tls_material(certificate: &[u8], private_key: &[u8]) -> ResultType<()> {
+    ensure_tls_crypto_provider()?;
+    let certificates = CertificateDer::pem_slice_iter(certificate)
+        .collect::<Result<Vec<_>, _>>()
+        .context("Custom Web certificate is not a valid PEM certificate chain")?;
+    if certificates.is_empty() {
+        bail!("Custom Web certificate must contain at least one PEM certificate");
+    }
+    let mut private_keys = PrivateKeyDer::pem_slice_iter(private_key)
+        .collect::<Result<Vec<_>, _>>()
+        .context("Custom Web private key is not a supported PEM private key")?;
+    if private_keys.len() != 1 {
+        bail!("Custom Web private key must contain exactly one private key");
+    }
+    rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certificates, private_keys.remove(0))
+        .context("Custom Web certificate and private key are invalid or do not match")?;
+    Ok(())
 }
 
 fn certificate_subject_alt_names() -> Vec<String> {
@@ -286,6 +403,20 @@ fn load_or_generate_certificate() -> ResultType<(Vec<u8>, Vec<u8>)> {
 
 async fn load_tls_config() -> ResultType<RustlsConfig> {
     ensure_tls_crypto_provider()?;
+    if let Some((certificate_path, private_key_path)) = validate_custom_certificate_files(
+        &Config::get_option("web-certificate-path"),
+        &Config::get_option("web-private-key-path"),
+    )? {
+        return RustlsConfig::from_pem_chain_file(&certificate_path, &private_key_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to load custom Web TLS certificate {} and private key {}",
+                    certificate_path.display(),
+                    private_key_path.display()
+                )
+            });
+    }
     let (certificate, mut private_key) = load_or_generate_certificate()?;
     let result = RustlsConfig::from_der(vec![certificate], private_key.clone())
         .await
@@ -343,6 +474,150 @@ fn configured_addresses() -> ResultType<Vec<IpAddr>> {
         Ok(vec![IpAddr::V4(Ipv4Addr::UNSPECIFIED)])
     } else {
         Ok(values)
+    }
+}
+
+fn looks_like_plain_http(prefix: &[u8]) -> bool {
+    prefix
+        .first()
+        .map(|value| value.is_ascii_uppercase())
+        .unwrap_or(false)
+}
+
+fn http_redirect_location(
+    request: &[u8],
+    https_port: u16,
+    allowed_hosts: &HashSet<String>,
+) -> Option<String> {
+    let header_end = request.windows(4).position(|value| value == b"\r\n\r\n")?;
+    let request = std::str::from_utf8(&request[..header_end]).ok()?;
+    let mut lines = request.split("\r\n");
+    let mut request_line = lines.next()?.split_whitespace();
+    let method = request_line.next()?;
+    let target = request_line.next()?;
+    let version = request_line.next()?;
+    if request_line.next().is_some()
+        || method.is_empty()
+        || !method.bytes().all(|value| value.is_ascii_uppercase())
+        || !matches!(version, "HTTP/1.0" | "HTTP/1.1")
+    {
+        return None;
+    }
+    let hosts = lines
+        .filter_map(|line| line.split_once(':'))
+        .filter(|(name, _)| name.trim().eq_ignore_ascii_case("host"))
+        .map(|(_, value)| value.trim())
+        .collect::<Vec<_>>();
+    let [authority] = hosts.as_slice() else {
+        return None;
+    };
+    if !authority_host_allowed(authority, allowed_hosts) {
+        return None;
+    }
+    let authority_url = url::Url::parse(&format!("http://{authority}")).ok()?;
+    let host = match authority_url.host()? {
+        url::Host::Domain(value) => value.to_owned(),
+        url::Host::Ipv4(value) => value.to_string(),
+        url::Host::Ipv6(value) => format!("[{value}]"),
+    };
+    let target = target.parse::<Uri>().ok()?;
+    if target.scheme().is_some() || target.authority().is_some() || !target.path().starts_with('/')
+    {
+        return None;
+    }
+    let path_and_query = target.path_and_query()?.as_str();
+    Some(format!("https://{host}:{https_port}{path_and_query}"))
+}
+
+async fn write_plain_http_response(stream: &mut TcpStream, response: &[u8]) -> io::Result<()> {
+    stream.write_all(response).await?;
+    stream.shutdown().await
+}
+
+async fn redirect_plain_http(
+    stream: &mut TcpStream,
+    https_port: u16,
+    allowed_hosts: &HashSet<String>,
+) -> io::Result<()> {
+    let remote_addr = stream.peer_addr()?;
+    if !crate::lan_server::source_allowed(remote_addr.ip()) {
+        return write_plain_http_response(
+            stream,
+            b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\nCache-Control: no-store\r\n\r\n",
+        )
+        .await;
+    }
+    let mut request = Vec::with_capacity(1024);
+    let mut buffer = [0u8; 1024];
+    while request.len() < MAX_HTTP_REDIRECT_REQUEST_LEN {
+        let read = stream.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        request.extend_from_slice(&buffer[..read]);
+        if request.windows(4).any(|value| value == b"\r\n\r\n") {
+            break;
+        }
+    }
+    let Some(location) = http_redirect_location(&request, https_port, allowed_hosts) else {
+        return write_plain_http_response(
+            stream,
+            b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\nCache-Control: no-store\r\n\r\n",
+        )
+        .await;
+    };
+    let response = format!(
+        "HTTP/1.1 308 Permanent Redirect\r\nLocation: {location}\r\nConnection: close\r\nContent-Length: 0\r\nCache-Control: no-store\r\n\r\n"
+    );
+    write_plain_http_response(stream, response.as_bytes()).await
+}
+
+#[derive(Clone)]
+struct HttpsRedirectAcceptor {
+    https_port: u16,
+    allowed_hosts: Arc<HashSet<String>>,
+}
+
+impl HttpsRedirectAcceptor {
+    fn new(https_port: u16, allowed_hosts: Arc<HashSet<String>>) -> Self {
+        Self {
+            https_port,
+            allowed_hosts,
+        }
+    }
+}
+
+impl<S> Accept<TcpStream, S> for HttpsRedirectAcceptor
+where
+    S: Send + 'static,
+{
+    type Stream = TcpStream;
+    type Service = S;
+    type Future = Pin<Box<dyn Future<Output = io::Result<(TcpStream, S)>> + Send>>;
+
+    fn accept(&self, mut stream: TcpStream, service: S) -> Self::Future {
+        let https_port = self.https_port;
+        let allowed_hosts = self.allowed_hosts.clone();
+        Box::pin(async move {
+            let mut prefix = [0u8; 8];
+            let read = timeout(HTTP_REDIRECT_TIMEOUT, stream.peek(&mut prefix))
+                .await
+                .map_err(|_| {
+                    io::Error::new(io::ErrorKind::TimedOut, "connection detection timed out")
+                })??;
+            if looks_like_plain_http(&prefix[..read]) {
+                let _ = timeout(
+                    HTTP_REDIRECT_TIMEOUT,
+                    redirect_plain_http(&mut stream, https_port, &allowed_hosts),
+                )
+                .await;
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "plain HTTP request redirected to HTTPS",
+                ));
+            }
+            Ok((stream, service))
+        })
     }
 }
 
@@ -537,12 +812,7 @@ pub async fn bind(
     if port == native_port {
         bail!("Web listen port must differ from the native LAN port");
     }
-    let secure = is_https_enabled();
-    let tls_config = if secure {
-        Some(load_tls_config().await?)
-    } else {
-        None
-    };
+    let tls_config = load_tls_config().await?;
     let mut listeners = Vec::new();
     for address in configured_addresses()? {
         let socket_addr = SocketAddr::new(address, port);
@@ -557,59 +827,36 @@ pub async fn bind(
     for (socket_addr, listener) in listeners {
         let state = WebState {
             server: server.clone(),
-            secure,
+            secure: true,
             allowed_hosts: allowed_hosts.clone(),
         };
         let router = app(state);
         let handle = Handle::new();
         let shutdown_handle = handle.clone();
         let stop_rx = stop_rx.clone();
-        log::info!(
-            "Web access listening on {}://{}",
-            if secure { "https" } else { "http" },
-            socket_addr
-        );
-        let task = if let Some(config) = tls_config.clone() {
-            tokio::spawn(async move {
-                let server = axum_server::from_tcp_rustls(listener, config)
-                    .handle(handle)
-                    .serve(router.into_make_service_with_connect_info::<SocketAddr>());
-                tokio::pin!(server);
-                tokio::select! {
-                    result = &mut server => {
-                        if let Err(err) = result {
-                            log::error!("Web HTTPS server stopped: {err}");
-                        }
-                    }
-                    _ = wait_for_stop(stop_rx) => {
-                        shutdown_handle.graceful_shutdown(Some(Duration::from_secs(2)));
-                        if let Err(err) = server.await {
-                            log::debug!("Web HTTPS server shutdown: {err}");
-                        }
+        log::info!("Web access listening on https://{socket_addr} with HTTP redirect");
+        let acceptor = RustlsAcceptor::new(tls_config.clone())
+            .acceptor(HttpsRedirectAcceptor::new(port, allowed_hosts.clone()));
+        let task = tokio::spawn(async move {
+            let server = axum_server::from_tcp(listener)
+                .acceptor(acceptor)
+                .handle(handle)
+                .serve(router.into_make_service_with_connect_info::<SocketAddr>());
+            tokio::pin!(server);
+            tokio::select! {
+                result = &mut server => {
+                    if let Err(err) = result {
+                        log::error!("Web HTTPS server stopped: {err}");
                     }
                 }
-            })
-        } else {
-            tokio::spawn(async move {
-                let server = axum_server::from_tcp(listener)
-                    .handle(handle)
-                    .serve(router.into_make_service_with_connect_info::<SocketAddr>());
-                tokio::pin!(server);
-                tokio::select! {
-                    result = &mut server => {
-                        if let Err(err) = result {
-                            log::error!("Web HTTP server stopped: {err}");
-                        }
-                    }
-                    _ = wait_for_stop(stop_rx) => {
-                        shutdown_handle.graceful_shutdown(Some(Duration::from_secs(2)));
-                        if let Err(err) = server.await {
-                            log::debug!("Web HTTP server shutdown: {err}");
-                        }
+                _ = wait_for_stop(stop_rx) => {
+                    shutdown_handle.graceful_shutdown(Some(Duration::from_secs(2)));
+                    if let Err(err) = server.await {
+                        log::debug!("Web HTTPS server shutdown: {err}");
                     }
                 }
-            })
-        };
+            }
+        });
         handles.push(task);
     }
     Ok(handles)
@@ -620,13 +867,61 @@ mod tests {
     use super::*;
 
     #[test]
-    fn web_access_is_opt_in_and_https_is_default() {
+    fn web_access_is_opt_in_and_https_is_mandatory() {
         assert!(!option_enabled(""));
         assert!(!option_enabled("N"));
         assert!(option_enabled("Y"));
-        assert!(https_enabled(""));
-        assert!(https_enabled("Y"));
-        assert!(!https_enabled("N"));
+        assert!(https_required());
+    }
+
+    #[test]
+    fn custom_certificate_and_key_must_be_paired_absolute_paths() {
+        assert!(custom_certificate_paths("", "").unwrap().is_none());
+        assert!(custom_certificate_paths("/tmp/cert.pem", "").is_err());
+        assert!(custom_certificate_paths("cert.pem", "key.pem").is_err());
+        assert_eq!(
+            custom_certificate_paths(" /tmp/cert.pem ", " /tmp/key.pem ").unwrap(),
+            Some((
+                PathBuf::from("/tmp/cert.pem"),
+                PathBuf::from("/tmp/key.pem")
+            ))
+        );
+    }
+
+    #[test]
+    fn same_port_distinguishes_plain_http_from_tls() {
+        assert!(looks_like_plain_http(b"GET / HTTP/1.1\r\n"));
+        assert!(looks_like_plain_http(b"PRI * HTTP/2.0\r\n"));
+        assert!(!looks_like_plain_http(&[0x16, 0x03, 0x01, 0x00, 0xf0]));
+    }
+
+    #[test]
+    fn plain_http_redirects_to_https_without_becoming_an_open_redirect() {
+        let allowed = HashSet::from(["10.1.1.124".to_owned()]);
+        assert_eq!(
+            http_redirect_location(
+                b"GET /viewer?display=1 HTTP/1.1\r\nHost: 10.1.1.124:18123\r\n\r\n",
+                18_123,
+                &allowed,
+            ),
+            Some("https://10.1.1.124:18123/viewer?display=1".to_owned())
+        );
+        assert_eq!(
+            http_redirect_location(
+                b"GET / HTTP/1.1\r\nHost: attacker.example:18123\r\n\r\n",
+                18_123,
+                &allowed,
+            ),
+            None
+        );
+        assert_eq!(
+            http_redirect_location(
+                b"GET / HTTP/1.1\r\nHost: 10.1.1.124:18123\r\nHost: attacker.example\r\n\r\n",
+                18_123,
+                &allowed,
+            ),
+            None
+        );
     }
 
     #[test]
@@ -743,6 +1038,32 @@ mod tests {
                 .await
                 .is_ok()
         );
+        private_key.zeroize();
+    }
+
+    #[tokio::test]
+    async fn pem_certificate_chain_can_configure_the_https_server() {
+        ensure_tls_crypto_provider().unwrap();
+        let CertifiedKey { cert, key_pair } =
+            rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
+        let certificate = cert.pem().into_bytes();
+        let mut private_key = key_pair.serialize_pem().into_bytes();
+        assert!(validate_tls_material(&certificate, &private_key).is_ok());
+        assert!(RustlsConfig::from_pem(certificate, private_key.clone())
+            .await
+            .is_ok());
+        private_key.zeroize();
+    }
+
+    #[test]
+    fn custom_certificate_validation_rejects_a_mismatched_private_key() {
+        let CertifiedKey { cert, .. } =
+            rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
+        let CertifiedKey { key_pair, .. } =
+            rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
+        let certificate = cert.pem();
+        let mut private_key = key_pair.serialize_pem();
+        assert!(validate_tls_material(certificate.as_bytes(), private_key.as_bytes()).is_err());
         private_key.zeroize();
     }
 }

@@ -971,7 +971,8 @@ pub fn main_set_option(key: String, mut value: String) {
             | "lan-discovery-enabled"
             | "web-access-enabled"
             | "web-listen-port"
-            | "web-https-enabled"
+            | "web-certificate-path"
+            | "web-private-key-path"
             | "stop-service"
     );
     set_option(key, value);
@@ -1619,6 +1620,8 @@ pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
         "web_access_enabled": Config::get_option("web-access-enabled") == "Y",
         "web_listen_port": web_listen_port,
         "web_https_enabled": web_https_enabled,
+        "web_certificate_path": Config::get_option("web-certificate-path"),
+        "web_private_key_path": Config::get_option("web-private-key-path"),
     });
     SyncReturn(data.to_string())
 }
@@ -1651,7 +1654,8 @@ pub fn main_apply_lan_settings(
     discovery_enabled: bool,
     web_access_enabled: bool,
     web_listen_port: String,
-    web_https_enabled: bool,
+    web_certificate_path: String,
+    web_private_key_path: String,
 ) -> String {
     let result = (|| -> ResultType<()> {
         let username = hbb_common::lan::validate_username(&username)?;
@@ -1670,6 +1674,17 @@ pub fn main_apply_lan_settings(
         if web_access_enabled && web_port == port {
             hbb_common::bail!("Web port must differ from the native LAN port");
         }
+        let (web_certificate_path, web_private_key_path) =
+            match crate::web_gateway::validate_custom_certificate_files(
+                &web_certificate_path,
+                &web_private_key_path,
+            )? {
+                Some((certificate_path, private_key_path)) => (
+                    certificate_path.to_string_lossy().into_owned(),
+                    private_key_path.to_string_lossy().into_owned(),
+                ),
+                None => (String::new(), String::new()),
+            };
         let listen_addresses = crate::lan_server::normalize_listen_addresses(&listen_addresses)?;
         let allowed_networks = crate::lan_server::normalize_allowed_networks(&allowed_networks)?;
 
@@ -1695,10 +1710,9 @@ pub fn main_apply_lan_settings(
             if web_access_enabled { "Y" } else { "N" }.to_owned(),
         );
         Config::set_option("web-listen-port".to_owned(), web_port.to_string());
-        Config::set_option(
-            "web-https-enabled".to_owned(),
-            if web_https_enabled { "Y" } else { "N" }.to_owned(),
-        );
+        Config::set_option("web-https-enabled".to_owned(), "Y".to_owned());
+        Config::set_option("web-certificate-path".to_owned(), web_certificate_path);
+        Config::set_option("web-private-key-path".to_owned(), web_private_key_path);
         Config::set_option("stop-service".to_owned(), String::new());
         crate::lan_server::LanServer::restart();
         Ok(())

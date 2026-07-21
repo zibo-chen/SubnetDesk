@@ -132,14 +132,15 @@ fn listen_addresses() -> Vec<String> {
         .collect()
 }
 
-fn listener_signature() -> (u16, Vec<String>, String, String, String, String) {
+fn listener_signature() -> (u16, Vec<String>, String, String, String, String, String) {
     (
         listen_port(),
         listen_addresses(),
         Config::get_option("lan-allowed-networks"),
         Config::get_option("web-access-enabled"),
         Config::get_option("web-listen-port"),
-        Config::get_option("web-https-enabled"),
+        Config::get_option("web-certificate-path"),
+        Config::get_option("web-private-key-path"),
     )
 }
 

@@ -132,9 +132,8 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
         .join('\n');
     final webAccessEnabled = info['web_access_enabled'] == true;
     final webPort = info['web_listen_port']?.toString() ?? '18123';
-    final webScheme = info['web_https_enabled'] == false ? 'http' : 'https';
     final webEndpoints = visibleAddresses
-        .map((address) => '$webScheme://${_formatEndpoint(address, webPort)}')
+        .map((address) => 'https://${_formatEndpoint(address, webPort)}')
         .join('\n');
     final fingerprint = info['fingerprint']?.toString() ?? '';
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -302,7 +301,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                   label: 'Web remote access',
                   value: primaryAddress == null
                       ? '-'
-                      : '$webScheme://${_formatEndpoint(primaryAddress, webPort)}',
+                      : 'https://${_formatEndpoint(primaryAddress, webPort)}',
                   muted: muted,
                 ),
             ],
@@ -691,9 +690,14 @@ Future<void> showLanSettingsDialog(
   final webListenPort = TextEditingController(
     text: info['web_listen_port']?.toString() ?? '18123',
   );
+  final webCertificatePath = TextEditingController(
+    text: info['web_certificate_path']?.toString() ?? '',
+  );
+  final webPrivateKeyPath = TextEditingController(
+    text: info['web_private_key_path']?.toString() ?? '',
+  );
   var discoveryEnabled = info['discovery_enabled'] == true;
   var webAccessEnabled = info['web_access_enabled'] == true;
-  var webHttpsEnabled = info['web_https_enabled'] != false;
   var error = '';
   var saving = false;
 
@@ -947,44 +951,45 @@ Future<void> showLanSettingsDialog(
                           ),
                           if (webAccessEnabled) ...[
                             const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: webListenPort,
-                                    keyboardType: TextInputType.number,
-                                    onChanged: (_) => setDialogState(() {}),
-                                    decoration: fieldDecoration(
-                                      label: 'Web port',
-                                      icon: Icons.tag_rounded,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: SwitchListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    title: const Text(
-                                      'HTTPS',
-                                      style: TextStyle(fontSize: 14),
-                                    ),
-                                    subtitle: const Text(
-                                      'Self-signed certificate',
-                                      style: TextStyle(fontSize: 11),
-                                    ),
-                                    value: webHttpsEnabled,
-                                    onChanged: (value) => setDialogState(
-                                      () => webHttpsEnabled = value,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            TextField(
+                              controller: webListenPort,
+                              keyboardType: TextInputType.number,
+                              onChanged: (_) => setDialogState(() {}),
+                              decoration: fieldDecoration(
+                                label: 'Web port',
+                                icon: Icons.tag_rounded,
+                                help:
+                                    'HTTPS is always enabled. HTTP requests on this port redirect to HTTPS.',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: webCertificatePath,
+                              decoration: fieldDecoration(
+                                label: 'Custom certificate chain (PEM)',
+                                icon: Icons.verified_user_outlined,
+                                help:
+                                    'Optional absolute path. Leave both certificate fields empty to use the generated self-signed certificate.',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: webPrivateKeyPath,
+                              obscureText: true,
+                              enableSuggestions: false,
+                              autocorrect: false,
+                              decoration: fieldDecoration(
+                                label: 'Custom private key (PEM)',
+                                icon: Icons.key_rounded,
+                                help:
+                                    'Optional absolute path. On macOS and Linux the key file must only be accessible by its owner.',
+                              ),
                             ),
                             const SizedBox(height: 8),
                             Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
-                                '${webHttpsEnabled ? 'https' : 'http'}://<LAN-IP>:${webListenPort.text.isEmpty ? '18123' : webListenPort.text}',
+                                'https://<LAN-IP>:${webListenPort.text.isEmpty ? '18123' : webListenPort.text}',
                                 style: TextStyle(
                                   color: muted,
                                   fontSize: 12,
@@ -1046,7 +1051,10 @@ Future<void> showLanSettingsDialog(
                                     discoveryEnabled: discoveryEnabled,
                                     webAccessEnabled: webAccessEnabled,
                                     webListenPort: webListenPort.text,
-                                    webHttpsEnabled: webHttpsEnabled,
+                                    webCertificatePath:
+                                        webCertificatePath.text,
+                                    webPrivateKeyPath:
+                                        webPrivateKeyPath.text,
                                   );
                                   password.clear();
                                   if (!dialogContext.mounted) return;
@@ -1099,6 +1107,8 @@ Future<void> showLanSettingsDialog(
   listenPort.dispose();
   allowedNetworks.dispose();
   webListenPort.dispose();
+  webCertificatePath.dispose();
+  webPrivateKeyPath.dispose();
 }
 
 class _DesktopHomePageState extends State<DesktopHomePage>
