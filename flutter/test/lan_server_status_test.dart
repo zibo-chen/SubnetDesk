@@ -33,4 +33,57 @@ void main() {
       LanServerDisplayStatus.serviceFailed,
     );
   });
+
+  test('Windows portable mode offers elevation when LAN is stopped', () {
+    expect(
+      shouldOfferRemoteActivation(
+        configured: true,
+        lanServerRunning: false,
+        windowsPortable: true,
+        portableServiceRunning: false,
+      ),
+      isTrue,
+    );
+  });
+
+  test('Windows portable mode can elevate even when user LAN is ready', () {
+    expect(
+      shouldOfferRemoteActivation(
+        configured: true,
+        lanServerRunning: true,
+        windowsPortable: true,
+        portableServiceRunning: false,
+      ),
+      isTrue,
+    );
+  });
+
+  test('remote activation is hidden after portable service starts', () {
+    expect(
+      shouldOfferRemoteActivation(
+        configured: true,
+        lanServerRunning: true,
+        windowsPortable: true,
+        portableServiceRunning: true,
+      ),
+      isFalse,
+    );
+  });
+
+  test('portable installation remains a separate supported action', () {
+    expect(
+      shouldOfferPortableInstall(
+        windowsPortable: true,
+        installationDisabled: false,
+      ),
+      isTrue,
+    );
+    expect(
+      shouldOfferPortableInstall(
+        windowsPortable: true,
+        installationDisabled: true,
+      ),
+      isFalse,
+    );
+  });
 }

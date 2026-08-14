@@ -21,3 +21,20 @@ LanServerDisplayStatus lanServerDisplayStatus({
   }
   return LanServerDisplayStatus.serviceStopped;
 }
+
+bool shouldOfferRemoteActivation({
+  required bool configured,
+  required bool lanServerRunning,
+  required bool windowsPortable,
+  required bool portableServiceRunning,
+}) {
+  return configured &&
+      (!lanServerRunning || (windowsPortable && !portableServiceRunning));
+}
+
+bool shouldOfferPortableInstall({
+  required bool windowsPortable,
+  required bool installationDisabled,
+}) {
+  return windowsPortable && !installationDisabled;
+}

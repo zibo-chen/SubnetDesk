@@ -54,6 +54,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
   Timer? _timer;
   bool _showAllAddresses = false;
   bool _refreshing = false;
+  bool _activatingRemote = false;
   Map<String, dynamic> _info = <String, dynamic>{};
 
   int _addressPriority(String address) {
@@ -114,6 +115,19 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     final info = _info;
     final configured = info['configured'] == true;
     final running = info['running'] == true;
+    final windowsPortable = isWindows && !bind.mainIsInstalled();
+    final portableServiceRunning =
+        info['portable_service_running'] == true;
+    final offerRemoteActivation = shouldOfferRemoteActivation(
+      configured: configured,
+      lanServerRunning: running,
+      windowsPortable: windowsPortable,
+      portableServiceRunning: portableServiceRunning,
+    );
+    final offerPortableInstall = shouldOfferPortableInstall(
+      windowsPortable: windowsPortable,
+      installationDisabled: bind.isDisableInstallation(),
+    );
     final runtimeError = info['runtime_error']?.toString() ?? '';
     final displayStatus = lanServerDisplayStatus(
       configured: configured,
@@ -303,6 +317,14 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                   ),
                 ),
               ],
+              if (offerRemoteActivation || offerPortableInstall) ...[
+                const SizedBox(height: 9),
+                _buildRemoteActions(
+                  windowsPortable: windowsPortable,
+                  offerRemoteActivation: offerRemoteActivation,
+                  offerPortableInstall: offerPortableInstall,
+                ),
+              ],
               const SizedBox(height: 12),
               Divider(
                 height: 1,
@@ -438,6 +460,14 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                   color: Theme.of(context).colorScheme.error,
                   fontSize: 11,
                 ),
+              ),
+            ],
+            if (offerRemoteActivation || offerPortableInstall) ...[
+              const SizedBox(height: 10),
+              _buildRemoteActions(
+                windowsPortable: windowsPortable,
+                offerRemoteActivation: offerRemoteActivation,
+                offerPortableInstall: offerPortableInstall,
               ),
             ],
             const SizedBox(height: 14),
@@ -590,6 +620,58 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
         ),
       ),
     );
+  }
+
+  Widget _buildRemoteActions({
+    required bool windowsPortable,
+    required bool offerRemoteActivation,
+    required bool offerPortableInstall,
+  }) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      children: [
+        if (offerRemoteActivation)
+          OutlinedButton.icon(
+            onPressed: _activatingRemote ? null : _enableRemote,
+            icon: _activatingRemote
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.power_settings_new_rounded, size: 16),
+            label: Text(
+              windowsPortable
+                  ? '${translate('Enable')} ${translate('Remote')}'
+                  : translate('Start service'),
+            ),
+          ),
+        if (offerPortableInstall)
+          TextButton.icon(
+            onPressed: _openInstaller,
+            icon: const Icon(Icons.download_for_offline_outlined, size: 16),
+            label: Text(translate('Install')),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _enableRemote() async {
+    if (_activatingRemote) return;
+    setState(() => _activatingRemote = true);
+    try {
+      await start_service(true);
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await _refreshInfo();
+    } finally {
+      if (mounted) setState(() => _activatingRemote = false);
+    }
+  }
+
+  Future<void> _openInstaller() async {
+    await rustDeskWinManager.closeAllSubWindows();
+    bind.mainGotoInstall();
   }
 
   Widget _buildCompactInfoRow({

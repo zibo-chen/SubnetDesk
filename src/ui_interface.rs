@@ -368,6 +368,27 @@ pub fn set_options(m: HashMap<String, String>) {
     Config::set_options(m);
 }
 
+#[cfg(any(target_os = "windows", test))]
+fn should_start_portable_service(is_installed: bool, value: &str, running: bool) -> bool {
+    !is_installed && value != "Y" && !running
+}
+
+#[cfg(target_os = "windows")]
+fn start_portable_service_if_needed(value: &str) {
+    if !should_start_portable_service(
+        crate::platform::is_installed(),
+        value,
+        crate::portable_service::client::running(),
+    ) {
+        return;
+    }
+    if let Err(err) = crate::portable_service::client::start_portable_service(
+        crate::portable_service::client::StartPara::Direct,
+    ) {
+        log::warn!("Failed to start Windows portable service: {err}");
+    }
+}
+
 #[inline]
 pub fn set_option(key: String, value: String) {
     if &key == "stop-service" {
@@ -392,6 +413,8 @@ pub fn set_option(key: String, value: String) {
                 }
                 return;
             }
+            #[cfg(target_os = "windows")]
+            start_portable_service_if_needed(&value);
         }
     } else if &key == "audio-input" {
         #[cfg(not(target_os = "ios"))]
@@ -410,6 +433,19 @@ pub fn set_option(key: String, value: String) {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     {
         Config::set_option(key, value);
+    }
+}
+
+#[cfg(test)]
+mod portable_service_tests {
+    use super::should_start_portable_service;
+
+    #[test]
+    fn portable_windows_enable_requests_elevation() {
+        assert!(should_start_portable_service(false, "", false));
+        assert!(!should_start_portable_service(false, "Y", false));
+        assert!(!should_start_portable_service(true, "", false));
+        assert!(!should_start_portable_service(false, "", true));
     }
 }
 
