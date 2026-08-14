@@ -3067,7 +3067,7 @@ Future<void> start_service(bool is_start) async {
       !isMacOS ||
       await callMainCheckSuperUserPermission();
   if (checked) {
-    mainSetBoolOption(kOptionStopService, !is_start);
+    await mainSetBoolOption(kOptionStopService, !is_start);
   }
 }
 

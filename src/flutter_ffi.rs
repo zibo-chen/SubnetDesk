@@ -1692,6 +1692,10 @@ pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
 
 fn lan_server_info() -> String {
     let configured = Config::lan_credentials_configured();
+    #[cfg(target_os = "windows")]
+    let portable_service_running = crate::portable_service::client::running();
+    #[cfg(not(target_os = "windows"))]
+    let portable_service_running = false;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let (runtime_state, runtime_error) = get_lan_server_runtime_status();
     #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -1749,6 +1753,7 @@ fn lan_server_info() -> String {
     let data = serde_json::json!({
         "configured": configured,
         "running": running,
+        "portable_service_running": portable_service_running,
         "runtime_state": runtime_state,
         "runtime_error": runtime_error,
         "username": Config::get_lan_access_username(),
