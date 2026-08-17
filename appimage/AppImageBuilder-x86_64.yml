@@ -16,7 +16,7 @@ AppDir:
     id: subnetdesk
     name: subnetdesk
     icon: subnetdesk
-    version: 1.2.2
+    version: 1.2.3
     exec: usr/share/subnetdesk/subnetdesk
     exec_args: $@
   apt:

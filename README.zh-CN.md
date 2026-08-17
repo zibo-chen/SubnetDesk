@@ -84,7 +84,7 @@ SubnetDesk 专注于一个明确场景：让本身已经网络互通的设备直
 
 | 平台 | 架构 | 安装包 |
 | --- | --- | --- |
-| Windows | x86_64、ARM64 | 便携版 `.exe`、`.msi` 安装包 |
+| Windows | x86_64、ARM64 | `.msi` 安装包（推荐优先使用）、免安装/便携版 `.exe` |
 | macOS | Intel、Apple Silicon | `.dmg` |
 | Linux | x86_64、ARM64 | `.deb`、`.rpm`、`.AppImage`、`.flatpak`；另提供 x86_64 Arch 包 |
 | Android | ARM64、ARMv7、x86_64、通用包 | `.apk` |
