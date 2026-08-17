@@ -84,7 +84,7 @@ Download stable packages from **[GitHub Releases](https://github.com/zibo-chen/S
 
 | Platform | Architectures | Packages |
 | --- | --- | --- |
-| Windows | x86_64, ARM64 | Portable `.exe`, `.msi` installer |
+| Windows | x86_64, ARM64 | `.msi` installer (recommended), portable/no-install `.exe` |
 | macOS | Intel, Apple Silicon | `.dmg` |
 | Linux | x86_64, ARM64 | `.deb`, `.rpm`, `.AppImage`, `.flatpak`; Arch package on x86_64 |
 | Android | ARM64, ARMv7, x86_64, universal | `.apk` |
