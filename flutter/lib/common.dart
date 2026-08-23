@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/formatter/id_formatter.dart';
+import 'package:flutter_hbb/desktop/peer_tab_label.dart';
 import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/main.dart';
@@ -3219,21 +3220,21 @@ Widget buildErrorBanner(
 }
 
 String getDesktopTabLabel(String peerId, String alias) {
-  String label = alias.isEmpty ? peerId : alias;
+  String hostname = '';
   try {
     String peer = bind.mainGetPeerSync(id: peerId);
     Map<String, dynamic> config = jsonDecode(peer);
     if (config['info']['hostname'] is String) {
-      String hostname = config['info']['hostname'];
-      if (hostname.isNotEmpty &&
-          !label.toLowerCase().contains(hostname.toLowerCase())) {
-        label += "@$hostname";
-      }
+      hostname = config['info']['hostname'];
     }
   } catch (e) {
     debugPrint("Failed to get hostname:$e");
   }
-  return label;
+  return composePeerTabLabel(
+    peerId: peerId,
+    alias: alias,
+    hostname: hostname,
+  );
 }
 
 sessionRefreshVideo(SessionID sessionId, PeerInfo pi) async {

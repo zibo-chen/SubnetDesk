@@ -1235,7 +1235,7 @@ Future<void> showLanSettingsDialog(
                                 label: 'Web listen addresses',
                                 icon: Icons.dns_outlined,
                                 help:
-                                    'Comma-separated IP addresses. Blank falls back to the native LAN listener.',
+                                    'Comma-separated IP addresses. Blank falls back to the native LAN listener. VPN addresses outside the default private ranges also require a matching Web allowed network.',
                               ),
                             ),
                             const SizedBox(height: 10),
@@ -1245,7 +1245,7 @@ Future<void> showLanSettingsDialog(
                                 label: 'Web allowed networks',
                                 icon: Icons.security_rounded,
                                 help:
-                                    'Comma-separated CIDR ranges. Blank falls back to the native LAN policy.',
+                                    'Comma-separated CIDR ranges. Blank falls back to the native LAN policy. Add the VPN CIDR here when an overlay network uses public-looking addresses.',
                               ),
                             ),
                             const SizedBox(height: 10),

@@ -610,32 +610,59 @@ fn validate_custom_certificate_identity(certificate: &[u8]) -> ResultType<()> {
     Ok(())
 }
 
-fn certificate_subject_alt_names() -> Vec<String> {
+fn build_certificate_subject_alt_names(
+    configured_hosts: &str,
+    listen_addresses: &[IpAddr],
+    interface_addresses: &[IpAddr],
+) -> Vec<String> {
     let mut names = vec!["localhost".to_owned(), "subnetdesk.local".to_owned()];
     names.extend(
-        Config::get_option("web-allowed-hosts")
+        configured_hosts
             .split(',')
             .filter_map(|value| normalize_configured_host(value).ok()),
     );
+    names.extend(
+        listen_addresses
+            .iter()
+            .filter(|address| !address.is_unspecified())
+            .map(ToString::to_string),
+    );
+    names.extend(interface_addresses.iter().map(ToString::to_string));
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn certificate_subject_alt_names() -> Vec<String> {
+    let listen_addresses = match configured_addresses() {
+        Ok(addresses) => addresses,
+        Err(error) => {
+            log::warn!("Failed to include Web listen addresses in certificate: {error}");
+            Vec::new()
+        }
+    };
+    let mut interface_addresses = Vec::new();
     for interface in default_net::get_interfaces() {
-        names.extend(
+        interface_addresses.extend(
             interface
                 .ipv4
                 .into_iter()
                 .filter(|network| web_source_allowed(IpAddr::V4(network.addr)))
-                .map(|network| network.addr.to_string()),
+                .map(|network| IpAddr::V4(network.addr)),
         );
-        names.extend(
+        interface_addresses.extend(
             interface
                 .ipv6
                 .into_iter()
                 .filter(|network| web_source_allowed(IpAddr::V6(network.addr)))
-                .map(|network| network.addr.to_string()),
+                .map(|network| IpAddr::V6(network.addr)),
         );
     }
-    names.sort();
-    names.dedup();
-    names
+    build_certificate_subject_alt_names(
+        &Config::get_option("web-allowed-hosts"),
+        &listen_addresses,
+        &interface_addresses,
+    )
 }
 
 pub(crate) fn certificate_address_signature() -> Vec<String> {
@@ -1303,8 +1330,23 @@ async fn restrict_request(
         .get::<ConnectInfo<SocketAddr>>()
         .map(|connect| connect.0.ip());
     let authority = request_authority(request.headers(), request.uri()).unwrap_or_default();
-    if !source_allowed || !authority_host_allowed(authority, &state.allowed_hosts) {
-        return (StatusCode::FORBIDDEN, "Forbidden").into_response();
+    if !source_allowed {
+        log::warn!(
+            "Rejected Web request from {}: source is outside the allowed networks",
+            source
+                .map(|address| address.to_string())
+                .unwrap_or_else(|| "unknown source".to_owned())
+        );
+        return (StatusCode::FORBIDDEN, "Source address is not allowed").into_response();
+    }
+    if !authority_host_allowed(authority, &state.allowed_hosts) {
+        log::warn!(
+            "Rejected Web request from {} for disallowed Host {authority}",
+            source
+                .map(|address| address.to_string())
+                .unwrap_or_else(|| "unknown source".to_owned())
+        );
+        return (StatusCode::FORBIDDEN, "Host is not allowed").into_response();
     }
     if !source
         .map(|source| state.request_budget.lock().unwrap().allow(source))
@@ -1675,6 +1717,17 @@ mod tests {
             HashSet::from(["192.168.1.20".to_owned()])
         );
         assert!(configured_allowed_hosts("user@desk.example", Vec::new()).is_err());
+    }
+
+    #[test]
+    fn explicit_vpn_listener_is_an_implicit_host_and_certificate_name() {
+        let vpn_address = "110.110.110.164".parse::<IpAddr>().unwrap();
+        let names = build_certificate_subject_alt_names("", &[vpn_address], &[]);
+
+        assert!(names.contains(&vpn_address.to_string()));
+        assert!(configured_allowed_hosts("", names)
+            .unwrap()
+            .contains(&vpn_address.to_string()));
     }
 
     #[test]
