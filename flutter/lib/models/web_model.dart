@@ -108,6 +108,9 @@ class PlatformFFI {
   void registerGpuTexture(SessionID sessionId, int display, int ptr) =>
       _ffiBind.sessionRegisterGpuTexture(
           sessionId: sessionId, display: display, ptr: ptr);
+  void unregisterPixelbufferTexture(
+      SessionID sessionId, int display, int ptr) {}
+  void unregisterGpuTexture(SessionID sessionId, int display, int ptr) {}
 
   Future<void> init(String appType) async {
     Completer completer = Completer();

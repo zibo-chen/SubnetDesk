@@ -426,6 +426,24 @@ impl VideoRenderer {
         }
     }
 
+    fn unregister_pixelbuffer_texture(&self, display: usize, ptr: usize) {
+        if ptr == 0 {
+            return;
+        }
+        let mut sessions_lock = self.map_display_sessions.write().unwrap();
+        if let Some(info) = sessions_lock.get_mut(&display) {
+            if info.texture_rgba_ptr != ptr as TextureRgbaPtr {
+                return;
+            }
+            info.texture_rgba_ptr = usize::default();
+            #[cfg(feature = "vram")]
+            if info.gpu_output_ptr != usize::default() {
+                return;
+            }
+            sessions_lock.remove(&display);
+        }
+    }
+
     #[cfg(feature = "vram")]
     pub fn register_gpu_output(&self, display: usize, ptr: usize) {
         let mut sessions_lock = self.map_display_sessions.write().unwrap();
@@ -463,6 +481,24 @@ impl VideoRenderer {
                     );
                 }
             }
+        }
+    }
+
+    #[cfg(feature = "vram")]
+    pub fn unregister_gpu_output(&self, display: usize, ptr: usize) {
+        if ptr == 0 {
+            return;
+        }
+        let mut sessions_lock = self.map_display_sessions.write().unwrap();
+        if let Some(info) = sessions_lock.get_mut(&display) {
+            if info.gpu_output_ptr != ptr {
+                return;
+            }
+            info.gpu_output_ptr = usize::default();
+            if info.texture_rgba_ptr != usize::default() {
+                return;
+            }
+            sessions_lock.remove(&display);
         }
     }
 
@@ -1836,6 +1872,59 @@ pub fn session_register_gpu_texture(_session_id: SessionID, _display: usize, _ou
             break;
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn session_unregister_pixelbuffer_texture(
+    session_uuid_str: *const char,
+    display: usize,
+    ptr: usize,
+) {
+    let Ok(session_id) = char_to_session_id(session_uuid_str) else {
+        return;
+    };
+    for session in sessions::get_sessions() {
+        if let Some(handler) = session
+            .ui_handler
+            .session_handlers
+            .read()
+            .unwrap()
+            .get(&session_id)
+        {
+            handler
+                .renderer
+                .unregister_pixelbuffer_texture(display, ptr);
+            break;
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn session_unregister_gpu_texture(
+    session_uuid_str: *const char,
+    display: usize,
+    ptr: usize,
+) {
+    #[cfg(feature = "vram")]
+    {
+        let Ok(session_id) = char_to_session_id(session_uuid_str) else {
+            return;
+        };
+        for session in sessions::get_sessions() {
+            if let Some(handler) = session
+                .ui_handler
+                .session_handlers
+                .read()
+                .unwrap()
+                .get(&session_id)
+            {
+                handler.renderer.unregister_gpu_output(display, ptr);
+                break;
+            }
+        }
+    }
+    #[cfg(not(feature = "vram"))]
+    let _ = (session_uuid_str, display, ptr);
 }
 
 #[inline]
