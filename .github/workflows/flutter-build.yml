@@ -48,6 +48,7 @@ env:
   NDK_VERSION: "r28c"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
+  ANDROID_SIGNING_CERT_SHA256: "${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}"
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   PUBLISH_RELEASE: "${{ inputs.publish-release }}"
@@ -1073,7 +1074,7 @@ jobs:
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
-          # temporary use debug sign config
+          # Use a temporary build signature; the APK is re-signed and fingerprint-verified below.
           sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
           case ${{ matrix.job.target }} in
             aarch64-linux-android)
@@ -1125,6 +1126,27 @@ jobs:
           echo "ANDROID_SIGN_TOOL_VERSION=$BUILD_TOOL_VERSION" >> $GITHUB_ENV
           echo Last build tool version is: $BUILD_TOOL_VERSION
 
+      - name: Require fixed Android signing identity for releases
+        if: env.PUBLISH_RELEASE == 'true'
+        shell: bash
+        env:
+          ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+          ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for value in \
+            "$ANDROID_SIGNING_KEY" \
+            "$ANDROID_ALIAS" \
+            "$ANDROID_KEY_STORE_PASSWORD" \
+            "$ANDROID_KEY_PASSWORD" \
+            "$ANDROID_SIGNING_CERT_SHA256"
+          do
+            if [ -z "$value" ]; then
+              echo "Android release signing secrets are incomplete; refusing to publish." >&2
+              exit 1
+            fi
+          done
+
       - uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         name: Sign app APK
         if: env.ANDROID_SIGNING_KEY != ''
@@ -1138,6 +1160,29 @@ jobs:
         env:
           # env.ANDROID_SIGN_TOOL_VERSION is set by Step "Setup sign tool version variable"
           BUILD_TOOLS_VERSION: ${{ env.ANDROID_SIGN_TOOL_VERSION }}
+
+      - name: Verify fixed Android signing certificate
+        if: env.ANDROID_SIGNING_KEY != ''
+        shell: bash
+        env:
+          SIGNED_APK: ${{ steps.sign-rustdesk.outputs.signedReleaseFile }}
+        run: |
+          expected=$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr '[:lower:]' '[:upper:]' | tr -d ': ')
+          if ! printf '%s' "$expected" | grep -Eq '^[0-9A-F]{64}$'; then
+            echo "ANDROID_SIGNING_CERT_SHA256 must contain one SHA-256 certificate fingerprint." >&2
+            exit 1
+          fi
+          actual=$("$ANDROID_HOME/build-tools/$ANDROID_SIGN_TOOL_VERSION/apksigner" verify --print-certs "$SIGNED_APK" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr '[:lower:]' '[:upper:]' \
+            | tr -d ': ')
+          if [ "$actual" != "$expected" ]; then
+            echo "Android signing certificate does not match the pinned fingerprint." >&2
+            echo "Expected: $expected" >&2
+            echo "Actual:   $actual" >&2
+            exit 1
+          fi
 
       - name: Upload Artifacts
         if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true'
@@ -1155,16 +1200,6 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           files: |
             ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
-
-      - name: Publish unsigned apk package
-        if: env.ANDROID_SIGNING_KEY == '' && env.PUBLISH_RELEASE == 'true'
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        with:
-          prerelease: ${{ inputs.upload-tag == 'nightly' || contains(inputs.upload-tag, '-') }}
-          generate_release_notes: true
-          tag_name: ${{ env.TAG_NAME }}
-          files: |
-            signed-apk/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
 
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
@@ -1279,7 +1314,7 @@ jobs:
           export PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:$PATH
           # Increase Gradle JVM memory for CI builds
           sed -i "s/org.gradle.jvmargs=-Xmx1024M/org.gradle.jvmargs=-Xmx2g/g" ./flutter/android/gradle.properties
-          # temporary use debug sign config
+          # Use a temporary build signature; the APK is re-signed and fingerprint-verified below.
           sed -i "s/signingConfigs.release/signingConfigs.debug/g" ./flutter/android/app/build.gradle
           mv ./flutter/android/app/src/main/jniLibs/arm64-v8a/liblibrustdesk.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/librustdesk.so
           cp ${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so ./flutter/android/app/src/main/jniLibs/arm64-v8a/
@@ -1306,6 +1341,27 @@ jobs:
           echo "ANDROID_SIGN_TOOL_VERSION=$BUILD_TOOL_VERSION" >> $GITHUB_ENV
           echo Last build tool version is: $BUILD_TOOL_VERSION
 
+      - name: Require fixed Android signing identity for releases
+        if: env.PUBLISH_RELEASE == 'true'
+        shell: bash
+        env:
+          ANDROID_ALIAS: ${{ secrets.ANDROID_ALIAS }}
+          ANDROID_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEY_STORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          for value in \
+            "$ANDROID_SIGNING_KEY" \
+            "$ANDROID_ALIAS" \
+            "$ANDROID_KEY_STORE_PASSWORD" \
+            "$ANDROID_KEY_PASSWORD" \
+            "$ANDROID_SIGNING_CERT_SHA256"
+          do
+            if [ -z "$value" ]; then
+              echo "Android release signing secrets are incomplete; refusing to publish." >&2
+              exit 1
+            fi
+          done
+
       - uses: r0adkll/sign-android-release@349ebdef58775b1e0d8099458af0816dc79b6407 # v1
         name: Sign app APK
         if: env.ANDROID_SIGNING_KEY != ''
@@ -1319,6 +1375,29 @@ jobs:
         env:
           # env.ANDROID_SIGN_TOOL_VERSION is set by Step "Setup sign tool version variable"
           BUILD_TOOLS_VERSION: ${{ env.ANDROID_SIGN_TOOL_VERSION }}
+
+      - name: Verify fixed Android signing certificate
+        if: env.ANDROID_SIGNING_KEY != ''
+        shell: bash
+        env:
+          SIGNED_APK: ${{ steps.sign-rustdesk.outputs.signedReleaseFile }}
+        run: |
+          expected=$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" | tr '[:lower:]' '[:upper:]' | tr -d ': ')
+          if ! printf '%s' "$expected" | grep -Eq '^[0-9A-F]{64}$'; then
+            echo "ANDROID_SIGNING_CERT_SHA256 must contain one SHA-256 certificate fingerprint." >&2
+            exit 1
+          fi
+          actual=$("$ANDROID_HOME/build-tools/$ANDROID_SIGN_TOOL_VERSION/apksigner" verify --print-certs "$SIGNED_APK" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr '[:lower:]' '[:upper:]' \
+            | tr -d ': ')
+          if [ "$actual" != "$expected" ]; then
+            echo "Android signing certificate does not match the pinned fingerprint." >&2
+            echo "Expected: $expected" >&2
+            echo "Actual:   $actual" >&2
+            exit 1
+          fi
 
       - name: Upload Artifacts
         if: env.ANDROID_SIGNING_KEY != '' && env.UPLOAD_ARTIFACT == 'true'
@@ -1336,16 +1415,6 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           files: |
             ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
-
-      - name: Publish unsigned apk package
-        if: env.ANDROID_SIGNING_KEY == '' && env.PUBLISH_RELEASE == 'true'
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        with:
-          prerelease: ${{ inputs.upload-tag == 'nightly' || contains(inputs.upload-tag, '-') }}
-          generate_release_notes: true
-          tag_name: ${{ env.TAG_NAME }}
-          files: |
-            signed-apk/subnetdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
 
   build-rustdesk-linux:
     needs: [generate-bridge]
