@@ -59,6 +59,12 @@ jobs:
             grep -Fq "$artifact" .github/workflows/flutter-build.yml
           done
 
+      - name: Check Android signing contract
+        run: |
+          grep -Fq 'ANDROID_SIGNING_CERT_SHA256' .github/workflows/flutter-build.yml
+          grep -Fq 'Verify fixed Android signing certificate' .github/workflows/flutter-build.yml
+          ! grep -Fq 'Publish unsigned apk package' .github/workflows/flutter-build.yml
+
       - name: Check release upload retry contract
         run: bash scripts/check_release_upload_retry.sh
 
