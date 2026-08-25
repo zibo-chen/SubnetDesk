@@ -23,6 +23,8 @@ final class RgbaFrame extends Struct {
 
 typedef F3 = Pointer<Uint8> Function(Pointer<Utf8>, int);
 typedef F3Dart = Pointer<Uint8> Function(Pointer<Utf8>, Int32);
+typedef UnregisterTexture = Void Function(Pointer<Utf8>, UintPtr, UintPtr);
+typedef UnregisterTextureDart = void Function(Pointer<Utf8>, int, int);
 typedef HandleEvent = Future<void> Function(Map<String, dynamic> evt);
 
 /// FFI wrapper around the native Rust core.
@@ -43,6 +45,8 @@ class PlatformFFI {
 
   RustdeskImpl get ffiBind => _ffiBind;
   F3? _session_get_rgba;
+  UnregisterTextureDart? _session_unregister_pixelbuffer_texture;
+  UnregisterTextureDart? _session_unregister_gpu_texture;
 
   static get localeName => Platform.localeName;
 
@@ -114,6 +118,28 @@ class PlatformFFI {
   void registerGpuTexture(SessionID sessionId, int display, int ptr) =>
       _ffiBind.sessionRegisterGpuTexture(
           sessionId: sessionId, display: display, ptr: ptr);
+  void unregisterPixelbufferTexture(
+      SessionID sessionId, int display, int ptr) {
+    final unregister = _session_unregister_pixelbuffer_texture;
+    if (unregister == null) return;
+    final sessionIdStr = sessionId.toString().toNativeUtf8();
+    try {
+      unregister(sessionIdStr, display, ptr);
+    } finally {
+      malloc.free(sessionIdStr);
+    }
+  }
+
+  void unregisterGpuTexture(SessionID sessionId, int display, int ptr) {
+    final unregister = _session_unregister_gpu_texture;
+    if (unregister == null) return;
+    final sessionIdStr = sessionId.toString().toNativeUtf8();
+    try {
+      unregister(sessionIdStr, display, ptr);
+    } finally {
+      malloc.free(sessionIdStr);
+    }
+  }
 
   /// Init the FFI class, loads the native Rust core library.
   Future<void> init(String appType) async {
@@ -134,6 +160,12 @@ class PlatformFFI {
     debugPrint('initializing FFI $_appType');
     try {
       _session_get_rgba = dylib.lookupFunction<F3Dart, F3>("session_get_rgba");
+      _session_unregister_pixelbuffer_texture = dylib.lookupFunction<
+          UnregisterTexture, UnregisterTextureDart>(
+        "session_unregister_pixelbuffer_texture",
+      );
+      _session_unregister_gpu_texture = dylib.lookupFunction<UnregisterTexture,
+          UnregisterTextureDart>("session_unregister_gpu_texture");
       try {
         // SYSTEM user failed
         _dir = (await getApplicationDocumentsDirectory()).path;

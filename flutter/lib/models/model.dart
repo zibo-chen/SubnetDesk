@@ -2250,6 +2250,10 @@ class EdgeScrollFallbackState {
   void stop() {
     _ticker.stop();
   }
+
+  void dispose() {
+    _ticker.dispose();
+  }
 }
 
 class CanvasModel with ChangeNotifier {
@@ -2604,6 +2608,11 @@ class CanvasModel with ChangeNotifier {
 
   void cancelEdgeScroll() {
     _edgeScrollFallbackState.stop();
+  }
+
+  void disposeEdgeScroll() {
+    _edgeScrollState = EdgeScrollState.inactive;
+    _edgeScrollFallbackState.dispose();
   }
 
   (Vector2, Vector2) getScrollInfo() {

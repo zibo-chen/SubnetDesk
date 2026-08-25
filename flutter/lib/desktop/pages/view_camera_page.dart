@@ -207,13 +207,11 @@ class _ViewCameraPageState extends State<ViewCameraPage>
   }
 
   @override
-  Future<void> dispose() async {
+  void dispose() {
     final closeSession = closeSessionOnDispose.remove(widget.id) ?? true;
+    final id = widget.id;
 
-    // https://github.com/flutter/flutter/issues/64935
-    super.dispose();
-    debugPrint("VIEW CAMERA PAGE dispose session $sessionId ${widget.id}");
-    _ffi.textureModel.onViewCameraPageDispose(closeSession);
+    debugPrint("VIEW CAMERA PAGE dispose session $sessionId $id");
     if (closeSession) {
       // ensure we leave this session, this is a double check
       _ffi.inputModel.enterOrLeave(false);
@@ -223,16 +221,53 @@ class _ViewCameraPageState extends State<ViewCameraPage>
     _ffi.imageModel.disposeImage();
     _ffi.cursorModel.disposeImages();
     _rawKeyFocusNode.dispose();
-    await _ffi.close(closeSession: closeSession);
     _timer?.cancel();
+    WakelockManager.disable(_uniqueKey);
+    super.dispose();
+
+    unawaited(_disposeSession(closeSession, id));
+  }
+
+  Future<void> _disposeSession(bool closeSession, String id) async {
+    try {
+      await _ffi.textureModel.onViewCameraPageDispose();
+    } catch (e, stack) {
+      debugPrint('Failed to dispose camera textures for $id: $e');
+      debugPrintStack(stackTrace: stack);
+    }
+    try {
+      await _ffi.close(closeSession: closeSession);
+    } catch (e, stack) {
+      debugPrint('Failed to close camera session $id: $e');
+      debugPrintStack(stackTrace: stack);
+    }
     _ffi.dialogManager.dismissAll();
     if (closeSession) {
-      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-          overlays: SystemUiOverlay.values);
+      try {
+        await SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.manual,
+          overlays: SystemUiOverlay.values,
+        );
+      } catch (e, stack) {
+        debugPrint('Failed to restore system UI for $id: $e');
+        debugPrintStack(stackTrace: stack);
+      }
     }
-    WakelockManager.disable(_uniqueKey);
-    await Get.delete<FFI>(tag: widget.id);
-    removeSharedStates(widget.id);
+    var ownsRegistration = false;
+    try {
+      ownsRegistration = Get.isRegistered<FFI>(tag: id) &&
+          identical(Get.find<FFI>(tag: id), _ffi);
+      if (ownsRegistration) {
+        await Get.delete<FFI>(tag: id);
+      }
+    } catch (e, stack) {
+      debugPrint('Failed to delete camera session model $id: $e');
+      debugPrintStack(stackTrace: stack);
+    } finally {
+      if (ownsRegistration) {
+        removeSharedStates(id);
+      }
+    }
   }
 
   Widget emptyOverlay() => BlockableOverlay(
