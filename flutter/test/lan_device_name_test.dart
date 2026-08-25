@@ -1,5 +1,6 @@
 import 'package:flutter_hbb/desktop/lan_device_name.dart';
 import 'package:flutter_hbb/desktop/lan_discovery_refresh.dart';
+import 'package:flutter_hbb/desktop/peer_tab_label.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -42,6 +43,41 @@ void main() {
           windowMinimized: true,
         ),
         isFalse,
+      );
+    });
+  });
+
+  group('peer tab label', () {
+    test('prefers the local alias', () {
+      expect(
+        composePeerTabLabel(
+          peerId: '192.168.1.10:21118',
+          alias: '  客厅平板  ',
+          hostname: '08',
+        ),
+        '客厅平板',
+      );
+    });
+
+    test('uses the remote device name when no alias exists', () {
+      expect(
+        composePeerTabLabel(
+          peerId: '192.168.1.10:21118',
+          alias: '',
+          hostname: '08',
+        ),
+        '08',
+      );
+    });
+
+    test('falls back to the peer address', () {
+      expect(
+        composePeerTabLabel(
+          peerId: '192.168.1.10:21118',
+          alias: ' ',
+          hostname: ' ',
+        ),
+        '192.168.1.10:21118',
       );
     });
   });

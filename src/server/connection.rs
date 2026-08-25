@@ -11,6 +11,8 @@ use crate::clipboard::try_empty_clipboard_files;
 use crate::clipboard::{update_clipboard, ClipboardSide};
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 use crate::clipboard_file::*;
+#[cfg(any(target_os = "android", target_os = "ios"))]
+use crate::flutter::connection_manager::start_channel;
 #[cfg(target_os = "android")]
 use crate::keyboard::client::map_key_to_control_key;
 #[cfg(target_os = "linux")]
@@ -25,8 +27,6 @@ use crate::{
     },
     display_service, ipc, privacy_mode, video_service, VERSION,
 };
-#[cfg(any(target_os = "android", target_os = "ios"))]
-use crate::{common::DEVICE_NAME, flutter::connection_manager::start_channel};
 #[cfg(target_os = "android")]
 use hbb_common::protobuf::EnumOrUnknown;
 use hbb_common::{
@@ -1274,6 +1274,7 @@ impl Connection {
         let mut username = crate::platform::get_active_username();
         let mut res = LoginResponse::new();
         let mut pi = PeerInfo {
+            hostname: crate::lan::device_display_name(),
             username: username.clone(),
             version: VERSION.to_owned(),
             ..Default::default()
@@ -1281,12 +1282,10 @@ impl Connection {
 
         #[cfg(not(target_os = "android"))]
         {
-            pi.hostname = crate::whoami_hostname();
             pi.platform = hbb_common::whoami::platform().to_string();
         }
         #[cfg(target_os = "android")]
         {
-            pi.hostname = DEVICE_NAME.lock().unwrap().clone();
             pi.platform = "Android".into();
         }
         #[cfg(all(target_os = "macos", not(feature = "unix-file-copy-paste")))]
