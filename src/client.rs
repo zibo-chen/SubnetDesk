@@ -311,13 +311,11 @@ impl Client {
                 if let Some(expected) = expected_fingerprint.as_ref() {
                     if !identity.fingerprint.eq_ignore_ascii_case(expected) {
                         log::warn!(
-                            "Ignoring LAN endpoint {} because it belongs to fingerprint {}, expected {}",
+                            "LAN endpoint {} presented fingerprint {}, expected {}; requesting user confirmation",
                             endpoint,
                             identity.fingerprint,
                             expected
                         );
-                        errors.push(format!("{endpoint}: device identity did not match"));
-                        continue;
                     }
                 }
 
