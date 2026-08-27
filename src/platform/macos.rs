@@ -45,7 +45,7 @@ static mut LATEST_SEED: i32 = 0;
 #[inline]
 fn get_update_temp_dir() -> PathBuf {
     let euid = unsafe { hbb_common::libc::geteuid() };
-    Path::new("/tmp").join(format!(".rustdeskupdate-{}", euid))
+    Path::new("/tmp").join(format!(".subnetdesk-update-{}", euid))
 }
 
 #[inline]
@@ -938,31 +938,45 @@ pub fn extract_update_dmg(file: &str) {
 }
 
 fn extract_dmg(dmg_path: &str, target_dir: &str) -> ResultType<()> {
-    let mount_point = "/Volumes/SubnetDeskUpdate";
+    let mount_point = format!(
+        "/Volumes/SubnetDeskUpdate-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    );
     let target_path = Path::new(target_dir);
 
-    if target_path.exists() {
-        std::fs::remove_dir_all(target_path)?;
+    match std::fs::symlink_metadata(target_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!("Refusing to replace a symbolic-link update directory");
+        }
+        Ok(_) => std::fs::remove_dir_all(target_path)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
     }
     std::fs::create_dir_all(target_path)?;
 
     let status = Command::new("hdiutil")
-        .args(&["attach", "-nobrowse", "-mountpoint", mount_point, dmg_path])
+        .args(["attach", "-nobrowse", "-mountpoint"])
+        .arg(&mount_point)
+        .arg(dmg_path)
         .status()?;
 
     if !status.success() {
         bail!("Failed to attach DMG image at {}: {:?}", dmg_path, status);
     }
 
-    struct DmgGuard(&'static str);
+    struct DmgGuard(PathBuf);
     impl Drop for DmgGuard {
         fn drop(&mut self) {
             let _ = Command::new("hdiutil")
-                .args(&["detach", self.0, "-force"])
+                .arg("detach")
+                .arg(&self.0)
+                .arg("-force")
                 .status();
+            let _ = std::fs::remove_dir(&self.0);
         }
     }
-    let _guard = DmgGuard(mount_point);
+    let _guard = DmgGuard(PathBuf::from(&mount_point));
 
     let app_name = format!("{}.app", crate::get_app_name());
     let src_path = format!("{}/{}", mount_point, app_name);
@@ -986,6 +1000,21 @@ fn extract_dmg(dmg_path: &str, target_dir: &str) -> ResultType<()> {
             "Copy operation failed - destination not found at {}",
             dest_path
         );
+    }
+
+    let code_signature = Command::new("codesign")
+        .args(["--verify", "--deep", "--strict", "--verbose=2"])
+        .arg(&dest_path)
+        .status()?;
+    if !code_signature.success() {
+        bail!("The app inside the update DMG has an invalid code signature");
+    }
+    let gatekeeper = Command::new("spctl")
+        .args(["--assess", "--type", "execute"])
+        .arg(&dest_path)
+        .status()?;
+    if !gatekeeper.success() {
+        bail!("The app inside the update DMG was rejected by Gatekeeper");
     }
 
     Ok(())

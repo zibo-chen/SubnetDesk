@@ -280,6 +280,7 @@ def get_features(args):
         features.append('vram')
     if args.flutter:
         features.append('flutter')
+        features.append('software-update')
     if args.unix_file_copy_paste:
         features.append('unix-file-copy-paste')
     if osx:

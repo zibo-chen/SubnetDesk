@@ -113,6 +113,11 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     {
         // core_main's init_log does not work for flutter since it is only applied to its load_library in main.c
         hbb_common::init_log(false, "flutter_ffi");
+        #[cfg(all(
+            feature = "software-update",
+            any(target_os = "windows", target_os = "macos")
+        ))]
+        crate::software_update::start_scheduler();
     }
 }
 
@@ -1041,6 +1046,80 @@ pub fn main_uri_prefix_sync() -> SyncReturn<String> {
 
 pub fn main_get_version() -> String {
     get_version()
+}
+
+pub fn main_get_software_update_state() -> String {
+    #[cfg(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
+    return crate::software_update::state_json();
+    #[cfg(not(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    )))]
+    return String::new();
+}
+
+pub fn main_check_software_update() -> String {
+    #[cfg(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
+    return crate::software_update::check(true)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    #[cfg(not(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    )))]
+    return "Automatic updates are managed by the app distribution channel".to_owned();
+}
+
+pub fn main_download_software_update() -> String {
+    #[cfg(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
+    return crate::software_update::download()
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    #[cfg(not(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    )))]
+    return "Automatic updates are managed by the app distribution channel".to_owned();
+}
+
+pub fn main_install_software_update() -> String {
+    #[cfg(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
+    return crate::software_update::install()
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    #[cfg(not(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    )))]
+    return "Automatic updates are managed by the app distribution channel".to_owned();
+}
+
+pub fn main_set_software_update_preferences(auto_check: bool, auto_download: bool) {
+    #[cfg(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
+    crate::software_update::set_preferences(auto_check, auto_download);
+    #[cfg(not(all(
+        feature = "software-update",
+        not(any(target_os = "android", target_os = "ios"))
+    )))]
+    let _ = (auto_check, auto_download);
 }
 
 pub fn main_get_fav() -> Vec<String> {

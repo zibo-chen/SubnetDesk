@@ -44,7 +44,7 @@ env:
   # 2. Update the `VCPKG_COMMIT_ID` in `ci.yml` and `playground.yml`.
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836" # 2025.01.13, got "/opt/artifacts/vcpkg/vcpkg: No such file or directory" with latest version
-  VERSION: "1.2.3"
+  VERSION: "1.3.0"
   NDK_VERSION: "r28c"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
@@ -53,6 +53,7 @@ env:
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   PUBLISH_RELEASE: "${{ inputs.publish-release }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
+  SUBNETDESK_UPDATE_PUBLIC_KEY: "${{ secrets.SUBNETDESK_UPDATE_PUBLIC_KEY }}"
 
 jobs:
   generate-bridge:
@@ -2255,3 +2256,75 @@ jobs:
               body,
               prerelease: tag === 'nightly' || tag.includes('-'),
             });
+
+  publish-update-manifest:
+    name: Publish signed stable update manifest
+    if: ${{ always() && inputs.publish-release && inputs.upload-tag != 'nightly' && !contains(inputs.upload-tag, '-') }}
+    needs:
+      - build-for-windows-flutter
+      - build-for-macOS
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPDATE_SIGNING_KEY_B64: ${{ secrets.SUBNETDESK_UPDATE_SIGNING_KEY_B64 }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate update signing configuration
+        shell: bash
+        run: |
+          if [[ -z "$SUBNETDESK_UPDATE_PUBLIC_KEY" || -z "$UPDATE_SIGNING_KEY_B64" ]]; then
+            echo "Stable releases require SUBNETDESK_UPDATE_PUBLIC_KEY and SUBNETDESK_UPDATE_SIGNING_KEY_B64." >&2
+            exit 1
+          fi
+          if [[ "$SIGN_BASE_URL" == "-2" || -z "$MACOS_P12_BASE64" ]]; then
+            echo "Automatic-update assets must be code signed on Windows and macOS." >&2
+            exit 1
+          fi
+
+      - name: Download desktop release assets
+        shell: bash
+        run: |
+          mkdir update-assets
+          gh release download "$TAG_NAME" \
+            --dir update-assets \
+            --pattern "subnetdesk-${VERSION}-x86_64.msi" \
+            --pattern "subnetdesk-${VERSION}-x86_64.exe" \
+            --pattern "subnetdesk-${VERSION}-aarch64.msi" \
+            --pattern "subnetdesk-${VERSION}-aarch64.exe" \
+            --pattern "subnetdesk-${VERSION}-x86_64.dmg" \
+            --pattern "subnetdesk-${VERSION}-aarch64.dmg"
+
+      - name: Generate and sign update manifest
+        shell: bash
+        run: |
+          python3 scripts/generate_update_manifest.py \
+            --asset-dir update-assets \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$TAG_NAME" \
+            --version "$VERSION" \
+            --sequence "${{ github.run_id }}" \
+            --output update-stable.json
+
+          umask 077
+          signing_key="$RUNNER_TEMP/subnetdesk-update-private.pem"
+          signature_bin="$RUNNER_TEMP/subnetdesk-update-signature.bin"
+          printf '%s' "$UPDATE_SIGNING_KEY_B64" | base64 --decode > "$signing_key"
+          derived_public_key=$(openssl pkey -in "$signing_key" -pubout -outform DER | tail -c 32 | xxd -p -c 64)
+          if [[ "$derived_public_key" != "$SUBNETDESK_UPDATE_PUBLIC_KEY" ]]; then
+            echo "The configured update public and private keys do not match." >&2
+            exit 1
+          fi
+          openssl pkeyutl -sign -rawin \
+            -inkey "$signing_key" \
+            -in update-stable.json \
+            -out "$signature_bin"
+          xxd -p -c 128 "$signature_bin" > update-stable.json.sig
+
+      - name: Upload signed update manifest
+        shell: bash
+        run: |
+          gh release upload "$TAG_NAME" \
+            update-stable.json \
+            update-stable.json.sig \
+            --clobber
