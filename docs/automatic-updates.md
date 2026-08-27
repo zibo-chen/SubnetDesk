@@ -32,15 +32,18 @@ trusting future manifests. Do not commit it to this repository.
 
 `SUBNETDESK_UPDATE_PUBLIC_KEY` is embedded into release builds. A build without
 that value remains functional but reports that automatic updates are not
-configured. Stable release publication fails when the private signing key is
-missing.
+configured. Stable releases without the update-signing or desktop
+code-signing secrets still publish their normal installers, but skip
+`update-stable.json` and in-app update delivery.
 
 The desktop build enables the Cargo `software-update` feature through
 `build.py --flutter` and `flutter/run.sh`. Mobile builds intentionally omit it.
 
 ## Release flow
 
-After all Windows and macOS assets have been uploaded, the release workflow:
+When all update and desktop code-signing secrets are configured, the release
+workflow runs these additional steps after the Windows and macOS assets have
+been uploaded:
 
 1. Downloads the release's MSI, EXE, and DMG assets.
 2. Calculates their sizes and SHA-256 hashes.
@@ -52,10 +55,12 @@ The signature file contains the raw 64-byte Ed25519 signature encoded as hex.
 Clients also verify Authenticode on Windows and code signing/Gatekeeper on
 macOS before starting an installer.
 
-Stable update publication therefore also requires the repository's existing
+Signed update-manifest publication therefore also requires the repository's
 Windows signing service secrets and macOS Developer ID/notarization secrets.
-Unsigned local builds can exercise the UI and manifest checks, but they cannot
-install a release package through the automatic updater.
+Without them, the regular release remains available through GitHub Releases,
+while in-app update delivery stays disabled. Unsigned local builds can exercise
+the UI and manifest checks, but they cannot install a release package through
+the automatic updater.
 
 ## Custom update origin
 

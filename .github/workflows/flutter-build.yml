@@ -2270,19 +2270,24 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Validate update signing configuration
+      - name: Detect update signing configuration
+        id: update_signing
         shell: bash
         run: |
           if [[ -z "$SUBNETDESK_UPDATE_PUBLIC_KEY" || -z "$UPDATE_SIGNING_KEY_B64" ]]; then
-            echo "Stable releases require SUBNETDESK_UPDATE_PUBLIC_KEY and SUBNETDESK_UPDATE_SIGNING_KEY_B64." >&2
-            exit 1
+            echo "::notice::Skipping signed update manifest because update signing keys are not configured."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           if [[ "$SIGN_BASE_URL" == "-2" || -z "$MACOS_P12_BASE64" ]]; then
-            echo "Automatic-update assets must be code signed on Windows and macOS." >&2
-            exit 1
+            echo "::notice::Skipping signed update manifest because Windows or macOS package signing is not configured."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Download desktop release assets
+        if: steps.update_signing.outputs.enabled == 'true'
         shell: bash
         run: |
           mkdir update-assets
@@ -2296,6 +2301,7 @@ jobs:
             --pattern "subnetdesk-${VERSION}-aarch64.dmg"
 
       - name: Generate and sign update manifest
+        if: steps.update_signing.outputs.enabled == 'true'
         shell: bash
         run: |
           python3 scripts/generate_update_manifest.py \
@@ -2322,6 +2328,7 @@ jobs:
           xxd -p -c 128 "$signature_bin" > update-stable.json.sig
 
       - name: Upload signed update manifest
+        if: steps.update_signing.outputs.enabled == 'true'
         shell: bash
         run: |
           gh release upload "$TAG_NAME" \

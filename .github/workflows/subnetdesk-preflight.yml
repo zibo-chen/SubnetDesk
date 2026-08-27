@@ -47,6 +47,9 @@ jobs:
           grep -Fq 'flutter precache --linux --force' .github/workflows/flutter-build.yml
           ! grep -Fq 'flutter-elinux' .github/workflows/flutter-build.yml
           grep -Fq "features.append('software-update')" build.py
+          grep -Fq 'id: update_signing' .github/workflows/flutter-build.yml
+          grep -Fq "if: steps.update_signing.outputs.enabled == 'true'" .github/workflows/flutter-build.yml
+          grep -Fq 'Skipping signed update manifest' .github/workflows/flutter-build.yml
           sed -n '/^  build-for-windows-flutter:/,/^  build-for-windows-sciter:/p' .github/workflows/flutter-build.yml | grep -Fq 'toolchain: ${{ env.RUST_VERSION }}'
           ! sed -n '/^  build-for-windows-flutter:/,/^  build-for-windows-sciter:/p' .github/workflows/flutter-build.yml | grep -Fq 'toolchain: ${{ env.SCITER_RUST_VERSION }}'
           for artifact in \
