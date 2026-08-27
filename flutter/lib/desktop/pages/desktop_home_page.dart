@@ -82,8 +82,8 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     if (_refreshing) return;
     _refreshing = true;
     try {
-      final info = jsonDecode(await bind.mainGetLanServerInfo())
-          as Map<String, dynamic>;
+      final info =
+          jsonDecode(await bind.mainGetLanServerInfo()) as Map<String, dynamic>;
       if (mounted) {
         setState(() => _info = info);
       }
@@ -98,10 +98,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
   void initState() {
     super.initState();
     _refreshInfo();
-    _timer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _refreshInfo(),
-    );
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _refreshInfo());
   }
 
   @override
@@ -116,8 +113,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     final configured = info['configured'] == true;
     final running = info['running'] == true;
     final windowsPortable = isWindows && !bind.mainIsInstalled();
-    final portableServiceRunning =
-        info['portable_service_running'] == true;
+    final portableServiceRunning = info['portable_service_running'] == true;
     final offerRemoteActivation = shouldOfferRemoteActivation(
       configured: configured,
       lanServerRunning: running,
@@ -136,7 +132,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     );
     final statusLabel = switch (displayStatus) {
       LanServerDisplayStatus.authenticationRequired => translate(
-        'Authentication Required',
+        'Password Required',
       ),
       LanServerDisplayStatus.ready => translate('Ready'),
       LanServerDisplayStatus.serviceFailed => translate(
@@ -202,8 +198,12 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     final muted = isDark ? Colors.white54 : const Color(0xFF7A8290);
     final statusColor = switch (displayStatus) {
       LanServerDisplayStatus.ready => const Color(0xFF27B980),
-      LanServerDisplayStatus.serviceFailed =>
-        Theme.of(context).colorScheme.error,
+      LanServerDisplayStatus.authenticationRequired => Theme.of(
+        context,
+      ).colorScheme.error,
+      LanServerDisplayStatus.serviceFailed => Theme.of(
+        context,
+      ).colorScheme.error,
       _ => const Color(0xFFF59E0B),
     };
     if (widget.compact) {
@@ -283,23 +283,20 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    tooltip: 'LAN · ${translate('Settings')}',
+                  if (configured) ...[
+                    const SizedBox(width: 4),
+                    IconButton(
+                      tooltip: 'LAN · ${translate('Settings')}',
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints.tightFor(
-                      width: 28,
-                      height: 28,
+                        width: 28,
+                        height: 28,
+                      ),
+                      onPressed: _openLanSettings,
+                      icon: Icon(Icons.tune_rounded, size: 16, color: muted),
                     ),
-                    onPressed: () => showLanSettingsDialog(
-                      context,
-                      onSaved: () {
-                        if (mounted) setState(() {});
-                      },
-                    ),
-                    icon: Icon(Icons.tune_rounded, size: 16, color: muted),
-                  ),
+                  ],
                 ],
               ),
               if (runtimeError.isNotEmpty) ...[
@@ -317,9 +314,17 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                   ),
                 ),
               ],
-              if (offerRemoteActivation || offerPortableInstall) ...[
-                const SizedBox(height: 9),
-                _buildRemoteActions(
+              if (!configured) ...[
+                const SizedBox(height: 14),
+                _buildCredentialSetupPrompt(
+                  username: info['username']?.toString() ?? '',
+                  isDark: isDark,
+                  muted: muted,
+                ),
+              ] else ...[
+                if (offerRemoteActivation || offerPortableInstall) ...[
+                  const SizedBox(height: 9),
+                  _buildRemoteActions(
                   windowsPortable: windowsPortable,
                   offerRemoteActivation: offerRemoteActivation,
                   offerPortableInstall: offerPortableInstall,
@@ -387,8 +392,9 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                   value: webEndpointValues.isEmpty
                       ? webRuntimeState.toUpperCase()
                       : '${webRuntimeState.toUpperCase()} · ${webEndpointValues.first}',
-                  muted: muted,
-                ),
+                    muted: muted,
+                  ),
+              ],
             ],
           ),
         ),
@@ -528,8 +534,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                       : muted,
                 ),
               ),
-              if (webRuntimeState == 'listening' &&
-                  runtimeEndpoints.isNotEmpty)
+              if (webRuntimeState == 'listening' && runtimeEndpoints.isNotEmpty)
                 Wrap(
                   spacing: 8,
                   children: [
@@ -654,6 +659,118 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
             label: Text(translate('Install')),
           ),
       ],
+    );
+  }
+
+  Future<void> _openLanSettings() async {
+    await showLanSettingsDialog(
+      context,
+      onSaved: () => unawaited(_refreshInfo()),
+    );
+  }
+
+  Widget _buildCredentialSetupPrompt({
+    required String username,
+    required bool isDark,
+    required Color muted,
+  }) {
+    final warning = Theme.of(context).colorScheme.error;
+    final fieldColor = isDark
+        ? Colors.white.withValues(alpha: 0.05)
+        : const Color(0xFFF7F9FC);
+    final usernameValue = username.trim().isEmpty
+        ? translate('Not available')
+        : username;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          translate('Set your own password'),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          '${translate('Remote')} · ${translate('Authentication Required')}',
+          style: TextStyle(fontSize: 12, height: 1.35, color: muted),
+        ),
+        const SizedBox(height: 12),
+        _buildCredentialStatusRow(
+          icon: Icons.person_outline_rounded,
+          label: translate('Username'),
+          value: usernameValue,
+          fieldColor: fieldColor,
+          muted: muted,
+          warning: warning,
+        ),
+        const SizedBox(height: 8),
+        _buildCredentialStatusRow(
+          icon: Icons.lock_outline_rounded,
+          label: translate('Password'),
+          value: translate('Password Required'),
+          fieldColor: fieldColor,
+          muted: muted,
+          warning: warning,
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _openLanSettings,
+            icon: const Icon(Icons.lock_outline_rounded, size: 17),
+            label: Text(translate('Set Password')),
+            style: ElevatedButton.styleFrom(
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(9),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCredentialStatusRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color fieldColor,
+    required Color muted,
+    required Color warning,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: fieldColor,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: muted),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: warning,
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -871,11 +988,12 @@ Future<void> showLanSettingsDialog(
 }) async {
   Map<String, dynamic> info;
   try {
-    info = jsonDecode(await bind.mainGetLanServerInfo())
-        as Map<String, dynamic>;
+    info =
+        jsonDecode(await bind.mainGetLanServerInfo()) as Map<String, dynamic>;
   } catch (_) {
     info = <String, dynamic>{};
   }
+  final credentialsConfigured = info['configured'] == true;
   final username = TextEditingController(
     text: info['username']?.toString() ?? '',
   );
@@ -1075,6 +1193,8 @@ Future<void> showLanSettingsDialog(
                       Expanded(
                         child: TextField(
                           controller: username,
+                          autofocus:
+                              !credentialsConfigured && username.text.isEmpty,
                           autocorrect: false,
                           decoration: fieldDecoration(
                             label: translate('Username'),
@@ -1086,6 +1206,9 @@ Future<void> showLanSettingsDialog(
                       Expanded(
                         child: TextField(
                           controller: password,
+                          autofocus:
+                              !credentialsConfigured &&
+                              username.text.isNotEmpty,
                           obscureText: true,
                           autocorrect: false,
                           enableSuggestions: false,
@@ -2244,8 +2367,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       builder: (context, _) => AnimatedBuilder(
         animation: gFFI.favoritePeersModel,
         builder: (context, _) {
-          final favoriteIds =
-              gFFI.favoritePeersModel.peers.map((peer) => peer.id).toList();
+          final favoriteIds = gFFI.favoritePeersModel.peers
+              .map((peer) => peer.id)
+              .toList();
           return Padding(
             padding: const EdgeInsets.fromLTRB(42, 2, 18, 8),
             child: Column(
@@ -2266,8 +2390,10 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     IconButton(
                       tooltip: '${translate('Add')} ${translate('Group')}',
                       visualDensity: VisualDensity.compact,
-                      constraints:
-                          const BoxConstraints.tightFor(width: 28, height: 28),
+                      constraints: const BoxConstraints.tightFor(
+                        width: 28,
+                        height: 28,
+                      ),
                       padding: EdgeInsets.zero,
                       icon: const Icon(Icons.add_rounded, size: 17),
                       onPressed: () => _createFavoriteGroup(context),
@@ -2320,17 +2446,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final primary = Theme.of(context).colorScheme.primary;
     final foreground = selected
         ? primary
-        : Theme.of(context)
-            .textTheme
-            .bodyMedium
-            ?.color
-            ?.withValues(alpha: 0.68);
+        : Theme.of(
+            context,
+          ).textTheme.bodyMedium?.color?.withValues(alpha: 0.68);
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Material(
-        color: selected
-            ? primary.withValues(alpha: 0.08)
-            : Colors.transparent,
+        color: selected ? primary.withValues(alpha: 0.08) : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
@@ -2363,8 +2485,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
                     style: TextStyle(
                       color: foreground,
                       fontSize: 12,
-                      fontWeight:
-                          selected ? FontWeight.w600 : FontWeight.w400,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ),
                 ),

@@ -46,6 +46,7 @@ jobs:
           grep -Fq 'rm -f flutter/bin/cache/flutter_tools.snapshot flutter/bin/cache/flutter_tools.stamp' .github/workflows/flutter-build.yml
           grep -Fq 'flutter precache --linux --force' .github/workflows/flutter-build.yml
           ! grep -Fq 'flutter-elinux' .github/workflows/flutter-build.yml
+          grep -Fq "features.append('software-update')" build.py
           sed -n '/^  build-for-windows-flutter:/,/^  build-for-windows-sciter:/p' .github/workflows/flutter-build.yml | grep -Fq 'toolchain: ${{ env.RUST_VERSION }}'
           ! sed -n '/^  build-for-windows-flutter:/,/^  build-for-windows-sciter:/p' .github/workflows/flutter-build.yml | grep -Fq 'toolchain: ${{ env.SCITER_RUST_VERSION }}'
           for artifact in \
@@ -68,8 +69,11 @@ jobs:
       - name: Check release upload retry contract
         run: bash scripts/check_release_upload_retry.sh
 
+      - name: Test automatic update manifest generation
+        run: python3 scripts/test_generate_update_manifest.py
+
       - name: Check Python scripts
-        run: python3 -m py_compile build.py scripts/generate_subnetdesk_icons.py
+        run: python3 -m py_compile build.py scripts/generate_subnetdesk_icons.py scripts/generate_update_manifest.py scripts/test_generate_update_manifest.py
 
       - name: Check workflow syntax
         run: |

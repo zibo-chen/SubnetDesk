@@ -22,6 +22,12 @@ mod lan_identity;
 mod lan_mdns;
 mod lan_protocol;
 mod lan_server;
+#[cfg(all(
+    feature = "flutter",
+    feature = "software-update",
+    not(any(target_os = "android", target_os = "ios"))
+))]
+mod software_update;
 #[cfg(not(any(target_os = "android", target_os = "ios", feature = "flutter")))]
 pub mod ui;
 mod version;

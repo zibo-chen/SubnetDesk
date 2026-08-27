@@ -1,6 +1,6 @@
 [package]
 name = "rustdesk"
-version = "1.2.3"
+version = "1.3.0"
 authors = ["SubnetDesk contributors"]
 edition = "2021"
 build= "build.rs"
@@ -27,6 +27,7 @@ hwcodec = ["scrap/hwcodec"]
 vram = ["scrap/vram"]
 mediacodec = ["scrap/mediacodec"]
 plugin_framework = ["dep:reqwest"]
+software-update = ["dep:reqwest", "dep:ring"]
 linux-pkg-config = ["magnum-opus/linux-pkg-config", "scrap/linux-pkg-config"]
 unix-file-copy-paste = [
     "dep:x11-clipboard",
@@ -74,6 +75,7 @@ fon = "0.6"
 zip = "0.6"
 shutdown_hooks = "0.1"
 reqwest = { version = "0.12", features = ["blocking", "json", "native-tls", "rustls-tls", "rustls-tls-native-roots", "gzip"], default-features=false, optional = true }
+ring = { version = "0.17", optional = true }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 # https://github.com/rustdesk/rustdesk/discussions/10197, not use cpal on linux

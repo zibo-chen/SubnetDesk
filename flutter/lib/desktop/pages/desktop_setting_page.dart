@@ -1363,19 +1363,228 @@ class _About extends StatefulWidget {
 }
 
 class _AboutState extends State<_About> {
+  static const _updateEvent = 'software_update';
+  static const _updateHandler = 'desktop-settings-about';
+  late final Future<Map<String, String>> _aboutInfo;
+  Map<String, dynamic> _updateState = const {};
+  bool _updateActionPending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _aboutInfo = () async {
+      final version = await bind.mainGetVersion();
+      final buildDate = await bind.mainGetBuildDate();
+      final fingerprint = await bind.mainGetFingerprint();
+      return {
+        'version': version,
+        'buildDate': buildDate,
+        'fingerprint': fingerprint,
+      };
+    }();
+    if (isWindows || isMacOS) {
+      platformFFI.registerEventHandler(_updateEvent, _updateHandler, (
+        evt,
+      ) async {
+        if (mounted) {
+          setState(() => _updateState = Map<String, dynamic>.from(evt));
+        }
+      }, replace: true);
+      bind.mainGetSoftwareUpdateState().then((value) {
+        if (!mounted || value.isEmpty) return;
+        try {
+          setState(() => _updateState = jsonDecode(value));
+        } catch (e) {
+          debugPrint('Invalid software update state: $e');
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    if (isWindows || isMacOS) {
+      platformFFI.unregisterEventHandler(_updateEvent, _updateHandler);
+    }
+    super.dispose();
+  }
+
+  Future<void> _runUpdateAction(Future<String> Function() action) async {
+    if (_updateActionPending) return;
+    setState(() => _updateActionPending = true);
+    try {
+      final error = await action();
+      if (error.isNotEmpty && mounted) {
+        final stateJson = await bind.mainGetSoftwareUpdateState();
+        Map<String, dynamic>? latestState;
+        try {
+          latestState = Map<String, dynamic>.from(jsonDecode(stateJson));
+        } catch (_) {}
+        if (mounted) {
+          setState(() {
+            _updateState = latestState?['state'] == 'deferred'
+                ? latestState!
+                : {
+                    ...?latestState,
+                    ..._updateState,
+                    'state': 'failed',
+                    'message': error,
+                  };
+          });
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _updateActionPending = false);
+    }
+  }
+
+  Widget _softwareUpdateSection() {
+    final state = _updateState['state']?.toString() ?? 'idle';
+    final availableVersion =
+        _updateState['available_version']?.toString() ?? '';
+    final currentVersion = _updateState['current_version']?.toString() ?? '';
+    final message = _updateState['message']?.toString() ?? '';
+    final releaseNotesUrl = _updateState['release_notes_url']?.toString() ?? '';
+    final progress = (_updateState['progress'] as num?)?.toInt() ?? 0;
+    final autoCheck = _updateState['auto_check'] == true;
+    final autoDownload = _updateState['auto_download'] == true;
+    final busy =
+        _updateActionPending ||
+        state == 'checking' ||
+        state == 'downloading' ||
+        state == 'installing';
+
+    String status;
+    switch (state) {
+      case 'checking':
+        status = '${translate('Update')}…';
+        break;
+      case 'up_to_date':
+        status = '${translate('Version')}: $currentVersion';
+        break;
+      case 'available':
+        status = '${translate('Update')}: $availableVersion';
+        break;
+      case 'downloading':
+        status = '${translate('Download')}: $progress%';
+        break;
+      case 'ready':
+        status = message.isEmpty
+            ? '${translate('Ready')}: $availableVersion'
+            : message;
+        break;
+      case 'installing':
+        status = '${translate('Install')}…';
+        break;
+      case 'deferred':
+      case 'failed':
+      case 'disabled':
+        status = message.isEmpty ? translate('Failed') : message;
+        break;
+      default:
+        status = message;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 28),
+        Text(
+          translate('Auto update'),
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(translate('Check for software update on startup')),
+          value: autoCheck,
+          onChanged: busy
+              ? null
+              : (value) async {
+                  setState(() {
+                    _updateState = {
+                      ..._updateState,
+                      'auto_check': value,
+                      'auto_download': value && autoDownload,
+                    };
+                  });
+                  await bind.mainSetSoftwareUpdatePreferences(
+                    autoCheck: value,
+                    autoDownload: value && autoDownload,
+                  );
+                },
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('${translate('Auto update')} · ${translate('Download')}'),
+          value: autoDownload,
+          onChanged: busy
+              ? null
+              : (value) async {
+                  setState(() {
+                    _updateState = {
+                      ..._updateState,
+                      'auto_check': value || autoCheck,
+                      'auto_download': value,
+                    };
+                  });
+                  await bind.mainSetSoftwareUpdatePreferences(
+                    autoCheck: value || autoCheck,
+                    autoDownload: value,
+                  );
+                },
+        ),
+        if (state == 'downloading')
+          LinearProgressIndicator(value: progress.clamp(0, 100) / 100),
+        if (status.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: SelectableText(
+              status,
+              style: TextStyle(
+                color: state == 'failed' || state == 'disabled'
+                    ? Colors.red
+                    : null,
+              ),
+            ),
+          ),
+        Wrap(
+          spacing: 8,
+          children: [
+            ElevatedButton(
+              onPressed: busy
+                  ? null
+                  : () => _runUpdateAction(bind.mainCheckSoftwareUpdate),
+              child: Text(translate('Update')),
+            ),
+            if (state == 'available')
+              ElevatedButton(
+                onPressed: busy
+                    ? null
+                    : () => _runUpdateAction(bind.mainDownloadSoftwareUpdate),
+                child: Text(translate('Download')),
+              ),
+            if (state == 'ready' || state == 'deferred')
+              ElevatedButton(
+                onPressed: busy
+                    ? null
+                    : () => _runUpdateAction(bind.mainInstallSoftwareUpdate),
+                child: Text(translate('Install')),
+              ),
+            if (releaseNotesUrl.isNotEmpty)
+              TextButton(
+                onPressed: () => launchUrlString(releaseNotesUrl),
+                child: Text(translate('Changelog')),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return futureBuilder(
-      future: () async {
-        final version = await bind.mainGetVersion();
-        final buildDate = await bind.mainGetBuildDate();
-        final fingerprint = await bind.mainGetFingerprint();
-        return {
-          'version': version,
-          'buildDate': buildDate,
-          'fingerprint': fingerprint,
-        };
-      }(),
+      future: _aboutInfo,
       hasData: (data) {
         final version = data['version'].toString();
         final buildDate = data['buildDate'].toString();
@@ -1406,6 +1615,7 @@ class _AboutState extends State<_About> {
                         '${translate('Fingerprint')}: $fingerprint',
                       ).marginSymmetric(vertical: 4.0),
                     ),
+                  if (isWindows || isMacOS) _softwareUpdateSection(),
                   Container(
                     decoration: const BoxDecoration(color: Color(0xFF2c8cff)),
                     padding: const EdgeInsets.symmetric(
