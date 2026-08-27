@@ -1174,8 +1174,7 @@ jobs:
             exit 1
           fi
           actual=$("$ANDROID_HOME/build-tools/$ANDROID_SIGN_TOOL_VERSION/apksigner" verify --print-certs "$SIGNED_APK" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-            | head -n 1 \
+            | bash scripts/extract_android_cert_sha256.sh \
             | tr '[:lower:]' '[:upper:]' \
             | tr -d ': ')
           if [ "$actual" != "$expected" ]; then
@@ -1389,8 +1388,7 @@ jobs:
             exit 1
           fi
           actual=$("$ANDROID_HOME/build-tools/$ANDROID_SIGN_TOOL_VERSION/apksigner" verify --print-certs "$SIGNED_APK" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-            | head -n 1 \
+            | bash scripts/extract_android_cert_sha256.sh \
             | tr '[:lower:]' '[:upper:]' \
             | tr -d ': ')
           if [ "$actual" != "$expected" ]; then
