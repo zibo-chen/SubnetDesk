@@ -67,7 +67,16 @@ jobs:
         run: |
           grep -Fq 'ANDROID_SIGNING_CERT_SHA256' .github/workflows/flutter-build.yml
           grep -Fq 'Verify fixed Android signing certificate' .github/workflows/flutter-build.yml
+          grep -Fq 'scripts/extract_android_cert_sha256.sh' .github/workflows/flutter-build.yml
           ! grep -Fq 'Publish unsigned apk package' .github/workflows/flutter-build.yml
+          expected=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          for output in \
+            "Signer #1 certificate SHA-256 digest: $expected" \
+            "V2 Signer: certificate SHA-256 digest: $expected"
+          do
+            actual=$(printf '%s\n' "$output" | bash scripts/extract_android_cert_sha256.sh)
+            test "$actual" = "$expected"
+          done
 
       - name: Check release upload retry contract
         run: bash scripts/check_release_upload_retry.sh
