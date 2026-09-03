@@ -764,6 +764,14 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Show on the minimized toolbar", "在最小化工具列上顯示"),
         ("All monitors", "所有顯示器"),
         ("#{} monitor", "{}號顯示器"),
+        ("Online", "線上"),
+        ("Offline", "離線"),
+        ("Status unknown", "狀態未知"),
+        ("Last seen", "最後發現"),
+        ("Never discovered", "尚未發現此裝置"),
+        ("Try to connect", "嘗試連線"),
+        ("Refresh devices", "重新整理裝置"),
+        ("Discovery status may be delayed. You can still try to connect.", "狀態基於區域網路探索，可能有延遲；未發現不代表裝置已關機，仍可嘗試連線。"),
         ("conn-e2ee-unavailable-tip", "無法驗證端對端加密。\n遠端裝置可能仍在準備中，請稍後重試。\n如果此問題持續發生，伺服器可能不受信任。\n仍要繼續嗎？"),
     ].iter().cloned().collect();
 }

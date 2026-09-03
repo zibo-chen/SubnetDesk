@@ -192,6 +192,9 @@ class _PeersViewState extends State<_PeersView> {
                           final cardWidth = (constraints.maxWidth -
                                   space * (columnCount - 1)) /
                               columnCount;
+                          final extraTextHeight =
+                              (MediaQuery.textScalerOf(context).scale(14) - 14)
+                                  .clamp(0, 28);
                           return GridView.builder(
                             controller: _scrollController,
                             gridDelegate:
@@ -199,7 +202,8 @@ class _PeersViewState extends State<_PeersView> {
                               crossAxisCount: columnCount,
                               mainAxisSpacing: space,
                               crossAxisSpacing: space,
-                              childAspectRatio: cardWidth / 250,
+                              childAspectRatio:
+                                  cardWidth / (270 + extraTextHeight * 7),
                             ),
                             itemCount: peers.length,
                             itemBuilder: (BuildContext context, int index) {
@@ -238,7 +242,8 @@ class _PeersViewState extends State<_PeersView> {
       );
     }
 
-    if (widget.peers.loadEvent != LoadEvent.recent) {
+    if (widget.peers.loadEvent != LoadEvent.recent ||
+        sortedBy == PeerSortType.status) {
       switch (sortedBy) {
         case PeerSortType.endpoint:
           peers.sort((p1, p2) => p1.getId().compareTo(p2.getId()));
@@ -252,7 +257,7 @@ class _PeersViewState extends State<_PeersView> {
               p1.username.toLowerCase().compareTo(p2.username.toLowerCase()));
           break;
         case PeerSortType.status:
-          peers.sort((p1, p2) => p1.online ? -1 : 1);
+          peers.sort(comparePeerStatus);
           break;
       }
     }

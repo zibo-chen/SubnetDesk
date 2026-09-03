@@ -13,6 +13,7 @@ import '../../common.dart';
 import '../../common/widgets/peer_tab_page.dart';
 import '../../common/widgets/autocomplete.dart';
 import '../../consts.dart';
+import '../../desktop/lan_discovery_refresh.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'home_page.dart';
@@ -35,7 +36,8 @@ class ConnectionPage extends StatefulWidget implements PageShape {
 }
 
 /// State for the connection page.
-class _ConnectionPageState extends State<ConnectionPage> {
+class _ConnectionPageState extends State<ConnectionPage>
+    with WidgetsBindingObserver {
   /// Controller for the id input bar.
   final _idController = IDTextEditingController();
   final RxBool _idEmpty = true.obs;
@@ -48,6 +50,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
   final AllPeersLoader _allPeersLoader = AllPeersLoader();
 
   StreamSubscription? _uniLinksSubscription;
+  Timer? _discoveryTimer;
 
   // https://github.com/flutter/flutter/issues/157244
   Iterable<Peer> _autocompleteOpts = [];
@@ -76,6 +79,32 @@ class _ConnectionPageState extends State<ConnectionPage> {
       });
     }
     Get.put<TextEditingController>(_idEditingController);
+    WidgetsBinding.instance.addObserver(this);
+    _startDiscovery();
+  }
+
+  void _refreshPeers() {
+    bind.mainLoadLanPeers();
+    bind.mainLoadRecentPeers();
+    bind.mainLoadFavPeers();
+    bind.mainDiscover();
+  }
+
+  void _startDiscovery() {
+    if (isWeb) return;
+    _discoveryTimer?.cancel();
+    _refreshPeers();
+    _discoveryTimer = Timer.periodic(
+        lanDiscoveryRefreshInterval, (_) => _refreshPeers());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startDiscovery();
+    } else {
+      _discoveryTimer?.cancel();
+    }
   }
 
   @override
@@ -432,6 +461,8 @@ class _ConnectionPageState extends State<ConnectionPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _discoveryTimer?.cancel();
     _uniLinksSubscription?.cancel();
     _idController.dispose();
     _idFocusNode.removeListener(onFocusChanged);

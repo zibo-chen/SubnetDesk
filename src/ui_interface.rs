@@ -652,27 +652,57 @@ pub fn peer_exists(id: &str) -> bool {
 }
 
 #[inline]
-pub fn get_lan_peers() -> Vec<HashMap<&'static str, String>> {
+pub fn get_lan_peers() -> Vec<serde_json::Value> {
+    let now = hbb_common::get_time();
     config::LanPeers::load()
         .peers
         .iter()
-        .map(|peer| {
-            HashMap::<&str, String>::from_iter([
-                (
-                    "id",
-                    if peer.endpoint.is_empty() {
-                        peer.id.clone()
-                    } else {
-                        peer.endpoint.clone()
-                    },
-                ),
-                ("username", peer.username.clone()),
-                ("hostname", peer.hostname.clone()),
-                ("platform", peer.platform.clone()),
-                ("fingerprint", peer.fingerprint.clone()),
-            ])
-        })
+        .map(|peer| discovery_peer_to_json(peer, now))
         .collect()
+}
+
+fn discovery_peer_to_json(peer: &config::DiscoveryPeer, now: i64) -> serde_json::Value {
+    serde_json::json!({
+        "id": if peer.endpoint.is_empty() { &peer.id } else { &peer.endpoint },
+        "username": peer.username,
+        "hostname": peer.hostname,
+        "platform": peer.platform,
+        "fingerprint": peer.fingerprint,
+        "online": peer.online_state(now),
+        "last_seen": peer.last_seen,
+        "last_checked": peer.last_checked,
+    })
+}
+
+#[cfg(test)]
+mod discovery_payload_tests {
+    use super::*;
+
+    #[test]
+    fn discovery_payload_matches_flutter_contract() {
+        let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../flutter/test/fixtures/peer_presence.json"
+        ))
+        .unwrap();
+        for expected in fixture {
+            let mut peer: config::DiscoveryPeer = serde_json::from_value(expected.clone()).unwrap();
+            if expected["online"] == false {
+                peer.missed_discoveries = 4;
+            }
+            assert_eq!(discovery_peer_to_json(&peer, 100_000), expected);
+        }
+    }
+
+    #[test]
+    fn discovery_payload_does_not_present_cached_online_as_live() {
+        let mut peer = config::DiscoveryPeer::default();
+        peer.mark_seen(100_000);
+        assert_eq!(
+            discovery_peer_to_json(&peer, 130_000)["online"],
+            serde_json::Value::Null
+        );
+        assert_eq!(discovery_peer_to_json(&peer, 130_000)["last_seen"], 100_000);
+    }
 }
 
 #[inline]

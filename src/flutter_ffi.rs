@@ -1494,20 +1494,28 @@ pub fn main_peer_exists(id: String) -> bool {
     peer_exists(&id)
 }
 
-fn recent_lan_endpoint_to_map(recent: RecentLanEndpoint) -> HashMap<&'static str, String> {
+fn recent_lan_endpoint_to_map(
+    recent: RecentLanEndpoint,
+    discovered: &[config::DiscoveryPeer],
+    now: i64,
+) -> serde_json::Value {
     let alias = PeerConfig::load(&recent.endpoint)
         .options
         .get("alias")
         .cloned()
         .unwrap_or_default();
-    HashMap::from([
-        ("id", recent.endpoint),
-        ("username", recent.username),
-        ("hostname", recent.hostname),
-        ("platform", recent.platform),
-        ("alias", alias),
-        ("fingerprint", recent.fingerprint),
-    ])
+    let presence = crate::lan::find_discovered_peer(discovered, &recent.fingerprint, &recent.endpoint);
+    serde_json::json!({
+        "id": recent.endpoint,
+        "username": recent.username,
+        "hostname": recent.hostname,
+        "platform": recent.platform,
+        "alias": alias,
+        "fingerprint": recent.fingerprint,
+        "online": presence.and_then(|peer| peer.online_state(now)),
+        "last_seen": presence.map(|peer| peer.last_seen).unwrap_or_default(),
+        "last_checked": presence.map(|peer| peer.last_checked).unwrap_or_default(),
+    })
 }
 
 pub fn main_load_recent_peers() {
@@ -1520,9 +1528,11 @@ pub fn main_load_recent_peers() {
     };
 
     if !config::APP_DIR.read().unwrap().is_empty() {
+        let discovered = config::LanPeers::load().peers;
+        let now = hbb_common::get_time();
         let peers: Vec<_> = LocalConfig::get_recent_lan_endpoints()
             .into_iter()
-            .map(recent_lan_endpoint_to_map)
+            .map(|peer| recent_lan_endpoint_to_map(peer, &discovered, now))
             .collect();
         push_to_flutter(serde_json::ser::to_string(&peers).unwrap_or_else(|_| "[]".to_owned()));
     } else {
@@ -1540,10 +1550,12 @@ pub fn main_load_fav_peers() {
     };
     if !config::APP_DIR.read().unwrap().is_empty() {
         let favs = get_fav();
+        let discovered = config::LanPeers::load().peers;
+        let now = hbb_common::get_time();
         let peers: Vec<_> = LocalConfig::get_recent_lan_endpoints()
             .into_iter()
             .filter(|recent| favs.contains(&recent.endpoint))
-            .map(recent_lan_endpoint_to_map)
+            .map(|peer| recent_lan_endpoint_to_map(peer, &discovered, now))
             .collect();
 
         push_to_flutter(serde_json::ser::to_string(&peers).unwrap_or_else(|_| "[]".to_owned()));

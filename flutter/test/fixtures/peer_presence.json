@@ -1,0 +1,5 @@
+[
+  {"id":"online:21118","username":"","hostname":"Online PC","platform":"Windows","fingerprint":"","online":true,"last_seen":100000,"last_checked":100000},
+  {"id":"offline:21118","username":"","hostname":"Offline PC","platform":"Windows","fingerprint":"","online":false,"last_seen":60000,"last_checked":100000},
+  {"id":"unknown:21118","username":"","hostname":"Unknown PC","platform":"Windows","fingerprint":"","online":null,"last_seen":0,"last_checked":0}
+]

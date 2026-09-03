@@ -202,13 +202,12 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
     Get.put<IDTextEditingController>(_idController);
     windowManager.addListener(this);
     _reloadLanIdentities();
-    _loadSelectedPeers();
+    _refreshPeers();
     _lanDiscoveryTimer = Timer.periodic(lanDiscoveryRefreshInterval, (_) {
       if (shouldRefreshLanDiscovery(
-        lanTabSelected: widget.selectedPeerTab == PeerTabIndex.lan,
         windowMinimized: isWindowMinimized,
       )) {
-        bind.mainDiscover();
+        _refreshPeers();
       }
     });
   }
@@ -220,7 +219,7 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
         oldWidget.favoriteGroupId != widget.favoriteGroupId) {
       peerSearchText.value = '';
       peerSearchTextController.clear();
-      _loadSelectedPeers();
+      _refreshPeers();
     }
   }
 
@@ -234,9 +233,14 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
         break;
       case PeerTabIndex.lan:
         bind.mainLoadLanPeers();
-        bind.mainDiscover();
         break;
     }
+  }
+
+  void _refreshPeers() {
+    // Reload first so expired cache entries immediately become unknown.
+    _loadSelectedPeers();
+    bind.mainDiscover();
   }
 
   void _reloadLanIdentities() {
@@ -273,7 +277,13 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
         Get.forceAppUpdate();
       }
       isWindowMinimized = false;
+      _refreshPeers();
     }
+  }
+
+  @override
+  void onWindowFocus() {
+    if (!isWindowMinimized) _refreshPeers();
   }
 
   @override
@@ -433,25 +443,36 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
                               widget.favoriteGroupId,
                             )
                           : peers.peers.length;
-                      return Text.rich(
-                        TextSpan(
-                          children: [
-                            TextSpan(
-                              text: sectionTitle(),
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w600,
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: sectionTitle(),
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: '  ($count)',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      color: Theme.of(context).hintColor,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            TextSpan(
-                              text: '  ($count)',
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: Theme.of(context).hintColor,
-                              ),
-                            ),
-                          ],
-                        ),
+                          ),
+                          IconButton(
+                            tooltip: translate('Refresh devices'),
+                            icon: const Icon(Icons.refresh),
+                            onPressed: _refreshPeers,
+                          ),
+                        ],
                       );
                     },
                   ),

@@ -23,7 +23,14 @@ List<Peer> mergeAutocompletePeers({
       combinedPeers[peer.id] = Peer.copy(peer);
     } else {
       final mergedPeer = Peer.copy(peer);
-      mergedPeer.online = existingPeer.online || peer.online;
+      // The newest check wins, including offline/unknown transitions. OR-ing
+      // states would keep a stale online result alive after a device disappears.
+      final presence = peer.lastChecked > existingPeer.lastChecked
+          ? peer
+          : existingPeer;
+      mergedPeer.online = presence.online;
+      mergedPeer.lastSeen = presence.lastSeen;
+      mergedPeer.lastChecked = presence.lastChecked;
       combinedPeers[peer.id] = mergedPeer;
     }
   }
@@ -194,7 +201,7 @@ class AutocompletePeerTileState extends State<AutocompletePeerTile> {
                                   margin: EdgeInsets.only(top: 2),
                                   child: Row(
                                     children: [
-                                      getOnline(8, widget.peer.online),
+                                      getOnline(8, widget.peer),
                                       Expanded(
                                         child: Text(
                                           widget.peer.alias.isEmpty

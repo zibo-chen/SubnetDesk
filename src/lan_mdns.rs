@@ -289,6 +289,7 @@ fn peer_from_mdns_fields(
         username: String::new(),
         online: true,
         ip_mac,
+        ..Default::default()
     })
 }
 

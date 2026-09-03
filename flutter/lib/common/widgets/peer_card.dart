@@ -15,6 +15,7 @@ import '../../models/peer_model.dart';
 import '../../models/platform_model.dart';
 import '../../desktop/widgets/material_mod_popup_menu.dart' as mod_menu;
 import '../../desktop/widgets/popup_menu.dart';
+import 'peer_status_badge.dart';
 import 'responsive_layout.dart';
 
 typedef PopupMenuEntryBuilder =
@@ -215,7 +216,9 @@ class _PeerCardState extends State<_PeerCard>
       children: [
         Container(
           decoration: BoxDecoration(
-            color: str2color('${peer.id}${peer.platform}', 0x7f),
+            color: peer.online == false
+                ? Colors.grey.withValues(alpha: 0.25)
+                : str2color('${peer.id}${peer.platform}', 0x7f),
             borderRadius: isPortrait
                 ? BorderRadius.circular(_tileRadius)
                 : BorderRadius.only(
@@ -257,7 +260,7 @@ class _PeerCardState extends State<_PeerCard>
                     children: [
                       Row(
                         children: [
-                          getOnline(isPortrait ? 4 : 8, peer.online),
+                          getOnline(isPortrait ? 4 : 8, peer),
                           Expanded(
                             child: Text(
                               primaryLabel,
@@ -271,7 +274,8 @@ class _PeerCardState extends State<_PeerCard>
                         children: [
                           Flexible(
                             child: Tooltip(
-                              message: secondaryLabel,
+                              message:
+                                  '$secondaryLabel\n${peerLastSeenText(peer)}',
                               waitDuration: const Duration(seconds: 1),
                               child: Align(
                                 alignment: Alignment.centerLeft,
@@ -279,6 +283,7 @@ class _PeerCardState extends State<_PeerCard>
                                   secondaryLabel,
                                   style: isPortrait ? null : greyStyle,
                                   textAlign: TextAlign.start,
+                                  maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -286,6 +291,16 @@ class _PeerCardState extends State<_PeerCard>
                           ),
                         ],
                       ),
+                      if (isPortrait)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            peerLastSeenText(peer),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: greyStyle,
+                          ),
+                        ),
                     ],
                   ).marginOnly(top: 2),
                 ),
@@ -330,6 +345,8 @@ class _PeerCardState extends State<_PeerCard>
     final surface = isDark ? const Color(0xFF24262D) : Colors.white;
     final border = isDark ? Colors.white12 : const Color(0xFFE1E5EC);
     final muted = isDark ? Colors.white60 : const Color(0xFF737B8C);
+    final offline = peer.online == false;
+    final deviceColor = offline ? const Color(0xFF77808E) : const Color(0xFF1677FF);
     final child = Card(
       color: surface,
       elevation: isDark ? 0 : 2,
@@ -354,9 +371,13 @@ class _PeerCardState extends State<_PeerCard>
                     width: double.infinity,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: isDark
-                            ? const [Color(0xFF253A61), Color(0xFF1D2940)]
-                            : const [Color(0xFFF1F6FF), Color(0xFFE4EEFF)],
+                        colors: offline
+                            ? (isDark
+                                ? const [Color(0xFF30343C), Color(0xFF282C33)]
+                                : const [Color(0xFFF1F2F4), Color(0xFFE5E8EC)])
+                            : (isDark
+                                ? const [Color(0xFF253A61), Color(0xFF1D2940)]
+                                : const [Color(0xFFF1F6FF), Color(0xFFE4EEFF)]),
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -369,13 +390,11 @@ class _PeerCardState extends State<_PeerCard>
                             width: 76,
                             height: 50,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1677FF),
+                              color: deviceColor,
                               borderRadius: BorderRadius.circular(7),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(
-                                    0xFF1677FF,
-                                  ).withOpacity(0.25),
+                                  color: deviceColor.withValues(alpha: 0.25),
                                   blurRadius: 14,
                                   offset: const Offset(0, 7),
                                 ),
@@ -392,8 +411,7 @@ class _PeerCardState extends State<_PeerCard>
                   const SizedBox(height: 7),
                   Row(
                     children: [
-                      getOnline(8, peer.online),
-                      Text('LAN', style: TextStyle(fontSize: 12, color: muted)),
+                      Flexible(child: getOnline(8, peer)),
                       const Spacer(),
                       IconButton(
                         tooltip: _favorite
@@ -438,6 +456,16 @@ class _PeerCardState extends State<_PeerCard>
                     peer.hostname.isEmpty ? secondaryLabel : peer.hostname,
                     muted,
                   ),
+                  const SizedBox(height: 4),
+                  Tooltip(
+                    message: peerLastSeenText(peer),
+                    child: Text(
+                      peerLastSeenText(peer),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: muted),
+                    ),
+                  ),
                   const Spacer(),
                   Row(
                     children: [
@@ -447,14 +475,21 @@ class _PeerCardState extends State<_PeerCard>
                           child: ElevatedButton(
                             onPressed: () => widget.connect(context, peer.id),
                             style: ElevatedButton.styleFrom(
-                              foregroundColor: const Color(0xFF1677FF),
-                              backgroundColor: isDark
-                                  ? const Color(0xFF26354D)
-                                  : const Color(0xFFF0F6FF),
+                              foregroundColor:
+                                  offline ? muted : const Color(0xFF1677FF),
+                              backgroundColor: offline
+                                  ? (isDark
+                                      ? const Color(0xFF30343C)
+                                      : const Color(0xFFF1F2F4))
+                                  : (isDark
+                                      ? const Color(0xFF26354D)
+                                      : const Color(0xFFF0F6FF)),
                               elevation: 0,
                             ),
                             child: Text(
-                              translate('Connect'),
+                              translate(peer.online == true
+                                  ? 'Connect'
+                                  : 'Try to connect'),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w600,
                               ),
@@ -1407,16 +1442,25 @@ void _rdpDialog(String id) async {
   });
 }
 
-Widget getOnline(double rightPadding, bool online) {
-  return Tooltip(
-    message: translate(online ? 'Online' : 'Offline'),
-    waitDuration: const Duration(seconds: 1),
-    child: Padding(
-      padding: EdgeInsets.fromLTRB(0, 4, rightPadding, 4),
-      child: CircleAvatar(
-        radius: 3,
-        backgroundColor: online ? Colors.green : kColorWarn,
-      ),
+String peerLastSeenText(Peer peer) {
+  if (peer.lastSeen <= 0) return translate('Never discovered');
+  final time = DateTime.fromMillisecondsSinceEpoch(peer.lastSeen).toLocal();
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${translate('Last seen')} ${time.year}-${two(time.month)}-${two(time.day)} '
+      '${two(time.hour)}:${two(time.minute)}:${two(time.second)}';
+}
+
+Widget getOnline(double rightPadding, Peer peer) {
+  final label = translate(peer.online == null
+      ? 'Status unknown'
+      : (peer.online == true ? 'Online' : 'Offline'));
+  return Padding(
+    padding: EdgeInsets.only(right: rightPadding),
+    child: PeerStatusBadge(
+      online: peer.online,
+      label: label,
+      tooltip: '${peerLastSeenText(peer)}\n'
+          '${translate('Discovery status may be delayed. You can still try to connect.')}',
     ),
   );
 }

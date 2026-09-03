@@ -22,24 +22,15 @@ void main() {
   });
 
   group('LAN discovery refresh', () {
-    test('refreshes only while the visible tab is LAN', () {
+    test('refreshes every peer list while the window is visible', () {
       expect(
         shouldRefreshLanDiscovery(
-          lanTabSelected: true,
           windowMinimized: false,
         ),
         isTrue,
       );
       expect(
         shouldRefreshLanDiscovery(
-          lanTabSelected: false,
-          windowMinimized: false,
-        ),
-        isFalse,
-      );
-      expect(
-        shouldRefreshLanDiscovery(
-          lanTabSelected: true,
           windowMinimized: true,
         ),
         isFalse,

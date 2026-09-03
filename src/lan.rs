@@ -16,13 +16,24 @@ use hbb_common::{
 };
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket},
+    sync::atomic::{AtomicBool, Ordering},
     time::Instant,
 };
 
 const LAN_DISCOVERY_PORT: u16 = 21_119;
 pub(crate) const LAN_DEVICE_NAME_OPTION: &str = "lan-device-name";
+
+static DISCOVERY_RUNNING: AtomicBool = AtomicBool::new(false);
+
+struct DiscoveryGuard;
+
+impl Drop for DiscoveryGuard {
+    fn drop(&mut self) {
+        DISCOVERY_RUNNING.store(false, Ordering::Release);
+    }
+}
 
 type Message = RendezvousMessage;
 
@@ -163,13 +174,21 @@ pub(super) fn start_listening() -> ResultType<()> {
 }
 
 pub(crate) async fn discover_async() -> ResultType<()> {
+    if DISCOVERY_RUNNING
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        return Ok(());
+    }
+    let _guard = DiscoveryGuard;
     let (tx, rx) = unbounded_channel::<_>();
     let mut worker_started = false;
     match send_query() {
-        Ok(sockets) => {
+        Ok(sockets) if !sockets.is_empty() => {
             spawn_wait_responses(sockets, tx.clone());
             worker_started = true;
         }
+        Ok(_) => log::warn!("No UDP LAN discovery interfaces are available"),
         Err(err) => log::warn!("UDP LAN discovery unavailable: {err}"),
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -179,6 +198,12 @@ pub(crate) async fn discover_async() -> ResultType<()> {
     }
     drop(tx);
     if !worker_started {
+        let mut peers = config::LanPeers::load().peers;
+        for peer in &mut peers {
+            peer.last_checked = 0;
+        }
+        config::LanPeers::store(&peers);
+        publish_discovery();
         bail!("No LAN discovery transport is available");
     }
     handle_received_peers(rx).await?;
@@ -411,7 +436,7 @@ fn wait_response(
     timeout: Option<std::time::Duration>,
     tx: UnboundedSender<config::DiscoveryPeer>,
 ) -> ResultType<()> {
-    let mut last_recv_time = Instant::now();
+    let start = Instant::now();
 
     let local_addr = socket.local_addr();
     let try_get_ip_by_peer = match local_addr.as_ref() {
@@ -427,7 +452,6 @@ fn wait_response(
             if let Ok(msg_in) = Message::parse_from_bytes(&buf[0..len]) {
                 match msg_in.union {
                     Some(rendezvous_message::Union::PeerDiscovery(p)) => {
-                        last_recv_time = Instant::now();
                         if p.cmd == "pong" {
                             if p.id.len() != 64
                                 || !p.id.bytes().all(|value| value.is_ascii_hexdigit())
@@ -486,6 +510,7 @@ fn wait_response(
                                     hostname: p.hostname.clone(),
                                     platform: p.platform.clone(),
                                     online: true,
+                                    ..Default::default()
                                 }));
                             }
                         }
@@ -494,7 +519,7 @@ fn wait_response(
                 }
             }
         }
-        if last_recv_time.elapsed().as_millis() > 3_000 {
+        if start.elapsed().as_millis() > 3_000 {
             break;
         }
     }
@@ -516,15 +541,14 @@ fn spawn_wait_responses(sockets: Vec<UdpSocket>, tx: UnboundedSender<config::Dis
 
 async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>) -> ResultType<()> {
     let mut peers = config::LanPeers::load().peers;
-    peers.iter_mut().for_each(|peer| {
-        peer.online = false;
-    });
+    let mut seen = HashSet::new();
 
-    let mut last_write_time: Option<Instant> = None;
     loop {
         tokio::select! {
             data = rx.recv() => match data {
                 Some(mut peer) => {
+                    peer.mark_seen(hbb_common::get_time());
+                    seen.insert(discovery_key(&peer));
                     if let Some(pos) = peers.iter().position(|x| x.is_same_peer(&peer) ) {
                         let peer1 = peers.remove(pos);
                         if let Ok(endpoint) = hbb_common::lan::Endpoint::parse(&peer1.endpoint) {
@@ -537,12 +561,6 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
                         peer.ip_mac.extend(peer1.ip_mac);
                     }
                     peers.insert(0, peer);
-                    if last_write_time.map(|t| t.elapsed().as_millis() > 300).unwrap_or(true)  {
-                        config::LanPeers::store(&peers);
-                        #[cfg(feature = "flutter")]
-                        crate::flutter_ffi::main_load_lan_peers();
-                        last_write_time = Some(Instant::now());
-                    }
                 }
                 None => {
                     break
@@ -551,15 +569,66 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
         }
     }
 
+    // Publish a complete scan, never a partially reset list of offline peers.
+    let now = hbb_common::get_time();
+    for peer in &mut peers {
+        if !seen.contains(&discovery_key(peer)) {
+            peer.mark_missed(now);
+        }
+    }
     config::LanPeers::store(&peers);
-    #[cfg(feature = "flutter")]
-    crate::flutter_ffi::main_load_lan_peers();
+    publish_discovery();
     Ok(())
+}
+
+fn discovery_key(peer: &config::DiscoveryPeer) -> String {
+    if peer.fingerprint.is_empty() {
+        peer.id.clone()
+    } else {
+        peer.fingerprint.to_ascii_lowercase()
+    }
+}
+
+fn publish_discovery() {
+    #[cfg(any(feature = "flutter", target_os = "android", target_os = "ios"))]
+    {
+        crate::flutter_ffi::main_load_lan_peers();
+        crate::flutter_ffi::main_load_recent_peers();
+        crate::flutter_ffi::main_load_fav_peers();
+    }
+}
+
+pub(crate) fn find_discovered_peer<'a>(
+    peers: &'a [config::DiscoveryPeer],
+    fingerprint: &str,
+    endpoint: &str,
+) -> Option<&'a config::DiscoveryPeer> {
+    peers.iter().find(|peer| {
+        if !fingerprint.is_empty() {
+            peer.fingerprint.eq_ignore_ascii_case(fingerprint)
+        } else {
+            peer.endpoint == endpoint || peer.id == endpoint
+        }
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovery_presence_follows_identity_not_reassigned_address() {
+        let peers = vec![config::DiscoveryPeer {
+            id: "192.168.1.22:21118".to_owned(),
+            endpoint: "192.168.1.22:21118".to_owned(),
+            fingerprint: "a".repeat(64),
+            ..Default::default()
+        }];
+        assert!(find_discovered_peer(&peers, &"A".repeat(64), "old.lan:21118").is_some());
+        assert!(find_discovered_peer(&peers, &"b".repeat(64), &peers[0].endpoint).is_none());
+        assert!(find_discovered_peer(&peers, "", &peers[0].endpoint).is_some());
+        assert!(find_discovered_peer(&peers, "", "vpn.lan:21118").is_none());
+    }
 
     #[test]
     fn custom_device_name_is_trimmed_filtered_and_bounded() {
