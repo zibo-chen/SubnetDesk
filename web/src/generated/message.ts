@@ -1149,6 +1149,11 @@ export interface FileTransferSendRequest {
 
 export enum FileTransferSendRequest_FileType {
   Generic = 0,
+  /**
+   * Printer - Retained for wire compatibility with older clients. New clients ignore it.
+   *
+   * @deprecated
+   */
   Printer = 1,
   UNRECOGNIZED = -1,
 }
