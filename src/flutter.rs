@@ -1161,14 +1161,6 @@ impl InvokeUiSession for FlutterHandler {
         self.push_event("record_status", &[("start", &start.to_string())], &[]);
     }
 
-    fn printer_request(&self, id: i32, path: String) {
-        self.push_event(
-            "printer_request",
-            &[("id", json!(id)), ("path", json!(path))],
-            &[],
-        );
-    }
-
     fn handle_screenshot_resp(&self, sid: String, msg: String) {
         match SessionID::from_str(&sid) {
             Ok(sid) => self.push_event_to("screenshot", &[("msg", json!(msg))], &[&sid]),

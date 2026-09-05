@@ -16,13 +16,6 @@ mod port;
 pub(crate) mod printer;
 pub(crate) mod setup;
 
-#[inline]
-pub fn is_rd_printer_installed(app_name: &str) -> ResultType<bool> {
-    let printer_name = crate::get_printer_name(app_name);
-    let rd_printer_name = PCWSTR::from_raw(printer_name.as_ptr());
-    printer::is_printer_added(&rd_printer_name)
-}
-
 fn get_wstr_bytes(p: LPWSTR) -> Vec<u16> {
     let mut vec_bytes = vec![];
     unsafe {

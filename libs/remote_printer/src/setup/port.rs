@@ -102,19 +102,8 @@ unsafe fn execute_on_local_port(port: &PCWSTR, command: &PCWSTR) -> ResultType<(
     Ok(())
 }
 
-fn add_local_port(port: &PCWSTR) -> ResultType<()> {
-    unsafe { execute_on_local_port(port, &w!("AddPort")) }
-}
-
 fn delete_local_port(port: &PCWSTR) -> ResultType<()> {
     unsafe { execute_on_local_port(port, &w!("DeletePort")) }
-}
-
-pub fn check_add_local_port(port: &PCWSTR) -> ResultType<()> {
-    if !is_port_exists(port)? {
-        return add_local_port(port);
-    }
-    Ok(())
 }
 
 pub fn check_delete_local_port(port: &PCWSTR) -> ResultType<()> {

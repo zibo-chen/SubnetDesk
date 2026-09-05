@@ -1959,19 +1959,6 @@ class RustdeskImpl {
     return Future(() => js.context.callMethod('setByName', ['select_files']));
   }
 
-  String mainGetPrinterNames({dynamic hint}) {
-    return '';
-  }
-
-  Future<void> sessionPrinterResponse(
-      {required UuidValue sessionId,
-      required int id,
-      required String path,
-      required String printerName,
-      dynamic hint}) {
-    throw UnimplementedError("sessionPrinterResponse");
-  }
-
   Future<String> mainGetCommon({required String key, dynamic hint}) {
     throw UnimplementedError("mainGetCommon");
   }

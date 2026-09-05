@@ -7,7 +7,6 @@ use crate::{
     ui_interface::use_texture_render,
 };
 use async_trait::async_trait;
-use bytes::Bytes;
 #[cfg(all(target_os = "windows", not(feature = "flutter")))]
 use hbb_common::config::keys;
 #[cfg(not(feature = "flutter"))]
@@ -83,7 +82,6 @@ pub struct Session<T: InvokeUiSession> {
     pub server_clipboard_enabled: Arc<RwLock<bool>>,
     pub last_change_display: Arc<Mutex<ChangeDisplayRecord>>,
     pub connection_round_state: Arc<Mutex<ConnectionRoundState>>,
-    pub printer_names: Arc<RwLock<HashMap<i32, String>>>,
     // Indicate whether the session is reconnected.
     // Used to auto start file transfer after reconnection.
     pub reconnect_count: Arc<AtomicUsize>,
@@ -1633,20 +1631,6 @@ impl<T: InvokeUiSession> Session<T> {
         msg.set_misc(misc);
         self.send(Data::Message(msg));
     }
-
-    pub fn printer_response(&self, id: i32, path: String, printer_name: String) {
-        self.printer_names.write().unwrap().insert(id, printer_name);
-        let to = std::env::temp_dir().join(format!("rustdesk_printer_{id}"));
-        self.send(Data::SendFiles((
-            id,
-            hbb_common::fs::JobType::Printer,
-            path,
-            to.to_string_lossy().to_string(),
-            0,
-            false,
-            true,
-        )));
-    }
 }
 
 pub trait InvokeUiSession: Send + Sync + Clone + 'static + Sized + Default {
@@ -1711,7 +1695,6 @@ pub trait InvokeUiSession: Send + Sync + Clone + 'static + Sized + Default {
     fn is_multi_ui_session(&self) -> bool;
     fn update_record_status(&self, start: bool);
     fn update_empty_dirs(&self, _res: ReadEmptyDirsResponse) {}
-    fn printer_request(&self, id: i32, path: String);
     fn handle_screenshot_resp(&self, sid: String, msg: String);
     fn handle_terminal_response(&self, response: TerminalResponse);
 }

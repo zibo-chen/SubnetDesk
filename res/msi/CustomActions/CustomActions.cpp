@@ -1014,40 +1014,6 @@ void TryStopDeleteServiceByShell(LPWSTR svcName)
     }
 }
 
-UINT __stdcall InstallPrinter(
-    __in MSIHANDLE hInstall)
-{
-    HRESULT hr = S_OK;
-    DWORD er = ERROR_SUCCESS;
-
-    int nResult = 0;
-    LPWSTR installFolder = NULL;
-    LPWSTR pwz = NULL;
-    LPWSTR pwzData = NULL;
-
-    hr = WcaInitialize(hInstall, "InstallPrinter");
-    ExitOnFailure(hr, "Failed to initialize");
-
-    hr = WcaGetProperty(L"CustomActionData", &pwzData);
-    ExitOnFailure(hr, "failed to get CustomActionData");
-
-    pwz = pwzData;
-    hr = WcaReadStringFromCaData(&pwz, &installFolder);
-    ExitOnFailure(hr, "failed to read database key from custom action data: %ls", pwz);
-
-    WcaLog(LOGMSG_STANDARD, "Try to install RD printer in : %ls", installFolder);
-    RemotePrinter::installUpdatePrinter(installFolder);
-    WcaLog(LOGMSG_STANDARD, "Install RD printer done");
-
-LExit:
-    if (pwzData) {
-        ReleaseStr(pwzData);
-    }
-
-    er = SUCCEEDED(hr) ? ERROR_SUCCESS : ERROR_INSTALL_FAILURE;
-    return WcaFinalize(er);
-}
-
 UINT __stdcall UninstallPrinter(
     __in MSIHANDLE hInstall)
 {

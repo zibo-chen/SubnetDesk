@@ -2,23 +2,19 @@
 
 #include <Windows.h>
 #include <winspool.h>
-#include <setupapi.h>
 #include <memory>
 #include <string>
 #include <functional>
 #include <vector>
-#include <iostream>
 
 #include "Common.h"
 
-#pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "winspool.lib")
 
 namespace RemotePrinter
 {
 #define HRESULT_ERR_ELEMENT_NOT_FOUND 0x80070490
 
-    LPCWCH RD_DRIVER_INF_PATH = L"drivers\\RustDeskPrinterDriver\\RustDeskPrinterDriver.inf";
     LPCWCH RD_PRINTER_PORT = L"RustDesk Printer";
     LPCWCH RD_PRINTER_NAME = L"RustDesk Printer";
     LPCWCH RD_PRINTER_DRIVER_NAME = L"RustDesk v4 Printer Driver";
@@ -131,23 +127,9 @@ namespace RemotePrinter
         return TRUE;
     }
 
-    BOOL addLocalPort(LPCWSTR port)
-    {
-        return executeOnLocalPort(port, L"AddPort");
-    }
-
     BOOL deleteLocalPort(LPCWSTR port)
     {
         return executeOnLocalPort(port, L"DeletePort");
-    }
-
-    BOOL checkAddLocalPort(LPCWSTR port)
-    {
-        if (!isPortExists(port))
-        {
-            return addLocalPort(port);
-        }
-        return TRUE;
     }
 
     std::wstring getPrinterInstalledOnPort(LPCWSTR port);
@@ -186,31 +168,6 @@ namespace RemotePrinter
             cbBuf,
             pcbNeeded,
             pcReturned);
-    }
-
-    DWORDLONG getInstalledDriverVersion(LPCWSTR name)
-    {
-        auto onData = [name](const DRIVER_INFO_6W &info)
-        {
-            if (isNameEqual(name, info.pName) == TRUE)
-            {
-                return std::shared_ptr<DWORDLONG>(new DWORDLONG(info.dwlDriverVersion));
-            }
-            else
-            {
-                return std::shared_ptr<DWORDLONG>(nullptr);
-            } };
-        auto onNoData = []()
-        { return nullptr; };
-        auto res = commonEnum<DRIVER_INFO_6W, DWORDLONG>(L"EnumPrinterDriversW", enumPrinterDriver, 6, onData, onNoData);
-        if (res == nullptr)
-        {
-            return 0;
-        }
-        else
-        {
-            return *res;
-        }
     }
 
     std::wstring findInf(LPCWSTR name)
@@ -305,35 +262,6 @@ namespace RemotePrinter
         return TRUE;
     }
 
-    BOOL installDriver(LPCWSTR name, LPCWSTR inf)
-    {
-        DWORD size = MAX_PATH * 10;
-        wchar_t package_path[MAX_PATH * 10] = {0};
-        HRESULT result = UploadPrinterDriverPackage(
-            NULL, inf, NULL,
-            UPDP_SILENT_UPLOAD | UPDP_UPLOAD_ALWAYS, NULL, package_path, &size);
-        if (result != S_OK)
-        {
-            WcaLog(LOGMSG_STANDARD, "Uploading the printer driver package to the driver cache silently, failed. Will retry with user UI. HRESULT (%d)\n", result);
-            result = UploadPrinterDriverPackage(
-                NULL, inf, NULL, UPDP_UPLOAD_ALWAYS,
-                GetForegroundWindow(), package_path, &size);
-            if (result != S_OK)
-            {
-                WcaLog(LOGMSG_STANDARD, "Uploading the printer driver package to the driver cache failed with user UI. Aborting...\n");
-                return FALSE;
-            }
-        }
-
-        result = InstallPrinterDriverFromPackage(
-            NULL, package_path, name, NULL, IPDFP_COPY_ALL_FILES);
-        if (result != S_OK)
-        {
-            WcaLog(LOGMSG_STANDARD, "Installing the printer driver failed. HRESULT (%d)\n", result);
-        }
-        return result == S_OK;
-    }
-
     BOOL enumLocalPrinter(
         DWORD level,
         LPBYTE pPrinterInfo,
@@ -347,31 +275,6 @@ namespace RemotePrinter
         // such as network status, print server configuration, and printer driver implementation factors that are difficult to predict when writing an application.
         // Calling this function from a thread that manages interaction with the user interface could make the application appear to be unresponsive.
         return EnumPrintersW(PRINTER_ENUM_LOCAL, NULL, level, pPrinterInfo, cbBuf, pcbNeeded, pcReturned);
-    }
-
-    BOOL isPrinterAdded(LPCWSTR name)
-    {
-        auto onData = [name](const PRINTER_INFO_1W &info)
-        {
-            if (isNameEqual(name, info.pName) == TRUE)
-            {
-                return std::shared_ptr<BOOL>(new BOOL(TRUE));
-            }
-            else
-            {
-                return std::shared_ptr<BOOL>(nullptr);
-            } };
-        auto onNoData = []()
-        { return nullptr; };
-        auto res = commonEnum<PRINTER_INFO_1W, BOOL>(L"EnumPrintersW", enumLocalPrinter, 1, onData, onNoData);
-        if (res == nullptr)
-        {
-            return FALSE;
-        }
-        else
-        {
-            return *res;
-        }
     }
 
     std::wstring getPrinterInstalledOnPort(LPCWSTR port)
@@ -397,19 +300,6 @@ namespace RemotePrinter
         {
             return *res;
         }
-    }
-
-    BOOL addPrinter(LPCWSTR name, LPCWSTR driver, LPCWSTR port)
-    {
-        PRINTER_INFO_2W printerInfo = {0};
-        printerInfo.pPrinterName = const_cast<LPWSTR>(name);
-        printerInfo.pPortName = const_cast<LPWSTR>(port);
-        printerInfo.pDriverName = const_cast<LPWSTR>(driver);
-        printerInfo.pPrintProcessor = const_cast<LPWSTR>(L"WinPrint");
-        printerInfo.pDatatype = const_cast<LPWSTR>(L"RAW");
-        printerInfo.Attributes = PRINTER_ATTRIBUTE_LOCAL;
-        HANDLE hPrinter = AddPrinterW(NULL, 2, (LPBYTE)&printerInfo);
-        return hPrinter == NULL ? FALSE : TRUE;
     }
 
     VOID deletePrinter(LPCWSTR name)
@@ -443,66 +333,6 @@ namespace RemotePrinter
         }
 
         ClosePrinter(hPrinter);
-    }
-
-    bool FileExists(const std::wstring &filePath)
-    {
-        DWORD fileAttributes = GetFileAttributes(filePath.c_str());
-        return (fileAttributes != INVALID_FILE_ATTRIBUTES && !(fileAttributes & FILE_ATTRIBUTE_DIRECTORY));
-    }
-
-    // Steps:
-    // 1. Add the local port.
-    // 2. Check if the driver is installed.
-    //    Uninstall the existing driver if it is installed.
-    //    We should not check the driver version because the driver is deployed with the application.
-    //    It's better to uninstall the existing driver and install the driver from the application.
-    // 3. Add the printer.
-    VOID installUpdatePrinter(const std::wstring &installFolder)
-    {
-        const std::wstring infFile = installFolder + L"\\" + RemotePrinter::RD_DRIVER_INF_PATH;
-        if (!FileExists(infFile))
-        {
-            WcaLog(LOGMSG_STANDARD, "Printer driver INF file not found, aborting...\n");
-            return;
-        }
-
-        if (!checkAddLocalPort(RD_PRINTER_PORT))
-        {
-            WcaLog(LOGMSG_STANDARD, "Failed to check add local port, error (%d)\n", GetLastError());
-            return;
-        }
-        else
-        {
-            WcaLog(LOGMSG_STANDARD, "Local port added successfully\n");
-        }
-
-        if (getInstalledDriverVersion(RD_PRINTER_DRIVER_NAME) > 0)
-        {
-            deletePrinter(RD_PRINTER_NAME);
-            if (FALSE == uninstallDriver(RD_PRINTER_DRIVER_NAME))
-            {
-                WcaLog(LOGMSG_STANDARD, "Failed to uninstall previous printer driver, error (%d)\n", GetLastError());
-            }
-        }
-
-        if (FALSE == installDriver(RD_PRINTER_DRIVER_NAME, infFile.c_str()))
-        {
-            WcaLog(LOGMSG_STANDARD, "Driver installation failed, still try to add the printer\n");
-        }
-        else
-        {
-            WcaLog(LOGMSG_STANDARD, "Driver installed successfully\n");
-        }
-
-        if (FALSE == addPrinter(RD_PRINTER_NAME, RD_PRINTER_DRIVER_NAME, RD_PRINTER_PORT))
-        {
-            WcaLog(LOGMSG_STANDARD, "Failed to add printer, error (%d)\n", GetLastError());
-        }
-        else
-        {
-            WcaLog(LOGMSG_STANDARD, "Printer installed successfully\n");
-        }
     }
 
     VOID uninstallPrinter()

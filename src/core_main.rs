@@ -283,8 +283,8 @@ pub fn core_main() -> Option<Vec<String>> {
                 if config::is_disable_installation() {
                     return None;
                 }
-                let (printer_override, debug) = parse_silent_install_args(&args);
-                let options = platform::get_silent_install_options(printer_override);
+                let debug = parse_silent_install_debug(&args);
+                let options = platform::get_silent_install_options();
                 let res = platform::install_me(options, "".to_owned(), true, debug);
                 let text = match res {
                     Ok(_) => translate("Installation Successful!".to_string()),
@@ -326,27 +326,10 @@ pub fn core_main() -> Option<Vec<String>> {
                     crate::virtual_display_manager::amyuni_idd::uninstall_driver()
                 );
                 return None;
-            } else if args[0] == "--install-remote-printer" {
-                #[cfg(windows)]
-                if crate::platform::is_win_10_or_greater() {
-                    match remote_printer::install_update_printer(&crate::get_app_name()) {
-                        Ok(_) => {
-                            log::info!("Remote printer installed/updated successfully");
-                        }
-                        Err(e) => {
-                            log::error!("Failed to install/update the remote printer: {}", e);
-                        }
-                    }
-                } else {
-                    log::error!("Win10 or greater required!");
-                }
-                return None;
             } else if args[0] == "--uninstall-remote-printer" {
                 #[cfg(windows)]
-                if crate::platform::is_win_10_or_greater() {
-                    remote_printer::uninstall_printer(&crate::get_app_name());
-                    log::info!("Remote printer uninstalled");
-                }
+                legacy_printer_cleanup::uninstall_printer(&crate::get_app_name());
+                log::info!("Legacy remote printer cleanup completed");
                 return None;
             }
         }
@@ -701,20 +684,8 @@ fn is_cli_setting_change_disabled() -> bool {
 }
 
 #[cfg(windows)]
-fn parse_silent_install_args(args: &[String]) -> (Option<bool>, bool) {
-    let mut printer_override = None;
-    let mut debug = false;
-
-    for arg in args.iter().skip(1) {
-        match arg.as_str() {
-            "printer=1" => printer_override = Some(true),
-            "printer=0" => printer_override = Some(false),
-            "debug" => debug = true,
-            _ => {}
-        }
-    }
-
-    (printer_override, debug)
+fn parse_silent_install_debug(args: &[String]) -> bool {
+    args.iter().skip(1).any(|arg| arg == "debug")
 }
 
 #[cfg(test)]

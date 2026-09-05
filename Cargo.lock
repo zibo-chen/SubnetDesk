@@ -4269,6 +4269,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03087c2bad5e1034e8cace5926dec053fb3790248370865f5117a7d0213354c8"
 
 [[package]]
+name = "legacy_printer_cleanup"
+version = "0.1.0"
+dependencies = [
+ "hbb_common",
+ "winapi 0.3.9",
+ "windows-strings 0.3.1",
+]
+
+[[package]]
 name = "libappindicator"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6830,15 +6839,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
-name = "remote_printer"
-version = "0.1.0"
-dependencies = [
- "hbb_common",
- "winapi 0.3.9",
- "windows-strings 0.3.1",
-]
-
-[[package]]
 name = "repng"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7062,6 +7062,7 @@ dependencies = [
  "keepawake",
  "keyring",
  "lazy_static",
+ "legacy_printer_cleanup",
  "libpulse-binding",
  "libpulse-simple-binding",
  "libxdo-sys",
@@ -7084,7 +7085,6 @@ dependencies = [
  "qrcode-generator",
  "rcgen",
  "rdev",
- "remote_printer",
  "repng",
  "reqwest",
  "ring",
