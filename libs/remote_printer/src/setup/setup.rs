@@ -1,5 +1,5 @@
 use super::{driver::uninstall_driver, port::check_delete_local_port, printer::delete_printer};
-use hbb_common::{allow_err, lazy_static};
+use hbb_common::{allow_err, lazy_static, log};
 use std::sync::Mutex;
 use windows_strings::PCWSTR;
 
