@@ -775,5 +775,10 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("RustDesk could not load a GStreamer component needed for screen capture ({})", "RustDesk nie mógł załadować składnika GStreamer wymaganego do przechwytywania ekranu ({})"),
         ("Sync clipboard between sessions", "Synchronizuj schowek między sesjami"),
         ("sync-clipboard-between-sessions-tip", "Tekst lub obrazy skopiowane w jednej sesji zdalnej są wysyłane także do schowka pozostałych połączonych sesji."),
+        ("View rotation", ""),
+        ("No rotation", ""),
+        ("Rotate 90° clockwise", ""),
+        ("Rotate 180°", ""),
+        ("Rotate 270° clockwise", ""),
     ].iter().cloned().collect();
 }

@@ -16,8 +16,10 @@ import 'package:get/get.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
+import '../native/custom_cursor.dart';
 import 'input_modifier_utils.dart';
 import 'relative_mouse_model.dart';
+import 'view_rotation.dart';
 import '../common.dart';
 import '../consts.dart';
 
@@ -506,6 +508,7 @@ class InputModel {
       modify: (msg) => modify(msg),
       getPointerInsideImage: () => _pointerInsideImage,
       setPointerInsideImage: (inside) => _pointerInsideImage = inside,
+      rotateDelta: _rotateDeltaToBase,
     );
     _relativeMouse.onDisabled = () => onRelativeMouseModeDisabled?.call();
 
@@ -1096,13 +1099,54 @@ class InputModel {
     await sendMouse('up', button);
   }
 
+  /// Input points arrive in the displayed (virtual) rect space. The peer
+  /// injects them in its pointer space, which for the targeted
+  /// hardware-rotated panels is the orientation set by the panel rotation:
+  /// the compositor reports its logical desktop and the peer's uinput range
+  /// and layout remap are derived from it, while the advertised base frame is
+  /// the panel-rotated one. Map the point into that space so the peer injects
+  /// it unchanged and needs no knowledge of the client-side rotation (works
+  /// with any SubnetDesk server). No-op when the view follows the panel.
+  Point? _rotatePointToBase(Point? p) {
+    if (p == null) {
+      return null;
+    }
+    final ffiModel = parent.target?.ffiModel;
+    if (ffiModel == null) {
+      return p;
+    }
+    final num px = p.x;
+    final num py = p.y;
+    final q = ffiModel.displayedToPanelPoint(Offset(px.toDouble(), py.toDouble()));
+    return Point(q.dx, q.dy);
+  }
+
+  /// Direction vectors (scroll / trackpad / relative / fling deltas) arrive
+  /// in the displayed (virtual) space; rotate them from the view rotation to
+  /// the panel orientation (see [_rotatePointToBase]).
+  Offset _rotateDeltaToBase(Offset delta) {
+    final ffiModel = parent.target?.ffiModel;
+    if (ffiModel == null) {
+      return delta;
+    }
+    final diff =
+        ffiModel.clientRotationValue.difference(ffiModel.panelRotationValue);
+    return ViewRotation.rotateDeltaCW(delta, diff.index);
+  }
+
   /// Send scroll event with scroll distance [y].
   Future<void> scroll(int y) async {
     if (isViewCamera) return;
+    var delta = Offset(0, y.toDouble());
+    delta = _rotateDeltaToBase(delta);
     await bind.sessionSendMouse(
         sessionId: sessionId,
-        msg: json
-            .encode(modify({'id': id, 'type': 'wheel', 'y': y.toString()})));
+        msg: json.encode(modify({
+          'id': id,
+          'type': 'wheel',
+          'x': delta.dx.round().toString(),
+          'y': delta.dy.round().toString(),
+        })));
   }
 
   /// Reset key modifiers to false, including [shift], [ctrl], [alt] and [command].
@@ -1152,6 +1196,13 @@ class InputModel {
     // Fix status
     if (!enter) {
       resetModifiers();
+      // Work around flutter_custom_cursor's Linux backend leaving the
+      // window's native cursor hotspot stuck on a rotated glyph after the
+      // pointer leaves the remote view (see forceResetSystemCursor).
+      final cursorModel = parent.target?.cursorModel;
+      if (cursorModel != null) {
+        forceResetSystemCursor(cursorModel);
+      }
     }
     _relativeMouse.onEnterOrLeaveImage(enter);
     _flingTimer?.cancel();
@@ -1163,10 +1214,18 @@ class InputModel {
     }
   }
 
-  /// Send mouse movement event with distance in [x] and [y].
+  /// Send mouse movement event with distance in [x] and [y]. The coordinates
+  /// are in the displayed (virtual) rect space, which for the targeted
+  /// hardware-rotated panels is the peer's pointer space, so they are sent
+  /// as-is (see [_rotatePointToBase]).
   Future<void> moveMouse(double x, double y) async {
     if (!keyboardPerm) return;
     if (isViewCamera) return;
+    final rotated = _rotatePointToBase(Point(x, y));
+    if (rotated != null) {
+      x = rotated.x.toDouble();
+      y = rotated.y.toDouble();
+    }
     var x2 = x.toInt();
     var y2 = y.toInt();
     await bind.sessionSendMouse(
@@ -1372,9 +1431,12 @@ class InputModel {
             Offset(x.toDouble(), y.toDouble()));
       } else {
         if (isViewCamera) return;
+        final rotated =
+            _rotateDeltaToBase(Offset(x.toDouble(), y.toDouble()));
         bind.sessionSendMouse(
             sessionId: sessionId,
-            msg: '{"type": "trackpad", "x": "$x", "y": "$y"}');
+            msg:
+                '{"type": "trackpad", "x": "${rotated.dx.round()}", "y": "${rotated.dy.round()}"}');
       }
     }
   }
@@ -1429,9 +1491,12 @@ class InputModel {
         return;
       }
 
+      final rotated =
+          _rotateDeltaToBase(Offset(dx.toDouble(), dy.toDouble()));
       bind.sessionSendMouse(
           sessionId: sessionId,
-          msg: '{"type": "trackpad", "x": "$dx", "y": "$dy"}');
+          msg:
+              '{"type": "trackpad", "x": "${rotated.dx.round()}", "y": "${rotated.dy.round()}"}');
       _scheduleFling(x, y, delay);
     });
   }
@@ -1697,6 +1762,10 @@ class InputModel {
       } else if (dy < 0) {
         dy = accel;
       }
+      final rotated =
+          _rotateDeltaToBase(Offset(dx.toDouble(), dy.toDouble()));
+      dx = rotated.dx.round();
+      dy = rotated.dy.round();
       bind.sessionSendMouse(
           sessionId: sessionId,
           msg: '{"type": "wheel", "x": "$dx", "y": "$dy"}');
@@ -1851,7 +1920,7 @@ class InputModel {
       refreshMousePos();
     }
 
-    final pos = handlePointerDevicePos(
+    var pos = handlePointerDevicePos(
       kPointerEventKindMouse,
       x,
       y,
@@ -1865,12 +1934,16 @@ class InputModel {
     if (pos == null) {
       return null;
     }
+    var basePos = _rotatePointToBase(pos);
+    if (basePos == null) {
+      return null;
+    }
     if (type != '') {
       evt['x'] = '0';
       evt['y'] = '0';
     } else {
-      evt['x'] = '${pos.x.toInt()}';
-      evt['y'] = '${pos.y.toInt()}';
+      evt['x'] = '${basePos.x.toInt()}';
+      evt['y'] = '${basePos.y.toInt()}';
     }
 
     final buttons = evt['buttons'];
@@ -2081,6 +2154,26 @@ class InputModel {
           if (!(buttons == kPrimaryMouseButton &&
               evtType == kMouseEventTypeUp)) {
             return null;
+          }
+          // The point can be arbitrarily far outside the rect here (e.g. the
+          // cursor sitting in a large letterbox margin -- a rotated view
+          // fit into a wider window can leave hundreds of pixels of margin
+          // on each side), and unlike the reject-early path above, this one
+          // falls through to return the point as-is below. Clamp it into
+          // the valid rect, matching what the non-desktop branch below
+          // already does, so a stray mouse-up delivered from outside the
+          // image doesn't send the peer a wildly invalid coordinate --
+          // observed as a visible cursor "skip" on the next real move once
+          // the client's own idea of the current position had jumped there.
+          if (evtX < minX) {
+            evtX = minX;
+          } else if (evtX > maxX) {
+            evtX = maxX;
+          }
+          if (evtY < minY) {
+            evtY = minY;
+          } else if (evtY > maxY) {
+            evtY = maxY;
           }
         }
       }

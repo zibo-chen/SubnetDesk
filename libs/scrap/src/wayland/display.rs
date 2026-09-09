@@ -356,7 +356,7 @@ fn desktop_rect_of(displays: &[WaylandDisplayInfo]) -> Option<(i32, i32, i32, i3
     // Otherwise, we use the logical size for `uinput`.
     if displays.len() == 1 {
         let d = &displays[0];
-        let (w, h) = oriented_physical(d);
+        let (w, h) = client_space_size(d);
         return Some((d.x, d.x + w, d.y, d.y + h));
     }
 
@@ -416,22 +416,40 @@ fn oriented_physical(d: &WaylandDisplayInfo) -> (i32, i32) {
     }
 }
 
+/// Size in the coordinate space the client's injected coordinates use: the physical size in
+/// delivered orientation, EXCEPT when the compositor reports the output geometry already
+/// oriented. Mutter publishes a rotated output's wl_output mode geometry post-rotation (a
+/// 1920x1200 panel rotated 270 reports (1200, 1920)) and its xdg-output logical size
+/// corroborates that; `oriented_physical` on such a report applies the same rotation twice,
+/// transposes the uinput range, and the pointer reaches only a fraction of the screen
+/// (Chuwi MiniBook X: a landscape range over a portrait pointer space).
+fn client_space_size(d: &WaylandDisplayInfo) -> (i32, i32) {
+    if let Some(l) = d.logical_size {
+        if l == (d.width, d.height) {
+            return l;
+        }
+    }
+    oriented_physical(d)
+}
+
 /// The logical rectangles of a display list, for a caller that already has the list.
 pub fn logical_rects_of_displays(displays: &[WaylandDisplayInfo]) -> Vec<DisplayRect> {
     logical_rects_of(displays)
 }
 
 fn logical_rects_of(displays: &[WaylandDisplayInfo]) -> Vec<DisplayRect> {
-    // Match `desktop_rect_of`: a single display uses its physical size (its scale is
-    // reported as 1.0 to the client), multiple displays use logical size. This keeps a
-    // single display a no-op for the remap (its origin never shifts) and keeps the rects
-    // in the same coordinate space the client's coordinates are expressed in.
+    // Match `desktop_rect_of`: a single display uses its client-space size (physical in
+    // delivered orientation, or the already-oriented geometry when the compositor reports
+    // one; its scale is reported as 1.0 to the client), multiple displays use logical
+    // size. This keeps a single display a no-op for the remap (its origin never shifts)
+    // and keeps the rects in the same coordinate space the client's coordinates are
+    // expressed in.
     let single = displays.len() == 1;
     displays
         .iter()
         .map(|d| {
             let (w, h) = if single {
-                oriented_physical(d)
+                client_space_size(d)
             } else {
                 d.logical_size.unwrap_or_else(|| oriented_physical(d))
             };
@@ -605,6 +623,31 @@ mod tests {
         // Review finding 1 on rustdesk#15889: the single-display branch served the unrotated
         // mode, so the pointer could not reach ~44% of a portrait screen.
         let mut d = display(0, 0, 1920, 1080, None);
+        d.transform = 90;
+        assert_eq!(desktop_rect_of(&[d.clone()]), Some((0, 1080, 0, 1920)));
+        let rects = logical_rects_of(&[d]);
+        assert_eq!((rects[0].w, rects[0].h), (1080, 1920));
+    }
+
+    #[test]
+    fn a_single_rotated_display_reporting_oriented_geometry_keeps_the_uinput_rect() {
+        // Mutter publishes a rotated output's wl_output mode geometry already oriented:
+        // a 1920x1200 panel rotated 270 reports (1200, 1920) with transform 270 and a
+        // matching xdg-output logical size. Re-swapping would serve a landscape rect over
+        // a portrait pointer space and the pointer could reach only a fraction of the
+        // screen (Chuwi MiniBook X, 1.4.1).
+        let mut d = display(0, 0, 1200, 1920, Some((1200, 1920)));
+        d.transform = 270;
+        assert_eq!(desktop_rect_of(&[d.clone()]), Some((0, 1200, 0, 1920)));
+        let rects = logical_rects_of(&[d]);
+        assert_eq!((rects[0].w, rects[0].h), (1200, 1920));
+    }
+
+    #[test]
+    fn a_single_rotated_display_with_a_differing_logical_size_still_swaps() {
+        // Scaled or physical-mode reports: the xdg-output logical size disagrees with the
+        // reported geometry, so the geometry is not yet oriented and the swap stays.
+        let mut d = display(0, 0, 1920, 1080, Some((1080, 1920)));
         d.transform = 90;
         assert_eq!(desktop_rect_of(&[d.clone()]), Some((0, 1080, 0, 1920)));
         let rects = logical_rects_of(&[d]);

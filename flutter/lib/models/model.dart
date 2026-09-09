@@ -41,6 +41,7 @@ import '../common/widgets/dialog.dart';
 import 'input_model.dart';
 import 'platform_model.dart';
 import 'package:flutter_hbb/utils/scale.dart';
+import 'view_rotation.dart';
 
 import 'package:flutter_hbb/generated_bridge.dart'
     if (dart.library.html) 'package:flutter_hbb/web/bridge.dart';
@@ -134,7 +135,125 @@ class FfiModel with ChangeNotifier {
 
   Timer? timerScreenshot;
 
-  Rect? get rect => _rect;
+  /// Local (client-side) view rotation in degrees: 0, 90, 180 or 270.
+  /// The remote display is never rotated; see [ViewRotation].
+  final RxInt clientRotation = 0.obs;
+
+  /// Local (client-side) panel orientation in degrees: 0, 90, 180 or 270.
+  /// This is the orientation at which the peer's physical panel is upright,
+  /// i.e. the orientation of the peer's pointer space. Input is mapped into
+  /// this space, independently of [clientRotation], which only rotates the
+  /// view.
+  final RxInt panelRotation = 0.obs;
+  bool _clientRotationLoaded = false;
+
+  /// The true (base) display rect reported by the peer, unrotated.
+  Rect? get baseRect => _rect;
+
+  /// The display rect the client currently shows. When client-side rotation
+  /// is active the width and height are swapped for 90/270 degree rotations
+  /// so all layout and input math operates in the displayed (virtual)
+  /// coordinate space. The rect origin is kept unchanged.
+  Rect? get rect {
+    final r = _rect;
+    if (r == null) {
+      return r;
+    }
+    final rotation = clientRotationValue;
+    if (rotation == ViewRotation.none || !rotation.isQuarterTurn) {
+      return r;
+    }
+    return Rect.fromLTWH(r.left, r.top, r.height, r.width);
+  }
+
+  /// Whether client-side rotation is possible for the current display set.
+  /// Rotation is only applied for a single display.
+  bool get clientRotationSupported =>
+      _rect != null && _pi.getCurDisplays().length == 1;
+
+  /// The effective view rotation: the stored value if rotation is possible
+  /// for the current display set, otherwise [ViewRotation.none].
+  ViewRotation get clientRotationValue =>
+      clientRotationSupported
+          ? ViewRotation.fromAngle(clientRotation.value)
+          : ViewRotation.none;
+
+  /// The effective panel orientation: the stored value if rotation is
+  /// possible for the current display set, otherwise [ViewRotation.none].
+  ViewRotation get panelRotationValue =>
+      clientRotationSupported
+          ? ViewRotation.fromAngle(panelRotation.value)
+          : ViewRotation.none;
+
+  /// Map a displayed (virtual) point into the peer's pointer space, using the
+  /// panel orientation as the input reference. The rect origin is preserved.
+  Offset displayedToPanelPoint(Offset p) {
+    final base = baseRect;
+    final view = clientRotationValue;
+    final panel = panelRotationValue;
+    if (base == null || view == panel) {
+      return p;
+    }
+    final local = Offset(p.dx - base.left, p.dy - base.top);
+    final f = view.toBase(local, base.size);
+    final q = panel.toVirtual(f, base.size);
+    return Offset(q.dx + base.left, q.dy + base.top);
+  }
+
+  /// Map a peer pointer-space point into the displayed (virtual) space.
+  Offset panelToDisplayedPoint(Offset p) {
+    final base = baseRect;
+    final view = clientRotationValue;
+    final panel = panelRotationValue;
+    if (base == null || view == panel) {
+      return p;
+    }
+    final local = Offset(p.dx - base.left, p.dy - base.top);
+    final f = panel.toBase(local, base.size);
+    final d = view.toVirtual(f, base.size);
+    return Offset(d.dx + base.left, d.dy + base.top);
+  }
+
+  /// Set and persist the local view rotation. [value] must be one of
+  /// 0, 90, 180 or 270; anything else is treated as 0.
+  void setClientRotation(int value) {
+    final normalized = [0, 90, 180, 270].contains(value) ? value : 0;
+    if (clientRotation.value == normalized) {
+      return;
+    }
+    clientRotation.value = normalized;
+    bind.sessionPeerOption(
+      sessionId: sessionId,
+      name: kOptionClientRotation,
+      value: normalized.toString(),
+    );
+    // Recompute fit scale/offsets for the (possibly new) displayed
+    // dimensions, and force a repaint even when the view style is unchanged.
+    parent.target?.canvasModel.updateViewStyle();
+    parent.target?.canvasModel.notifyListeners();
+    // The displayed position of the peer cursor follows the view rotation.
+    parent.target?.cursorModel.remapPanelCursor();
+  }
+
+  /// Set and persist the panel orientation used for input mapping. [value]
+  /// must be one of 0, 90, 180, 270; anything else is treated as 0.
+  void setPanelRotation(int value) {
+    final normalized = [0, 90, 180, 270].contains(value) ? value : 0;
+    if (panelRotation.value == normalized) {
+      return;
+    }
+    panelRotation.value = normalized;
+    bind.sessionPeerOption(
+      sessionId: sessionId,
+      name: kOptionPanelRotation,
+      value: normalized.toString(),
+    );
+    // The peer cursor feedback and the local pointer glyph orientation
+    // depend on the panel orientation; the view layout does not.
+    parent.target?.cursorModel.remapPanelCursor();
+    notifyListeners();
+  }
+
   bool get isOriginalResolutionSet =>
       _pi.tryGetDisplayIfNotAllDisplay()?.isOriginalResolutionSet ?? false;
   bool get isVirtualDisplayResolution =>
@@ -668,6 +787,43 @@ class FfiModel with ChangeNotifier {
       await parent.target?.canvasModel.updateViewStyle(
         refreshMousePos: updateCursorPos,
       );
+      if (!_clientRotationLoaded) {
+        // Load the per-peer persisted rotations once the session is
+        // established, so previously chosen rotations apply from the first
+        // frame. The panel orientation falls back to the view rotation when
+        // unset, keeping the legacy behavior where input follows the view.
+        _clientRotationLoaded = true;
+        bind.sessionGetPeerOption(
+          sessionId: sessionId,
+          name: kOptionClientRotation,
+        ).then((value) {
+          final saved = int.tryParse(value) ?? 0;
+          if ([0, 90, 180, 270].contains(saved) &&
+              saved != clientRotation.value) {
+            clientRotation.value = saved;
+            parent.target?.canvasModel.updateViewStyle();
+            parent.target?.canvasModel.notifyListeners();
+          }
+          bind.sessionGetPeerOption(
+            sessionId: sessionId,
+            name: kOptionPanelRotation,
+          ).then((panelValue) {
+            final savedPanel = int.tryParse(panelValue ?? '') ?? -1;
+            if ([0, 90, 180, 270].contains(savedPanel)) {
+              panelRotation.value = savedPanel;
+            } else {
+              panelRotation.value = clientRotation.value;
+              bind.sessionPeerOption(
+                sessionId: sessionId,
+                name: kOptionPanelRotation,
+                value: panelRotation.value.toString(),
+              );
+            }
+            parent.target?.cursorModel.remapPanelCursor();
+            notifyListeners();
+          });
+        });
+      }
       _updateSessionWidthHeight(sessionId);
 
       // Keep pointer lock center in sync when using relative mouse mode.
@@ -2190,13 +2346,27 @@ class CanvasModel with ChangeNotifier {
 
   updateSize() => _size = getSize();
 
-  updateViewStyle({refreshMousePos = true, notify = true}) async {
+  /// [knownSize], when given, is the real available size as measured by a
+  /// `LayoutBuilder` wrapping the canvas (see `_ViewStyleUpdater` in
+  /// remote_page.dart) -- a size Flutter's own layout system guarantees is
+  /// correct for whatever is actually allocated to the canvas. [getSize]'s
+  /// own MediaQuery + topToEdge/leftToEdge arithmetic is a separate,
+  /// independent estimate of the same thing; using the measured size
+  /// directly here avoids relying on that estimate matching it. (Confirmed
+  /// via a temporary debug log, since removed, that the two never actually
+  /// disagreed on the one hardware combination this was suspected on --
+  /// this is a real correctness improvement regardless, just not the cause
+  /// of that particular bug.)
+  updateViewStyle({refreshMousePos = true, notify = true, Size? knownSize}) async {
     final style = await bind.sessionGetViewStyle(sessionId: sessionId);
     if (style == null) {
       return;
     }
-
-    updateSize();
+    if (knownSize != null) {
+      _size = knownSize;
+    } else {
+      updateSize();
+    }
     final displayWidth = getDisplayWidth();
     final displayHeight = getDisplayHeight();
     final viewStyle = ViewStyle(
@@ -3360,14 +3530,18 @@ class CursorModel with ChangeNotifier {
     }
   }
 
-  /// Update the cursor position.
+  /// Update the cursor position. The peer reports the cursor in its pointer
+  /// space (the panel orientation, see [FfiModel.panelRotationValue]); the
+  /// drawn position is mapped into the displayed space and re-mapped when the
+  /// view or panel rotation changes.
   updateCursorPosition(Map<String, dynamic> evt, String id) async {
     if (!isConnIn2Secs()) {
       gotMouseControl = false;
       _lastPeerMouse = DateTime.now();
     }
-    _x = double.parse(evt['x']);
-    _y = double.parse(evt['y']);
+    _panelX = double.parse(evt['x']);
+    _panelY = double.parse(evt['y']);
+    _mapPanelCursor(notify: false);
     try {
       RemoteCursorMovedState.find(id).value = true;
     } catch (e) {
@@ -3375,6 +3549,33 @@ class CursorModel with ChangeNotifier {
     }
     notifyListeners();
   }
+
+  /// The last cursor position reported by the peer, in its pointer space.
+  double? _panelX;
+  double? _panelY;
+
+  void _mapPanelCursor({bool notify = true}) {
+    final px = _panelX;
+    final py = _panelY;
+    if (px == null || py == null) {
+      return;
+    }
+    final ffiModel = parent.target?.ffiModel;
+    if (ffiModel == null) {
+      _x = px;
+      _y = py;
+    } else {
+      final d = ffiModel.panelToDisplayedPoint(Offset(px, py));
+      _x = d.dx;
+      _y = d.dy;
+    }
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  /// Re-map the last peer cursor report for the current view/panel rotations.
+  remapPanelCursor() => _mapPanelCursor();
 
   updateDisplayOrigin(double x, double y, {updateCursorPos = true}) {
     _displayOriginX = x;

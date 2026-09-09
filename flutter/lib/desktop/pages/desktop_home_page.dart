@@ -35,10 +35,6 @@ const borderColor = Color(0xFF2F65BA);
 const _showSelinuxHelpTipOption = 'show-selinux-help-tip';
 const _selinuxHelpUrl =
     'https://github.com/zibo-chen/SubnetDesk/blob/master/docs/linux-host-readiness.md#selinux';
-const _waylandHelpUrl =
-    'https://github.com/zibo-chen/SubnetDesk/blob/master/docs/linux-host-readiness.md#wayland-session';
-const _loginWaylandHelpUrl =
-    'https://github.com/zibo-chen/SubnetDesk/blob/master/docs/linux-host-readiness.md#wayland-login-screen';
 const _lanDeviceNameOption = 'lan-device-name';
 
 class LanServerInfoPanel extends StatefulWidget {
@@ -1853,8 +1849,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         showSelinuxWarning:
             !isLinuxPlatform ||
             bind.mainGetLocalOption(key: _showSelinuxHelpTipOption) != 'N',
-        currentSessionWayland: isLinuxPlatform && bind.mainCurrentIsWayland(),
-        loginSessionWayland: isLinuxPlatform && bind.mainIsLoginWayland(),
       ),
     );
   }
@@ -1873,8 +1867,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       case SetupReadinessIssue.daemon:
         return translate('Service');
       case SetupReadinessIssue.selinux:
-      case SetupReadinessIssue.wayland:
-      case SetupReadinessIssue.loginWayland:
         return translate('Warning');
     }
   }
@@ -1898,10 +1890,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         return translate('install_daemon_tip');
       case SetupReadinessIssue.selinux:
         return translate('selinux_tip');
-      case SetupReadinessIssue.wayland:
-        return translate('wayland_experiment_tip');
-      case SetupReadinessIssue.loginWayland:
-        return translate('Login screen using Wayland is not supported');
     }
   }
 
@@ -1922,8 +1910,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       case SetupReadinessIssue.daemon:
         return Icons.settings_suggest_outlined;
       case SetupReadinessIssue.selinux:
-      case SetupReadinessIssue.wayland:
-      case SetupReadinessIssue.loginWayland:
         return Icons.warning_amber_rounded;
     }
   }
@@ -1937,8 +1923,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       case SetupReadinessIssue.localNetwork:
       case SetupReadinessIssue.daemon:
       case SetupReadinessIssue.selinux:
-      case SetupReadinessIssue.wayland:
-      case SetupReadinessIssue.loginWayland:
         return true;
       case SetupReadinessIssue.systemError:
         return false;
@@ -1956,8 +1940,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       case SetupReadinessIssue.localNetwork:
         return translate('Configure');
       case SetupReadinessIssue.selinux:
-      case SetupReadinessIssue.wayland:
-      case SetupReadinessIssue.loginWayland:
         return translate('Help');
       case SetupReadinessIssue.systemError:
         return '';
@@ -1968,10 +1950,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     switch (issue) {
       case SetupReadinessIssue.selinux:
         return _selinuxHelpUrl;
-      case SetupReadinessIssue.wayland:
-        return _waylandHelpUrl;
-      case SetupReadinessIssue.loginWayland:
-        return _loginWaylandHelpUrl;
       case SetupReadinessIssue.systemError:
       case SetupReadinessIssue.applicationInstall:
       case SetupReadinessIssue.screenRecording:
@@ -2015,8 +1993,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         watchIsInstalledDaemon = true;
         break;
       case SetupReadinessIssue.selinux:
-      case SetupReadinessIssue.wayland:
-      case SetupReadinessIssue.loginWayland:
         final helpUrl = _setupIssueHelpUrl(issue);
         if (helpUrl != null) {
           await launchUrl(Uri.parse(helpUrl));
@@ -2892,31 +2868,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
           );
         }
-      }
-      if (bind.mainCurrentIsWayland()) {
-        LinuxCards.add(
-          buildInstallCard(
-            "Warning",
-            "wayland_experiment_tip",
-            "",
-            () async {},
-            marginTop: LinuxCards.isEmpty ? 20.0 : 5.0,
-            help: 'Help',
-            link: _waylandHelpUrl,
-          ),
-        );
-      } else if (bind.mainIsLoginWayland()) {
-        LinuxCards.add(
-          buildInstallCard(
-            "Warning",
-            "Login screen using Wayland is not supported",
-            "",
-            () async {},
-            marginTop: LinuxCards.isEmpty ? 20.0 : 5.0,
-            help: 'Help',
-            link: _loginWaylandHelpUrl,
-          ),
-        );
       }
       if (LinuxCards.isNotEmpty) {
         return Column(children: LinuxCards);
