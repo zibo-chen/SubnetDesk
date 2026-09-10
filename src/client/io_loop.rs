@@ -14,6 +14,10 @@ use crate::{
 // Empirical no-data window before exposing the restart reconnect state to the UI.
 // Restart msgbox text is kept as a legacy UI fallback; Flutter handles the type as a control event.
 const RESTART_REMOTE_DEVICE_NO_DATA_TIMEOUT: Duration = Duration::from_secs(5);
+// Grace after ICE reports Disconnected, which it does ~5s after it stops hearing from the peer,
+// for ~8s in total. Disconnected is transient by design, so this waits out a Wi-Fi roam or a
+// sleep/wake rather than acting on the first hint.
+const WEBRTC_SUSPECT_GRACE: Duration = Duration::from_secs(3);
 #[cfg(feature = "unix-file-copy-paste")]
 use crate::{clipboard::try_empty_clipboard_files, clipboard_file::unix_file_clip};
 use base::{
@@ -245,6 +249,8 @@ impl<T: InvokeUiSession> Remote<T> {
                 let mut fps_instant = Instant::now();
 
                 let mut last_recv_time = Instant::now();
+                let mut webrtc_suspect_since: Option<Instant> = None;
+                let mut last_rx_progress = peer.rx_progress();
 
                 loop {
                     tokio::select! {
@@ -309,6 +315,25 @@ impl<T: InvokeUiSession> Remote<T> {
                                 && last_recv_time.elapsed() >= RESTART_REMOTE_DEVICE_NO_DATA_TIMEOUT
                             {
                                 self.handler.msgbox("restarting-show", "Restarting remote device", "Connection in progress. Please wait.", "");
+                                break;
+                            }
+                            let rx_progress = peer.rx_progress();
+                            // `None` for transports that report none, and it never changes for a
+                            // given one, so they are inert here.
+                            let progressed = rx_progress != last_rx_progress;
+                            last_rx_progress = rx_progress;
+                            if peer.webrtc_disconnected() && !progressed {
+                                webrtc_suspect_since.get_or_insert_with(Instant::now);
+                            } else {
+                                webrtc_suspect_since = None;
+                            }
+                            // The 30s watchdog above shares the loop, so this fires ahead of it
+                            // for a stopped peer.
+                            if webrtc_suspect_since
+                                .map_or(false, |since| since.elapsed() >= WEBRTC_SUSPECT_GRACE)
+                            {
+                                log::info!("Peer stopped answering, reconnecting");
+                                self.handler.msgbox("restarting-show", "Connecting...", "Connection in progress. Please wait.", "");
                                 break;
                             }
                             let elapsed = fps_instant.elapsed().as_millis();
