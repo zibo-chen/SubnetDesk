@@ -29,6 +29,12 @@ const TRANSCRIPT_PREFIX: &[u8] = b"rustdesk-lan-handshake-v1\0";
 /// UDP is blocked the TCP session must not wait out the full connect timeout.
 pub const WEBRTC_SETUP_TIMEOUT: Duration = Duration::from_secs(4);
 
+/// Grace given to the WebRTC channel after the secured TCP stream dies during the race: a
+/// peer that adopted WebRTC drops that stream, so its close reaches the other side shortly
+/// after its own channel-open — which precedes the drop. If the channel is up by the time
+/// the stream dies, both sides must land on WebRTC, not on a dead TCP fallback.
+const WEBRTC_STREAM_DIE_GRACE: Duration = Duration::from_millis(500);
+
 pub struct LanPeerIdentity {
     pub device_public_key: Vec<u8>,
     pub fingerprint: String,
@@ -245,11 +251,33 @@ async fn server_handshake_with_identity(
     Ok(webrtc)
 }
 
+/// Settles the transport decision once the secured TCP stream is already gone: a peer that
+/// adopted WebRTC drops the stream (the winning branch of [`race_webrtc_transport`] does),
+/// so a dead stream is not by itself a vote for TCP. Returns whether the WebRTC channel is
+/// up now or comes up within [`WEBRTC_STREAM_DIE_GRACE`].
+async fn webrtc_up_after_stream_death(webrtc: &mut WebRTCStream) -> bool {
+    match webrtc
+        .wait_connected(WEBRTC_STREAM_DIE_GRACE.as_millis() as u64)
+        .await
+    {
+        Ok(()) => {
+            log::info!("WebRTC transport established after TCP close, using it for the session");
+            true
+        }
+        Err(err) => {
+            log::debug!("WebRTC not established after TCP close, using TCP: {err}");
+            false
+        }
+    }
+}
+
 /// Pre-session transport race, shared by client and server: while the WebRTC data channel
 /// is being set up, the secured TCP stream carries only `WebrtcIce` messages, so this loop
 /// owns it. When the channel comes up within [`WEBRTC_SETUP_TIMEOUT`] the peer connection
 /// is returned as the session transport; otherwise it is closed and the TCP stream is
-/// returned, so the session runs exactly as before.
+/// returned, so the session runs exactly as before. If the TCP stream dies before the
+/// decision (a peer that adopted WebRTC drops it), the channel is given
+/// [`WEBRTC_STREAM_DIE_GRACE`] before the TCP fallback.
 ///
 /// `local_ice_rx` is the peer connection's local candidate channel, already taken.
 /// Candidates are buffered and shuttled between `select!` iterations so that no branch
@@ -264,6 +292,9 @@ pub async fn race_webrtc_transport(
     let mut pending_remote_candidates: VecDeque<String> = VecDeque::new();
     let mut pending_local_candidates: VecDeque<String> = VecDeque::new();
     let mut outcome: Option<bool> = None;
+    // Set inside the select! (which holds `webrtc` across the branches) and settled after
+    // the loop, where `webrtc` is free to borrow again.
+    let mut stream_died = false;
     loop {
         // Local candidates out, remote candidates in; both run outside the select!, so the
         // stream and the pc are free to borrow.
@@ -279,8 +310,9 @@ pub async fn race_webrtc_transport(
                 _ => true,
             };
             if send_failed {
-                log::debug!("WebRTC ICE candidate send failed, using TCP");
-                outcome = Some(false);
+                // The peer may have already adopted WebRTC and dropped this stream; settle
+                // on the channel state before falling back to a stream that is now dead.
+                outcome = Some(webrtc_up_after_stream_death(&mut webrtc).await);
                 break;
             }
         }
@@ -337,14 +369,19 @@ pub async fn race_webrtc_transport(
                         }
                     }
                     _ => {
-                        // The secured stream died before the decision; the TCP fallback
-                        // surfaces the error.
+                        // The secured stream died before the decision. A peer that adopted
+                        // WebRTC drops it, so settle on the channel state after the loop
+                        // before falling back to a stream that is now dead.
+                        stream_died = true;
                         break;
                     }
                 }
             }
             _ = tokio::time::sleep(Duration::from_millis(remaining.min(200))) => {}
         }
+    }
+    if stream_died {
+        outcome = Some(webrtc_up_after_stream_death(&mut webrtc).await);
     }
     if outcome == Some(true) {
         return Stream::WebRTC(webrtc);
