@@ -223,6 +223,11 @@ exclude = ["vdi/host"]
 # This allows building and running on systems without libxdo installed (e.g., Wayland-only)
 [patch.crates-io]
 libxdo-sys = { path = "libs/libxdo-sys-stub" }
+# The WebRTC transport needs the fork's SCTP stack: the no-congestion-control
+# switch (allow-webrtc-congestion-control) and its loss-recovery behaviour.
+# Pinned by rev, not branch: a fork branch can be rewritten out from under the lockfile.
+webrtc-util = { git = "https://github.com/rustdesk-org/webrtc", rev = "db3b07a9dd8f195916c89c2e62a8911402b11d27" }
+webrtc-sctp = { git = "https://github.com/rustdesk-org/webrtc", rev = "db3b07a9dd8f195916c89c2e62a8911402b11d27" }
 
 [package.metadata.winres]
 LegalCopyright = "Copyright © 2026 SubnetDesk contributors."
