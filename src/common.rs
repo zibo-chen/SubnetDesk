@@ -747,6 +747,13 @@ pub fn get_local_option(key: &str) -> String {
     LocalConfig::get_option(key)
 }
 
+pub fn get_webrtc_enabled() -> bool {
+    config::option2bool(
+        keys::OPTION_ENABLE_WEBRTC,
+        &get_local_option(keys::OPTION_ENABLE_WEBRTC),
+    )
+}
+
 /// Returns (status_code, body_text). Separating status so the wrapper can decide on fallback.
 #[cfg(feature = "plugin_framework")]
 async fn post_request_http(url: &str, body: &str, header: &str) -> ResultType<(u16, String)> {

@@ -45,6 +45,7 @@ class _SettingsState extends State<SettingsPage> {
   var _buildDate = '';
   var _preventSleepWhileConnected = true;
   var _showTerminalExtraKeys = false;
+  var _enableWebrtc = true;
 
   @override
   void initState() {
@@ -55,6 +56,7 @@ class _SettingsState extends State<SettingsPage> {
     _showTerminalExtraKeys = mainGetLocalBoolOptionSync(
       kOptionEnableShowTerminalExtraKeys,
     );
+    _enableWebrtc = mainGetLocalBoolOptionSync(kOptionEnableWebrtc);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final fingerprint = await bind.mainGetFingerprint();
       final buildDate = await bind.mainGetBuildDate();
@@ -136,6 +138,17 @@ class _SettingsState extends State<SettingsPage> {
                 }
               },
             ),
+            if (!bind.isIncomingOnly())
+              SettingsTile.switchTile(
+                title: Text(translate('Enable WebRTC P2P connection')),
+                initialValue: _enableWebrtc,
+                onToggle: (value) async {
+                  await mainSetLocalBoolOption(kOptionEnableWebrtc, value);
+                  if (mounted) {
+                    setState(() => _enableWebrtc = value);
+                  }
+                },
+              ),
           ],
         ),
         if (!bind.isIncomingOnly()) defaultDisplaySection(),

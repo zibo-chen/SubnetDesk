@@ -514,6 +514,13 @@ class _GeneralState extends State<_General> {
           'Capture screen using DirectX',
           kOptionDirectxCapture,
         ),
+      if (!incomingOnly)
+        _OptionCheckBox(
+          context,
+          'Enable WebRTC P2P connection',
+          kOptionEnableWebrtc,
+          isServer: false,
+        ),
       if (!isWeb && !incomingOnly) ...[
         Tooltip(
           message: translate('sync-clipboard-between-sessions-tip'),

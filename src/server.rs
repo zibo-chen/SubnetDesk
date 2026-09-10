@@ -16,7 +16,7 @@ use hbb_common::{
     config::Config,
     log,
     protobuf::{Enum, Message as _},
-    timeout, tokio, ResultType, Stream,
+    timeout, tokio, webrtc::WebRTCStream, ResultType, Stream,
 };
 use base::message_proto::*;
 use scrap::camera;
@@ -150,7 +150,20 @@ pub async fn create_lan_connection(
     addr: SocketAddr,
     web_client: bool,
 ) -> ResultType<()> {
-    crate::lan_protocol::server_handshake(&mut stream).await?;
+    let mut webrtc = crate::lan_protocol::server_handshake(&mut stream).await?;
+    if let Some(answerer) = webrtc.take() {
+        match answerer.take_local_ice_rx() {
+            Some(local_ice_rx) => {
+                stream =
+                    crate::lan_protocol::race_webrtc_transport(stream, answerer, local_ice_rx)
+                        .await;
+            }
+            None => {
+                log::warn!("WebRTC answerer has no local ICE channel, using TCP");
+                answerer.close_detached();
+            }
+        }
+    }
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
@@ -162,6 +175,12 @@ pub async fn create_lan_connection(
             CHILD_PROCESS.lock().unwrap().push(task);
         }
     }
+    // A WebRTC pc stays alive in the hbb session cache after its stream is dropped, so keep a
+    // handle to tear it down explicitly once the session ends.
+    let webrtc_cleanup: Option<WebRTCStream> = match &stream {
+        Stream::WebRTC(webrtc) => Some(webrtc.clone()),
+        _ => None,
+    };
     let id = server.write().unwrap().get_new_id();
     Connection::start(
         addr,
@@ -171,6 +190,9 @@ pub async fn create_lan_connection(
         ConnectionMeta { web_client },
     )
     .await;
+    if let Some(webrtc) = webrtc_cleanup {
+        webrtc.close_detached();
+    }
     Ok(())
 }
 

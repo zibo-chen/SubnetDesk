@@ -71,6 +71,10 @@ message LanClientHello {
   uint32 protocol_version = 1;
   bytes client_nonce = 2;
   uint64 client_capabilities = 3;
+  // Empty when the client does not want a WebRTC transport. The server answers
+  // by putting its SDP answer in LanServerHello.webrtc_sdp_answer and binding
+  // it into the handshake signature.
+  string webrtc_sdp_offer = 4;
 }
 
 message LanServerHello {
@@ -79,12 +83,22 @@ message LanServerHello {
   bytes device_public_key = 3;
   bytes ephemeral_public_key = 4;
   bytes signature = 5;
+  // Empty when no offer was sent. Non-empty values are covered by the
+  // handshake transcript, so the device key authenticates the answer.
+  string webrtc_sdp_answer = 6;
 }
 
 message LanLoginRequest {
   string access_username = 1;
   bytes access_password = 2;
   uint64 credential_revision_hint = 3;
+}
+
+// Trickled ICE candidate exchanged over the secured LAN stream while the two
+// ends race the WebRTC connection against the TCP transport.
+message WebrtcIce {
+  string session_key = 1;
+  string candidate = 2;
 }
 
 message LoginRequest {
@@ -1046,5 +1060,6 @@ message Message {
     LanClientHello lan_client_hello = 33;
     LanServerHello lan_server_hello = 34;
     PortForwardChannel port_forward_channel = 35;
+    WebrtcIce webrtc_ice = 36;
   }
 }

@@ -50,6 +50,7 @@ use hbb_common::{
     protobuf::{Enum, Message as _, MessageField},
     rand,
     rendezvous_proto::*,
+    sodiumoxide::crypto::secretbox,
     socket_client::connect_tcp_local,
     timeout,
     tokio::{
@@ -57,6 +58,7 @@ use hbb_common::{
         sync::mpsc::{unbounded_channel, UnboundedReceiver},
         time::{Duration, Instant},
     },
+    webrtc::WebRTCStream,
     AddrMangle, ResultType, Stream,
 };
 use base::{
@@ -242,6 +244,33 @@ pub fn get_key_state(key: enigo::Key) -> bool {
     ENIGO.lock().unwrap().get_key_state(key)
 }
 
+/// Closes an unadopted WebRTC offerer's pc on drop. Without an answer it stays in ICE `New`
+/// forever, so its state handler never fires to self-remove it from `SESSIONS`; this covers the
+/// early returns and cancelled races that would leak it. `into_inner` disarms on adoption.
+struct OffererGuard(Option<WebRTCStream>);
+
+impl OffererGuard {
+    fn new(stream: WebRTCStream) -> Self {
+        Self(Some(stream))
+    }
+
+    fn stream(&self) -> Option<&WebRTCStream> {
+        self.0.as_ref()
+    }
+
+    fn into_inner(mut self) -> Option<WebRTCStream> {
+        self.0.take()
+    }
+}
+
+impl Drop for OffererGuard {
+    fn drop(&mut self) {
+        if let Some(stream) = self.0.take() {
+            stream.close_detached();
+        }
+    }
+}
+
 impl Client {
     const CLIENT_CLIPBOARD_NAME: &'static str = "client-clipboard";
     const KNOWN_DEVICE_CONNECT_TIMEOUT: u64 = 5_000;
@@ -279,6 +308,26 @@ impl Client {
         let mut attempted = HashSet::new();
         let mut errors = Vec::new();
 
+        // When enabled, create the WebRTC offerer before connecting so the SDP offer can
+        // ride the handshake; the guard keeps the pc closed on every non-adopting path.
+        // Failure to set it up is not fatal: the TCP transport remains the fallback.
+        let mut webrtc_offerer: Option<OffererGuard> = if crate::common::get_webrtc_enabled() {
+            match WebRTCStream::new("", false, CONNECT_TIMEOUT).await {
+                Ok(stream) => Some(OffererGuard::new(stream)),
+                Err(err) => {
+                    log::warn!("WebRTC offerer setup failed, using TCP: {err}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let webrtc_sdp_offer = webrtc_offerer
+            .as_ref()
+            .and_then(OffererGuard::stream)
+            .map(|s| s.local_endpoint().to_owned())
+            .unwrap_or_default();
+
         loop {
             for candidate in std::mem::take(&mut candidates) {
                 if !attempted.insert(candidate.clone()) {
@@ -304,8 +353,13 @@ impl Client {
                         continue;
                     }
                 };
-                let identity = match crate::lan_protocol::client_handshake(&mut stream).await {
-                    Ok(identity) => identity,
+                let (identity, webrtc_sdp_answer, session_key) = match crate::lan_protocol::client_handshake(
+                    &mut stream,
+                    &webrtc_sdp_offer,
+                )
+                .await
+                {
+                    Ok(result) => result,
                     Err(err) => {
                         errors.push(format!("{endpoint}: {err}"));
                         continue;
@@ -330,6 +384,14 @@ impl Client {
                     endpoint,
                     identity.fingerprint
                 );
+                // Pre-session transport decision: race the WebRTC transport (if the server
+                // answered the offer) against the TCP transport.
+                let stream = match (webrtc_offerer.take(), webrtc_sdp_answer) {
+                    (Some(guard), answer) if !answer.is_empty() => {
+                        Self::race_webrtc_transport(stream, guard, answer, session_key).await
+                    }
+                    _ => stream,
+                };
                 return Ok((stream, identity.device_public_key, connected_endpoint));
             }
 
@@ -355,6 +417,41 @@ impl Client {
             .cloned()
             .unwrap_or_else(|| "no usable LAN endpoint was found".to_owned());
         bail!("Failed to connect to {requested}: {detail}")
+    }
+
+    /// Races the WebRTC transport (guarded offerer plus the signed answer) against the TCP
+    /// transport that just completed the handshake. The answer is bound into the handshake
+    /// signature (see `lan_protocol::client_handshake`) and webrtc-rs verifies the peer's
+    /// DTLS certificate against the fingerprint the answer declares, so the channel that
+    /// comes up here is the one the device key authenticated.
+    async fn race_webrtc_transport(
+        stream: Stream,
+        guard: OffererGuard,
+        webrtc_sdp_answer: String,
+        session_key: secretbox::Key,
+    ) -> Stream {
+        let Some(mut webrtc) = guard.into_inner() else {
+            return stream;
+        };
+        if let Err(err) = webrtc.set_remote_endpoint(&webrtc_sdp_answer).await {
+            log::warn!("Failed to apply the WebRTC answer, using TCP: {err}");
+            webrtc.close_detached();
+            return stream;
+        }
+        let Some(local_ice_rx) = webrtc.take_local_ice_rx() else {
+            log::warn!("WebRTC offerer has no local ICE channel, using TCP");
+            webrtc.close_detached();
+            return stream;
+        };
+        let mut stream = crate::lan_protocol::race_webrtc_transport(stream, webrtc, local_ice_rx).await;
+        if stream.is_webrtc() {
+            // Mark the peer verified once the transport is adopted; identity was already
+            // established by the handshake.
+            if let Stream::WebRTC(webrtc) = &mut stream {
+                webrtc.set_key(session_key);
+            }
+        }
+        stream
     }
 
     #[inline]

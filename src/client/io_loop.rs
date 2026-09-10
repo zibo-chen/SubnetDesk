@@ -196,7 +196,19 @@ impl<T: InvokeUiSession> Remote<T> {
                     .unwrap()
                     .set_connected();
                 let is_secured = peer.is_secured();
-                self.handler.set_connection_type(is_secured, true, "TCP"); // flutter -> connection_ready
+                // The label names the transport that won the pre-session race; WebRTC is
+                // refined by the family ICE actually nominated.
+                let stream_type = if peer.is_webrtc() {
+                    if peer.webrtc_remote_ipv6().await.unwrap_or(false) {
+                        "WebRTC/IPv6"
+                    } else {
+                        "WebRTC"
+                    }
+                } else {
+                    "TCP"
+                };
+                self.handler
+                    .set_connection_type(is_secured, true, stream_type); // flutter -> connection_ready
                 self.handler.update_direct(Some(true));
                 if conn_type == ConnType::DEFAULT_CONN || conn_type == ConnType::VIEW_CAMERA {
                     self.handler.set_fingerprint(fingerprint);
