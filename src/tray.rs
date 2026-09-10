@@ -3,6 +3,7 @@ use crate::client::translate;
 use crate::ipc::Data;
 #[cfg(windows)]
 use hbb_common::tokio;
+use base::config::keys;
 use hbb_common::{
     allow_err,
     config::{option2bool, Config, LocalConfig, PeerConfig},
@@ -228,7 +229,7 @@ impl FavoriteMenuState {
 }
 
 pub fn start_tray() {
-    if crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY) == "Y" {
+    if crate::ui_interface::get_builtin_option(keys::OPTION_HIDE_TRAY) == "Y" {
         return;
     }
 
@@ -276,7 +277,7 @@ fn make_tray(show_icon: bool) -> hbb_common::ResultType<()> {
 
     let tray_menu = Menu::new();
     let hide_stop_service =
-        crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_STOP_SERVICE)
+        crate::ui_interface::get_builtin_option(keys::OPTION_HIDE_STOP_SERVICE)
             == "Y";
     let open_i = native_menu_item(translate("Open".to_owned()), true, NativeIcon::Computer);
     let favorites_menu = Submenu::new(translate("Favorites".to_owned()), true);

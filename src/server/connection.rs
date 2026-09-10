@@ -30,11 +30,9 @@ use crate::{
 #[cfg(target_os = "android")]
 use hbb_common::protobuf::EnumOrUnknown;
 use hbb_common::{
-    config::{self, keys, Config},
-    fs::{self, can_enable_overwrite_detection, JobType},
+    config::{self, Config},
     futures::{SinkExt, StreamExt},
     get_time, get_version_number,
-    message_proto::option_message::BoolOption,
     sleep, timeout,
     tokio::{
         net::TcpStream,
@@ -44,6 +42,11 @@ use hbb_common::{
     tokio_util::codec::{BytesCodec, Framed},
 };
 use sha2::{Digest, Sha256};
+use base::{
+    config::keys,
+    fs::{self, can_enable_overwrite_detection, JobType},
+    message_proto::{option_message::BoolOption, permission_info::Permission},
+};
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use scrap::android::{call_main_service_key_event, call_main_service_pointer_input};
 use scrap::camera;
@@ -4984,7 +4987,7 @@ impl Connection {
             "Process clipboard message from clip, stop: {}, is_stopping_allowed: {}, file_transfer_enabled: {}",
             stop, is_stopping_allowed, file_transfer_enabled);
         if !stop {
-            use hbb_common::config::keys::OPTION_ONE_WAY_FILE_TRANSFER;
+            use base::config::keys::OPTION_ONE_WAY_FILE_TRANSFER;
             // Note: Code will not reach here if `crate::get_builtin_option(OPTION_ONE_WAY_FILE_TRANSFER) == "Y"` is true.
             // Because `file-clipboard` service will not be subscribed.
             // But we still check it here to keep the same logic to windows version in `ui_cm_interface.rs`.

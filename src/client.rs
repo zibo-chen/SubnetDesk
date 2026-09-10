@@ -43,12 +43,10 @@ use hbb_common::{
     anyhow::{anyhow, Context},
     bail,
     config::{
-        self, keys, Config, LocalConfig, PeerConfig, PeerInfoSerde, Resolution, CONNECT_TIMEOUT,
+        self, Config, LocalConfig, PeerConfig, PeerInfoSerde, Resolution, CONNECT_TIMEOUT,
         READ_TIMEOUT,
     },
-    fs::JobType,
     get_version_number, log,
-    message_proto::{option_message::BoolOption, *},
     protobuf::{Enum, Message as _, MessageField},
     rand,
     rendezvous_proto::*,
@@ -60,6 +58,11 @@ use hbb_common::{
         time::{Duration, Instant},
     },
     AddrMangle, ResultType, Stream,
+};
+use base::{
+    config::keys,
+    fs::JobType,
+    message_proto::{option_message::BoolOption, *},
 };
 pub use helper::*;
 use scrap::{
@@ -2388,7 +2391,7 @@ async fn do_sync_cpu_usage() {
                 if let Ok(Some(data)) = conn.next_timeout(50).await {
                     match data {
                         Data::SyncWinCpuUsage(cpu_usage) => {
-                            hbb_common::platform::windows::sync_cpu_usage(cpu_usage);
+                            base::platform::windows::sync_cpu_usage(cpu_usage);
                         }
                         _ => {}
                     }
@@ -2840,7 +2843,7 @@ pub trait Interface: Send + Clone + 'static + Sized {
         self.get_lch().read().unwrap().id.clone()
     }
 
-    fn swap_modifier_mouse(&self, _msg: &mut hbb_common::protos::message::MouseEvent) {}
+    fn swap_modifier_mouse(&self, _msg: &mut base::protos::message::MouseEvent) {}
 
     fn update_direct(&self, direct: Option<bool>) {
         self.get_lch().write().unwrap().direct = direct;

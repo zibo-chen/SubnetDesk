@@ -15,9 +15,10 @@ use flutter_rust_bridge::{StreamSink, SyncReturn};
 #[cfg(feature = "plugin_framework")]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use hbb_common::allow_err;
+use base::fs;
 use hbb_common::{
     config::{self, Config, LocalConfig, PeerConfig, RecentLanEndpoint},
-    fs, lazy_static, log,
+    lazy_static, log,
     rendezvous_proto::ConnType,
     ResultType,
 };
@@ -362,7 +363,7 @@ pub fn session_toggle_option(session_id: SessionID, value: String) {
     }
     #[cfg(feature = "unix-file-copy-paste")]
     if sessions::get_session_by_session_id(&session_id).is_some()
-        && (value == config::keys::OPTION_ENABLE_FILE_COPY_PASTE || value == "view-only")
+        && (value == base::config::keys::OPTION_ENABLE_FILE_COPY_PASTE || value == "view-only")
     {
         crate::flutter::update_file_clipboard_required();
     }
@@ -980,7 +981,7 @@ pub fn main_get_error() -> String {
 
 pub fn main_show_option(_key: String) -> SyncReturn<bool> {
     #[cfg(target_os = "linux")]
-    if _key.eq(config::keys::OPTION_ALLOW_LINUX_HEADLESS) {
+    if _key.eq(base::config::keys::OPTION_ALLOW_LINUX_HEADLESS) {
         return SyncReturn(true);
     }
     SyncReturn(false)
@@ -1328,8 +1329,8 @@ pub fn main_set_env(key: String, value: Option<String>) -> SyncReturn<()> {
 }
 
 pub fn main_set_local_option(key: String, value: String) {
-    let is_texture_render_key = key.eq(config::keys::OPTION_TEXTURE_RENDER);
-    let is_d3d_render_key = key.eq(config::keys::OPTION_ALLOW_D3D_RENDER);
+    let is_texture_render_key = key.eq(base::config::keys::OPTION_TEXTURE_RENDER);
+    let is_d3d_render_key = key.eq(base::config::keys::OPTION_ALLOW_D3D_RENDER);
     set_local_option(key, value.clone());
     let is_render_target =
         |session: &crate::flutter::FlutterSession| session.is_default() || session.is_view_camera();
@@ -2867,7 +2868,7 @@ pub fn main_audio_support_loopback() -> SyncReturn<bool> {
 
 pub fn main_get_common(key: String) -> String {
     if key == "transfer-job-id" {
-        return hbb_common::fs::get_next_job_id().to_string();
+        return base::fs::get_next_job_id().to_string();
     } else if key == "has-gnome-shortcuts-inhibitor-permission" {
         #[cfg(target_os = "linux")]
         return crate::platform::linux::has_gnome_shortcuts_inhibitor_permission().to_string();

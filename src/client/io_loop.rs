@@ -16,6 +16,14 @@ use crate::{
 const RESTART_REMOTE_DEVICE_NO_DATA_TIMEOUT: Duration = Duration::from_secs(5);
 #[cfg(feature = "unix-file-copy-paste")]
 use crate::{clipboard::try_empty_clipboard_files, clipboard_file::unix_file_clip};
+use base::{
+    config::keys,
+    fs::{
+        self, can_enable_overwrite_detection, get_job, get_string, new_send_confirm,
+        DigestCheckResult, RemoveJobMeta,
+    },
+    message_proto::{permission_info::Permission, *},
+};
 #[cfg(any(
     target_os = "windows",
     all(target_os = "macos", feature = "unix-file-copy-paste")
@@ -27,12 +35,7 @@ use hbb_common::tokio::sync::mpsc::error::TryRecvError;
 use hbb_common::{
     allow_err,
     config::{self, LocalConfig, PeerConfig, TransferSerde},
-    fs::{
-        self, can_enable_overwrite_detection, get_job, get_string, new_send_confirm,
-        DigestCheckResult, RemoveJobMeta,
-    },
     get_time, log,
-    message_proto::*,
     protobuf::Message as _,
     rendezvous_proto::ConnType,
     timeout,
@@ -755,6 +758,9 @@ impl<T: InvokeUiSession> Remote<T> {
                                     .await
                                 );
                             }
+                            // In-memory transfer jobs (base crate) have no on-disk path to
+                            // resume, so there is nothing to send back.
+                            fs::DataSource::MemoryCursor(_) => {}
                         }
                     }
                 }
@@ -1577,7 +1583,11 @@ impl<T: InvokeUiSession> Remote<T> {
                             if digest.is_upload {
                                 if let Some(job) = fs::get_job(digest.id, &mut self.read_jobs) {
                                     if let Some(file) = job.files().get(digest.file_num as usize) {
-                                        let fs::DataSource::FilePath(p) = &job.data_source;
+                                        let fs::DataSource::FilePath(p) = &job.data_source
+                                        else {
+                                            // In-memory transfer jobs have no on-disk path.
+                                            return false;
+                                        };
                                         let read_path =
                                             get_string(&fs::TransferJob::join(p, &file.name));
                                         let mut overwrite_strategy =
@@ -1619,7 +1629,11 @@ impl<T: InvokeUiSession> Remote<T> {
                             } else {
                                 if let Some(job) = fs::get_job(digest.id, &mut self.write_jobs) {
                                     if let Some(file) = job.files().get(digest.file_num as usize) {
-                                        let fs::DataSource::FilePath(p) = &job.data_source;
+                                        let fs::DataSource::FilePath(p) = &job.data_source
+                                        else {
+                                            // In-memory transfer jobs have no on-disk path.
+                                            return false;
+                                        };
                                         let write_path =
                                             get_string(&fs::TransferJob::join(p, &file.name));
                                         job.set_digest(digest.file_size, digest.last_modified);
@@ -1947,7 +1961,7 @@ impl<T: InvokeUiSession> Remote<T> {
                         .handle_screenshot_resp(response.sid, response.msg);
                 }
                 Some(message::Union::TerminalResponse(response)) => {
-                    use hbb_common::message_proto::terminal_response::Union;
+                    use base::message_proto::terminal_response::Union;
                     if let Some(Union::Opened(opened)) = &response.union {
                         if opened.success && !opened.service_id.is_empty() {
                             let mut lc = self.handler.lc.write().unwrap();
@@ -2175,14 +2189,10 @@ impl<T: InvokeUiSession> Remote<T> {
     }
 
     #[cfg(any(target_os = "windows", feature = "unix-file-copy-paste"))]
-    async fn handle_cliprdr_msg(
-        &mut self,
-        clip: hbb_common::message_proto::Cliprdr,
-        _peer: &mut Stream,
-    ) {
+    async fn handle_cliprdr_msg(&mut self, clip: base::message_proto::Cliprdr, _peer: &mut Stream) {
         log::debug!("handling cliprdr msg from server peer");
         #[cfg(feature = "flutter")]
-        if let Some(hbb_common::message_proto::cliprdr::Union::FormatList(_)) = &clip.union {
+        if let Some(base::message_proto::cliprdr::Union::FormatList(_)) = &clip.union {
             if self.client_conn_id
                 != clipboard::get_client_conn_id(&crate::flutter::get_cur_peer_id()).unwrap_or(0)
             {
@@ -2292,8 +2302,7 @@ impl<T: InvokeUiSession> Remote<T> {
         );
         self.video_threads.insert(display, video_thread);
         if self.video_threads.len() == 1 {
-            let auto_record =
-                LocalConfig::get_bool_option(config::keys::OPTION_ALLOW_AUTO_RECORD_OUTGOING);
+            let auto_record = LocalConfig::get_bool_option(keys::OPTION_ALLOW_AUTO_RECORD_OUTGOING);
             self.handler.lc.write().unwrap().record_state = auto_record;
             self.update_record_state();
         }

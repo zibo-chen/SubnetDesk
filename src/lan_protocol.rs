@@ -1,9 +1,9 @@
+use base::message_proto::{message, LanClientHello, LanServerHello, Message, PublicKey};
 use bytes::Bytes;
 use hbb_common::{
     anyhow::{anyhow, bail},
     config::{Config, CONNECT_TIMEOUT, READ_TIMEOUT},
     lan::{NONCE_LEN, PROTOCOL_VERSION},
-    message_proto::{message, LanClientHello, LanServerHello, Message, PublicKey},
     protobuf::Message as _,
     sodiumoxide::{
         crypto::{box_, sign},
@@ -184,13 +184,11 @@ async fn server_handshake_with_identity(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hbb_common::{
-        message_proto::{message, ChatMessage, Misc},
-        tokio::{
-            self,
-            io::{AsyncReadExt, AsyncWriteExt},
-            net::{TcpListener, TcpStream},
-        },
+    use base::message_proto::{message, ChatMessage, Misc};
+    use hbb_common::tokio::{
+        self,
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::{TcpListener, TcpStream},
     };
     use std::sync::{Arc, Mutex};
 
@@ -259,7 +257,7 @@ mod tests {
             let Some(message::Union::Misc(misc)) = message.union else {
                 panic!("expected encrypted misc message");
             };
-            let Some(hbb_common::message_proto::misc::Union::ChatMessage(chat)) = misc.union else {
+            let Some(base::message_proto::misc::Union::ChatMessage(chat)) = misc.union else {
                 panic!("expected encrypted chat message");
             };
             chat.text

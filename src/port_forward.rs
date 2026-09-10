@@ -6,7 +6,6 @@ use hbb_common::{
     config::READ_TIMEOUT,
     futures::{SinkExt, StreamExt},
     log,
-    message_proto::*,
     protobuf::Message as _,
     rendezvous_proto::ConnType,
     tcp, timeout,
@@ -14,6 +13,7 @@ use hbb_common::{
     tokio_util::codec::{BytesCodec, Framed},
     ResultType, Stream,
 };
+use base::message_proto::*;
 
 fn run_rdp(port: u16) {
     std::process::Command::new("cmdkey")

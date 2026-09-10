@@ -47,6 +47,7 @@ use hbb_common::{
     tokio_util::codec::Framed,
     ResultType,
 };
+use base::config::keys::{self, OPTION_ALLOW_WEBSOCKET};
 #[cfg(windows)]
 pub(crate) use ipc_auth::authorize_windows_portable_service_ipc_connection;
 #[cfg(windows)]
@@ -943,7 +944,7 @@ async fn handle(data: Data, stream: &mut Connection) {
             allow_err!(
                 stream
                     .send(&Data::SyncWinCpuUsage(
-                        hbb_common::platform::windows::cpu_uage_one_minute()
+                        base::platform::windows::cpu_uage_one_minute()
                     ))
                     .await
             );

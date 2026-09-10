@@ -8,14 +8,15 @@ use crate::{
 };
 use async_trait::async_trait;
 #[cfg(all(target_os = "windows", not(feature = "flutter")))]
-use hbb_common::config::keys;
+use base::config::keys;
 #[cfg(not(feature = "flutter"))]
-use hbb_common::fs;
+use base::fs;
+use base::message_proto::*;
+use bytes::Bytes;
 use hbb_common::{
     allow_err,
     config::{Config, PeerConfig},
     get_version_number, log,
-    message_proto::*,
     rendezvous_proto::ConnType,
     tokio::{
         self,
@@ -1977,7 +1978,7 @@ impl<T: InvokeUiSession> Interface for Session<T> {
         }
     }
 
-    fn swap_modifier_mouse(&self, msg: &mut hbb_common::protos::message::MouseEvent) {
+    fn swap_modifier_mouse(&self, msg: &mut base::protos::message::MouseEvent) {
         let allow_swap_key = self.get_toggle_option("allow_swap_key".to_string());
         if allow_swap_key {
             msg.modifiers = msg

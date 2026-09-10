@@ -12,9 +12,10 @@ use hbb_common::dlopen::{
     Error as LibError,
 };
 use hbb_common::{
-    anyhow::anyhow, bail, config::LocalConfig, get_version_number, log, message_proto::*,
+    anyhow::anyhow, bail, config::LocalConfig, get_version_number, log,
     rendezvous_proto::ConnType, ResultType,
 };
+use base::message_proto::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[cfg(target_os = "windows")]
@@ -1172,7 +1173,7 @@ impl InvokeUiSession for FlutterHandler {
     }
 
     fn handle_terminal_response(&self, response: TerminalResponse) {
-        use hbb_common::message_proto::terminal_response::Union;
+        use base::message_proto::terminal_response::Union;
 
         match response.union {
             Some(Union::Opened(opened)) => {

@@ -1414,7 +1414,10 @@ async fn bridge_websocket(
 ) {
     let (server_stream, bridge_stream) = duplex(4 * 1024 * 1024);
     let local_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), configured_port());
-    let stream = Stream::from_framed(tcp::FramedStream::from(server_stream, local_addr));
+    // `duplex` yields a `DuplexStream` (a generic `TcpStreamTrait` impl), not a
+    // concrete `TcpStream`, so `Stream::from` can't be used — build the `Tcp`
+    // variant directly from the framed stream.
+    let stream = Stream::Tcp(tcp::FramedStream::from(server_stream, local_addr));
     let mut server_task = tokio::spawn(async move {
         if let Err(err) =
             crate::server::create_lan_connection(server, stream, remote_addr, true).await
