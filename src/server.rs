@@ -151,10 +151,13 @@ pub async fn create_lan_connection(
     web_client: bool,
 ) -> ResultType<()> {
     let mut webrtc = crate::lan_protocol::server_handshake(&mut stream).await?;
+    // The pre-session race can end slightly after the peer's and may have consumed the
+    // peer's first session message; hand it to the session so it is not lost.
+    let mut first_message: Option<Bytes> = None;
     if let Some(answerer) = webrtc.take() {
         match answerer.take_local_ice_rx() {
             Some(local_ice_rx) => {
-                stream =
+                (stream, first_message) =
                     crate::lan_protocol::race_webrtc_transport(stream, answerer, local_ice_rx)
                         .await;
             }
@@ -188,6 +191,7 @@ pub async fn create_lan_connection(
         id,
         Arc::downgrade(&server),
         ConnectionMeta { web_client },
+        first_message,
     )
     .await;
     if let Some(webrtc) = webrtc_cleanup {

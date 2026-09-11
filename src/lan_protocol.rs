@@ -1,4 +1,7 @@
-use base::message_proto::{message, LanClientHello, LanServerHello, Message, PublicKey, WebrtcIce};
+use base::message_proto::{
+    message, LanClientHello, LanServerHello, Message, PublicKey, WebrtcIce,
+    WebrtcTransportDecision,
+};
 use bytes::Bytes;
 use hbb_common::{
     anyhow::{anyhow, bail},
@@ -29,10 +32,19 @@ const TRANSCRIPT_PREFIX: &[u8] = b"rustdesk-lan-handshake-v1\0";
 /// UDP is blocked the TCP session must not wait out the full connect timeout.
 pub const WEBRTC_SETUP_TIMEOUT: Duration = Duration::from_secs(4);
 
-/// Grace given to the WebRTC channel after the secured TCP stream dies during the race: a
-/// peer that adopted WebRTC drops that stream, so its close reaches the other side shortly
-/// after its own channel-open — which precedes the drop. If the channel is up by the time
-/// the stream dies, both sides must land on WebRTC, not on a dead TCP fallback.
+/// Bound for confirming the local WebRTC channel after the peer's
+/// [`WebrtcTransportDecision`] arrived. In the healthy ordering the peer's
+/// channel-open (which triggered its decision) implies the SCTP association is
+/// established on both ends, so the local watch already reads `Open` and this
+/// resolves immediately; the bound only elapses when the channel is genuinely
+/// broken.
+const WEBRTC_DECISION_CONFIRM: Duration = Duration::from_secs(2);
+
+/// Legacy fallback for a stream that died without a [`WebrtcTransportDecision`]:
+/// a peer that predates the decision message (or a severed stream) dropped the
+/// stream right after adopting WebRTC, and its close arrives shortly after its
+/// channel-open — which precedes the drop. If the channel is up by the time the
+/// stream dies, both sides must land on WebRTC, not on a dead TCP fallback.
 const WEBRTC_STREAM_DIE_GRACE: Duration = Duration::from_millis(500);
 
 pub struct LanPeerIdentity {
@@ -271,12 +283,29 @@ async fn webrtc_up_after_stream_death(webrtc: &mut WebRTCStream) -> bool {
     }
 }
 
-/// Pre-session transport race, shared by client and server: while the WebRTC data channel
-/// is being set up, the secured TCP stream carries only `WebrtcIce` messages, so this loop
-/// owns it. When the channel comes up within [`WEBRTC_SETUP_TIMEOUT`] the peer connection
-/// is returned as the session transport; otherwise it is closed and the TCP stream is
-/// returned, so the session runs exactly as before. If the TCP stream dies before the
-/// decision (a peer that adopted WebRTC drops it), the channel is given
+/// Pre-session transport race, shared by client and server: while the WebRTC data
+/// channel is being set up, the secured TCP stream carries only `WebrtcIce` and
+/// `WebrtcTransportDecision` messages, so this loop owns it. The race ends in
+/// exactly one of four ways:
+///
+/// - the local channel comes up within [`WEBRTC_SETUP_TIMEOUT`]: this side wins
+///   with WebRTC, announces it with a [`WebrtcTransportDecision`] (sent before the
+///   caller drops the stream) and the peer connection is returned;
+/// - a [`WebrtcTransportDecision`] arrives: the peer won with WebRTC and is
+///   dropping this stream — an authoritative WebRTC win, taken as-is;
+/// - any other message arrives: the peer has already started the TCP session,
+///   which is an implicit TCP declaration. The race resolves to TCP and the
+///   message is buffered and returned with the stream, so the session sees it —
+///   the peer's race deadline ends slightly before this one (the deadlines differ
+///   by the handshake message flight), so without the buffer its first session
+///   message would be lost;
+/// - nothing arrives by [`WEBRTC_SETUP_TIMEOUT`]: no channel came up on either
+///   side, so both sides fall back to TCP independently and no decision is
+///   sent — the stream stays alive on both ends, and its liveness is the shared
+///   signal.
+///
+/// If the stream dies without a decision (a peer that predates the decision
+/// message, or a severed stream), the channel is given
 /// [`WEBRTC_STREAM_DIE_GRACE`] before the TCP fallback.
 ///
 /// `local_ice_rx` is the peer connection's local candidate channel, already taken.
@@ -286,37 +315,41 @@ pub async fn race_webrtc_transport(
     mut stream: Stream,
     mut webrtc: WebRTCStream,
     mut local_ice_rx: UnboundedReceiver<String>,
-) -> Stream {
+) -> (Stream, Option<Bytes>) {
     let ice_session_key = webrtc.session_key().to_owned();
     let deadline = Instant::now() + WEBRTC_SETUP_TIMEOUT;
     let mut pending_remote_candidates: VecDeque<String> = VecDeque::new();
     let mut pending_local_candidates: VecDeque<String> = VecDeque::new();
     let mut outcome: Option<bool> = None;
+    let mut first_session_message: Option<Bytes> = None;
     // Set inside the select! (which holds `webrtc` across the branches) and settled after
     // the loop, where `webrtc` is free to borrow again.
-    let mut stream_died = false;
+    let mut stream_died_without_decision = false;
+    let mut decision_received = false;
     loop {
-        // Local candidates out, remote candidates in; both run outside the select!, so the
-        // stream and the pc are free to borrow.
-        while let Some(candidate) = pending_local_candidates.pop_front() {
-            let mut message = Message::new();
-            message.set_webrtc_ice(WebrtcIce {
-                session_key: ice_session_key.clone(),
-                candidate,
-                ..Default::default()
-            });
-            let send_failed = match timeout(3_000, stream.send(&message)).await {
-                Ok(Ok(())) => false,
-                _ => true,
-            };
-            if send_failed {
-                // The peer may have already adopted WebRTC and dropped this stream; settle
-                // on the channel state before falling back to a stream that is now dead.
-                outcome = Some(webrtc_up_after_stream_death(&mut webrtc).await);
-                break;
-            }
-        }
         if outcome.is_none() {
+            // Local candidates out, remote candidates in; both run outside the select!, so the
+            // stream and the pc are free to borrow. Once the outcome is decided the stream
+            // belongs to the session (or to no one), so nothing more goes to it.
+            while let Some(candidate) = pending_local_candidates.pop_front() {
+                let mut message = Message::new();
+                message.set_webrtc_ice(WebrtcIce {
+                    session_key: ice_session_key.clone(),
+                    candidate,
+                    ..Default::default()
+                });
+                let send_failed = match timeout(3_000, stream.send(&message)).await {
+                    Ok(Ok(())) => false,
+                    _ => true,
+                };
+                if send_failed {
+                    // The stream died without a decision (the peer may have already adopted
+                    // WebRTC and dropped it): settle on the channel state before falling
+                    // back to a stream that is now dead.
+                    outcome = Some(webrtc_up_after_stream_death(&mut webrtc).await);
+                    break;
+                }
+            }
             while let Some(candidate) = pending_remote_candidates.pop_front() {
                 if let Err(err) = webrtc.add_remote_ice_candidate(&candidate).await {
                     log::debug!("Failed to add remote WebRTC ICE candidate: {err}");
@@ -361,18 +394,35 @@ pub async fn race_webrtc_transport(
                             {
                                 pending_remote_candidates.push_back(ice.candidate);
                             }
-                            _ => {
-                                log::debug!(
-                                    "Ignoring unexpected message during the pre-session ICE window"
+                            Some(message::Union::WebrtcTransportDecision(decision))
+                                if decision.session_key == ice_session_key =>
+                            {
+                                // The peer adopted WebRTC and is dropping this stream.
+                                log::info!(
+                                    "Peer declared the WebRTC transport, using it for the session"
                                 );
+                                outcome = Some(true);
+                                decision_received = true;
+                            }
+                            _ => {
+                                // Not an ICE message and not a decision: the peer has
+                                // already started the TCP session, which is an implicit
+                                // TCP declaration. Resolve to TCP and hand the message
+                                // to the session instead of dropping it.
+                                log::debug!(
+                                    "Peer started the TCP session during the race, using TCP"
+                                );
+                                outcome = Some(false);
+                                first_session_message = Some(bytes.freeze());
                             }
                         }
                     }
                     _ => {
-                        // The secured stream died before the decision. A peer that adopted
-                        // WebRTC drops it, so settle on the channel state after the loop
-                        // before falling back to a stream that is now dead.
-                        stream_died = true;
+                        // The secured stream died without a decision: a peer that predates
+                        // the decision message (or a severed stream) dropped it. Settle on
+                        // the channel state after the loop before falling back to a stream
+                        // that is now dead.
+                        stream_died_without_decision = true;
                         break;
                     }
                 }
@@ -380,14 +430,40 @@ pub async fn race_webrtc_transport(
             _ = tokio::time::sleep(Duration::from_millis(remaining.min(200))) => {}
         }
     }
-    if stream_died {
+    if stream_died_without_decision {
         outcome = Some(webrtc_up_after_stream_death(&mut webrtc).await);
     }
     if outcome == Some(true) {
-        return Stream::WebRTC(webrtc);
+        if decision_received {
+            // The decision is authoritative, but confirm the local channel is actually up
+            // before the session can use it. In the healthy ordering this resolves
+            // immediately (see WEBRTC_DECISION_CONFIRM); if it does not, still take
+            // WebRTC — the peer declared it and dropped the stream, so a TCP fallback
+            // could not reach it either, and dead-peer recovery surfaces a broken channel.
+            if let Err(err) = webrtc
+                .wait_connected(WEBRTC_DECISION_CONFIRM.as_millis() as u64)
+                .await
+            {
+                log::warn!(
+                    "Peer declared the WebRTC transport but the channel is not connected: {err}"
+                );
+            }
+        }
+        // Announce the decision before the caller drops the stream, so the peer's race
+        // takes it instead of misreading the close. Best effort: a failure means the peer
+        // is already gone or predates the message, and it settles on the legacy path.
+        let mut decision = Message::new();
+        decision.set_webrtc_transport_decision(WebrtcTransportDecision {
+            session_key: ice_session_key,
+            ..Default::default()
+        });
+        if let Err(err) = timeout(3_000, stream.send(&decision)).await {
+            log::debug!("Failed to send the WebRTC transport decision: {err}");
+        }
+        return (Stream::WebRTC(webrtc), None);
     }
     webrtc.close_detached();
-    stream
+    (stream, first_session_message)
 }
 
 #[cfg(test)]
@@ -539,5 +615,186 @@ mod tests {
         assert!(!captured
             .windows(marker.len())
             .any(|window| window == marker.as_bytes()));
+    }
+
+    #[test]
+    fn webrtc_transport_decision_round_trip() {
+        let mut message = Message::new();
+        message.set_webrtc_transport_decision(WebrtcTransportDecision {
+            session_key: "key-abc".to_owned(),
+            ..Default::default()
+        });
+        let bytes = message.write_to_bytes().unwrap();
+        let parsed = Message::parse_from_bytes(&bytes).unwrap();
+        let Some(message::Union::WebrtcTransportDecision(decision)) = parsed.union else {
+            panic!("expected a webrtc transport decision message");
+        };
+        assert_eq!(decision.session_key, "key-abc");
+    }
+
+    /// A peer that has already started the TCP session sends a plain session message
+    /// while this side is still racing. That is an implicit TCP declaration: the race
+    /// resolves to TCP and hands the message back instead of dropping it (the peer's
+    /// race deadline ends slightly before this one, so the first session message would
+    /// otherwise be lost).
+    #[tokio::test]
+    async fn race_returns_buffered_first_session_message() {
+        let _ = hbb_common::sodiumoxide::init();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // A plain session message — the kind a peer sends once it has started its
+        // TCP session.
+        let mut misc = Misc::new();
+        misc.set_chat_message(ChatMessage {
+            text: "first-session-message".to_owned(),
+            ..Default::default()
+        });
+        let mut session_message = Message::new();
+        session_message.set_misc(misc);
+
+        let peer_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local_addr = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local_addr);
+            stream.send(&session_message).await.unwrap();
+            // The peer keeps the session going over TCP.
+            tokio::time::sleep(Duration::from_secs(6)).await;
+        });
+
+        let socket = TcpStream::connect(addr).await.unwrap();
+        let local_addr = socket.local_addr().unwrap();
+        let stream = Stream::from(socket, local_addr);
+        // A local-only peer connection: with no remote endpoint its channel never opens,
+        // so the wait arm cannot win before the peer's message arrives.
+        let webrtc = WebRTCStream::new("", false, 4_000).await.unwrap();
+        let local_ice_rx = webrtc
+            .take_local_ice_rx()
+            .expect("offerer has a local ICE channel");
+        let (result_stream, buffered) =
+            race_webrtc_transport(stream, webrtc, local_ice_rx).await;
+        peer_task.abort();
+
+        let Some(buffered) = buffered else {
+            panic!("expected the peer's first session message to be buffered");
+        };
+        let parsed = Message::parse_from_bytes(&buffered).unwrap();
+        let Some(message::Union::Misc(misc)) = parsed.union else {
+            panic!("expected the buffered message to be the peer's misc message");
+        };
+        let Some(base::message_proto::misc::Union::ChatMessage(chat)) = misc.union else {
+            panic!("expected the buffered message to carry the chat marker");
+        };
+        assert_eq!(chat.text, "first-session-message");
+        assert!(!result_stream.is_webrtc(), "race must resolve to TCP");
+        drop(result_stream);
+    }
+
+    /// With no channel and no messages, both sides fall back to TCP at the setup
+    /// deadline, and no decision is sent — the stream's liveness is the shared signal.
+    #[tokio::test]
+    async fn race_times_out_to_tcp_without_a_decision() {
+        let _ = hbb_common::sodiumoxide::init();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let peer_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local_addr = socket.local_addr().unwrap();
+            let mut stream = Stream::from(socket, local_addr);
+            // During the race the trickle may legitimately carry ICE candidates, but the
+            // TCP timeout path must never send a transport decision.
+            let mut saw_decision = false;
+            loop {
+                match tokio::time::timeout(Duration::from_secs(5), stream.next()).await {
+                    Ok(Some(Ok(bytes))) => {
+                        if let Ok(message) = Message::parse_from_bytes(&bytes) {
+                            if matches!(
+                                message.union,
+                                Some(message::Union::WebrtcTransportDecision(_))
+                            ) {
+                                saw_decision = true;
+                            }
+                        }
+                    }
+                    _ => break, // EOF after the race, or the read timed out
+                }
+            }
+            !saw_decision
+        });
+        let socket = TcpStream::connect(addr).await.unwrap();
+        let local_addr = socket.local_addr().unwrap();
+        let stream = Stream::from(socket, local_addr);
+        let webrtc = WebRTCStream::new("", false, 4_000).await.unwrap();
+        let local_ice_rx = webrtc
+            .take_local_ice_rx()
+            .expect("offerer has a local ICE channel");
+        let started = Instant::now();
+        let (result_stream, buffered) = race_webrtc_transport(stream, webrtc, local_ice_rx).await;
+        assert!(
+            started.elapsed() >= WEBRTC_SETUP_TIMEOUT,
+            "race must run out the setup deadline"
+        );
+        assert!(buffered.is_none(), "no message was sent, so nothing is buffered");
+        assert!(!result_stream.is_webrtc(), "race must resolve to TCP");
+        drop(result_stream);
+        assert!(
+            peer_task.await.unwrap(),
+            "no decision message may be sent on the TCP timeout path"
+        );
+    }
+
+    /// The full protocol over loopback: both ends race a real WebRTC connection against
+    /// the TCP transport; the winner's transport decision must carry both sides onto
+    /// WebRTC (before the explicit decision existed, the loser misread the winner's
+    /// stream close as a TCP fallback and the pair looped on "Reset by the peer").
+    #[tokio::test]
+    async fn race_adopts_webrtc_on_loopback() {
+        let _ = hbb_common::sodiumoxide::init();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // A real offerer/answerer pair on loopback UDP.
+        let offerer = WebRTCStream::new("", false, 8_000).await.unwrap();
+        let offer = offerer.local_endpoint().to_owned();
+        let answerer = WebRTCStream::new(&offer, false, 8_000).await.unwrap();
+        let answer = answerer.local_endpoint().to_owned();
+        offerer
+            .set_remote_endpoint(&answer)
+            .await
+            .expect("offerer takes the answer");
+        let offerer_ice_rx = offerer
+            .take_local_ice_rx()
+            .expect("offerer has a local ICE channel");
+        let answerer_ice_rx = answerer
+            .take_local_ice_rx()
+            .expect("answerer has a local ICE channel");
+
+        let server_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let local_addr = socket.local_addr().unwrap();
+            let stream = Stream::from(socket, local_addr);
+            race_webrtc_transport(stream, answerer, answerer_ice_rx).await
+        });
+        let socket = TcpStream::connect(addr).await.unwrap();
+        let local_addr = socket.local_addr().unwrap();
+        let stream = Stream::from(socket, local_addr);
+        let client_result = race_webrtc_transport(stream, offerer, offerer_ice_rx).await;
+        let server_result = server_task.await.unwrap();
+
+        for (name, result) in [("client", &client_result), ("server", &server_result)] {
+            let (stream, buffered) = result;
+            assert!(
+                buffered.is_none(),
+                "{name} race must not buffer a session message"
+            );
+            assert!(stream.is_webrtc(), "{name} race must adopt WebRTC on loopback");
+        }
+        // The session would now run on WebRTC; tear the pcs down so the session cache
+        // does not keep them alive.
+        for (stream, _) in [&client_result, &server_result] {
+            if let Stream::WebRTC(webrtc) = stream {
+                webrtc.close_detached();
+            }
+        }
     }
 }

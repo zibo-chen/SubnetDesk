@@ -443,7 +443,17 @@ impl Client {
             webrtc.close_detached();
             return stream;
         };
-        let mut stream = crate::lan_protocol::race_webrtc_transport(stream, webrtc, local_ice_rx).await;
+        let (mut stream, first_message) =
+            crate::lan_protocol::race_webrtc_transport(stream, webrtc, local_ice_rx).await;
+        if let Some(bytes) = first_message {
+            // The client's race always ends before the server's (it starts one handshake
+            // message earlier), so it never consumes a session message; reaching here
+            // would mean the protocol changed.
+            log::warn!(
+                "Client race consumed a session message unexpectedly ({} bytes); dropping it",
+                bytes.len()
+            );
+        }
         if stream.is_webrtc() {
             // Mark the peer verified once the transport is adopted; identity was already
             // established by the handshake.

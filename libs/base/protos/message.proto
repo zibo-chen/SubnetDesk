@@ -101,6 +101,14 @@ message WebrtcIce {
   string candidate = 2;
 }
 
+// Transport decision sent by the side that adopted WebRTC, immediately before it
+// drops the secured LAN stream. The peer's race must take it as the authoritative
+// WebRTC win instead of misreading the imminent stream close as a TCP fallback.
+// Carries the same session key as the WebrtcIce messages on this stream.
+message WebrtcTransportDecision {
+  string session_key = 1;
+}
+
 message LoginRequest {
   string username = 1;
   bytes password = 2;
@@ -1061,5 +1069,6 @@ message Message {
     LanServerHello lan_server_hello = 34;
     PortForwardChannel port_forward_channel = 35;
     WebrtcIce webrtc_ice = 36;
+    WebrtcTransportDecision webrtc_transport_decision = 37;
   }
 }

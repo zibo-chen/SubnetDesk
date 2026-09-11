@@ -457,6 +457,7 @@ impl Connection {
         id: i32,
         server: super::ServerPtrWeak,
         meta: super::ConnectionMeta,
+        first_message: Option<bytes::Bytes>,
     ) {
         let _raii_id = raii::ConnectionID::new(id);
         let (tx_from_cm_holder, mut rx_from_cm) = mpsc::unbounded_channel::<ipc::Data>();
@@ -608,7 +609,24 @@ impl Connection {
             (_tx_clip, rx_clip) = mpsc::unbounded_channel::<i32>();
         }
 
+        // The pre-session WebRTC race ends slightly after the peer's (the race deadlines
+        // differ by the handshake message flight), so the peer's first session message may
+        // have been consumed by the race; feed it back so the session sees it.
+        let mut pending_first_message = first_message;
+
         loop {
+            if let Some(bytes) = pending_first_message.take() {
+                last_recv_time = Instant::now();
+                conn.session_last_recv_time
+                    .as_mut()
+                    .map(|t| *t.lock().unwrap() = Instant::now());
+                if let Ok(msg_in) = Message::parse_from_bytes(&bytes) {
+                    if !conn.on_message(msg_in).await {
+                        break;
+                    }
+                }
+                continue;
+            }
             tokio::select! {
                 // biased; // video has higher priority // causing test_delay_timer failed while transferring big file
 
