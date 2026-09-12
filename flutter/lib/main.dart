@@ -182,10 +182,13 @@ void runMainApp(bool startService) async {
     if (handledByUniLinks || handleUriLink(cmdArgs: kBootArgs)) {
       windowManager.hide();
     } else {
-      windowManager.show();
-      windowManager.focus();
-      // Move registration of active main window here to prevent from async visible check.
-      rustDeskWinManager.registerActiveWindow(kWindowMainId);
+      // Goes through windowOnTop() rather than raw show()/focus() calls so a
+      // cold start (e.g. the tray's "Open" spawning a fresh process because
+      // no instance was running to receive its D-Bus call) also gets the
+      // Linux window-activation workaround -- see the TODO on
+      // _activateWindowWorkaroundLinux in common.dart. Also registers the
+      // active main window (moved here to prevent from async visible check).
+      await windowOnTop(null);
     }
     windowManager.setOpacity(1);
     windowManager.setTitle(getWindowName());

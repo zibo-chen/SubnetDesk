@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:app_links/app_links.dart';
 import 'package:back_button_interceptor/back_button_interceptor.dart';
@@ -754,6 +755,118 @@ closeConnection({String? id}) {
   }
 }
 
+// TODO(upstream window_manager): rustdesk-org/window_manager's Linux plugin
+// raises the window via a bare gtk_window_present(get_window(self))
+// (linux/window_manager_plugin.cc), with no timestamp -- GTK treats that as
+// GDK_CURRENT_TIME, which every modern WM's focus-stealing prevention
+// (Mutter, KWin) can defer or ignore when it doesn't follow a live GTK
+// input event (e.g. right after a slow Flutter cold start triggered by the
+// tray's "Open", or a D-Bus-triggered re-show of an already-hidden window).
+// A matching Rust-side workaround exists in src/server/dbus.rs for the
+// D-Bus entry point, but it only retries for ~1s from the moment of the
+// tray click -- nowhere near long enough to cover a slow cold start, since
+// the window doesn't exist yet for xdotool to find. Firing this here,
+// immediately after show()/focus() actually return, runs it at exactly the
+// right moment regardless of how long startup took, instead of guessing a
+// timeout. xdotool sends a proper EWMH _NET_ACTIVE_WINDOW client message
+// (source_indication=2, "pager"), which WMs honor without the same
+// timestamp scrutiny. Best-effort: xdotool is optional (Recommends on the
+// .deb, a hard dependency on the Arch package) and any failure -- missing
+// binary, no matching window -- is swallowed silently, leaving prior
+// behavior. Remove once window_manager's Linux backend calls
+// gtk_window_present_with_time() with a real server timestamp instead.
+// Note this searches by PID, not a specific window handle: desktop_multi_
+// window runs every window (main plus every remote-desktop/file-transfer/
+// etc. sub-window) in this one process, so a call here can end up raising
+// more than the intended window when several are open. That's an accepted
+// imprecision of this best-effort workaround, not a targeted fix -- see
+// multi_window_manager.dart's `_newSession` for the other call site.
+//
+// KWin (KDE Plasma) applies a stricter focus-stealing-prevention policy to
+// this externally-sourced EWMH request than GNOME/Mutter does: the same
+// xdotool call below activates a window within ~0.3s under Mutter but was
+// observed (live-tested, 2026-09-12) taking several seconds under KWin,
+// until some unrelated fresh user input event (e.g. right-clicking the
+// tray again) happened to make KWin finally honor it. _activateViaKWinScript
+// sidesteps that policy entirely by using KWin's own scripting D-Bus
+// interface (org.kde.KWin, /Scripting) to set `workspace.activeWindow`
+// directly -- an internal, privileged KWin mechanism, not an external
+// activation *request* -- verified live to activate instantly where
+// xdotool alone was unreliable. A near-identical implementation exists in
+// src/server/dbus.rs's activate_via_kwin_script() for the D-Bus entry
+// point; duplicated here via a plain dbus-send shell-out (matching this
+// function's existing xdotool pattern) rather than adding a new FFI
+// binding just for this best-effort, KDE-only workaround.
+Future<void> _activateViaKWinScript() async {
+  try {
+    final scriptPath =
+        '${Directory.systemTemp.path}/subnetdesk-kwin-activate-$pid.js';
+    final pluginName = 'subnetdesk-activate-$pid';
+    // `workspace.windowList()` (KWin 5) was renamed to the `workspace.windows`
+    // property in KWin 6's scripting API; support either.
+    //
+    // Setting `activeWindow` alone is not enough: live-tested (2026-09-12),
+    // the main window ends up in KWin's window list with `minimized: true`
+    // (window_manager's `.show()` on Linux doesn't restore a minimized
+    // window itself), and `workspace.activeWindow = win` silently does
+    // nothing for a still-minimized window. Explicitly clearing `minimized`
+    // first is what actually brings it on screen.
+    final script = "var wins = (typeof workspace.windowList === 'function') "
+        "? workspace.windowList() : workspace.windows;\n"
+        "for (var i = 0; i < wins.length; i++) {\n"
+        "\tif (wins[i].pid == $pid) {\n"
+        "\t\twins[i].minimized = false;\n"
+        "\t\tworkspace.activeWindow = wins[i];\n"
+        "\t}\n"
+        "}\n";
+    await File(scriptPath).writeAsString(script);
+    final loadResult = await Process.run('dbus-send', [
+      '--session',
+      '--print-reply',
+      '--dest=org.kde.KWin',
+      '/Scripting',
+      'org.kde.kwin.Scripting.loadScript',
+      'string:$scriptPath',
+      'string:$pluginName',
+    ]);
+    final match =
+        RegExp(r'int32\s+(-?\d+)').firstMatch(loadResult.stdout.toString());
+    if (match != null) {
+      final scriptId = match.group(1);
+      await Process.run('dbus-send', [
+        '--session',
+        '--print-reply',
+        '--dest=org.kde.KWin',
+        '/Scripting/Script$scriptId',
+        'org.kde.kwin.Script.run',
+      ]);
+      await Process.run('dbus-send', [
+        '--session',
+        '--print-reply',
+        '--dest=org.kde.KWin',
+        '/Scripting',
+        'org.kde.kwin.Scripting.unloadScript',
+        'string:$pluginName',
+      ]);
+    }
+    try {
+      await File(scriptPath).delete();
+    } catch (_) {}
+  } catch (_) {
+    // dbus-send missing, or org.kde.KWin absent (non-KDE desktop) -- harmless no-op.
+  }
+}
+
+Future<void> activateWindowWorkaroundLinux() async {
+  if (!isLinux) return;
+  await _activateViaKWinScript();
+  try {
+    await Process.run('xdotool', ['search', '--pid', '$pid', 'windowactivate']);
+  } catch (_) {
+    // xdotool not installed -- harmless no-op.
+  }
+}
+
 Future<void> windowOnTop(int? id) async {
   if (!isDesktop) {
     return;
@@ -766,6 +879,7 @@ Future<void> windowOnTop(int? id) async {
     }
     await windowManager.show();
     await windowManager.focus();
+    await activateWindowWorkaroundLinux();
     await rustDeskWinManager.registerActiveWindow(kWindowMainId);
   } else {
     WindowController.fromWindowId(id)
