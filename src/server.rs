@@ -261,6 +261,12 @@ impl Server {
         }
         #[cfg(target_os = "macos")]
         self.update_enable_retina();
+        // A locked-and-powered-down screen (e.g. a user's own power-save
+        // script) has no frames to capture; wake it so this connection
+        // actually gets an image instead of hanging on "waiting for
+        // image..." forever. See dbus::wake_display_if_locked for details.
+        #[cfg(target_os = "linux")]
+        dbus::wake_display_if_locked();
         self.connections.insert(conn.id(), conn);
     }
 
@@ -271,6 +277,12 @@ impl Server {
         self.connections.remove(&conn.id());
         #[cfg(target_os = "macos")]
         self.update_enable_retina();
+        // Restore the power-saving behavior once no viewers remain, if the
+        // screen is still locked. See dbus::reblank_display_if_still_locked.
+        #[cfg(target_os = "linux")]
+        if self.connections.is_empty() {
+            dbus::reblank_display_if_still_locked();
+        }
     }
 
     pub fn close_connections(&mut self) {
