@@ -69,7 +69,6 @@ lazy_static::lazy_static! {
 lazy_static::lazy_static! {
     static ref OPTION_SYNCED: Arc<Mutex<bool>> = Default::default();
     static ref OPTIONS : Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(Config::get_options()));
-    #[cfg(feature = "flutter")]
     static ref LAN_SERVER_RUNTIME_STATUS: Arc<Mutex<(String, String)>> = Arc::new(Mutex::new((
         crate::lan_server::RUNTIME_STATE_STARTING.to_owned(),
         String::new(),
@@ -524,10 +523,7 @@ pub fn get_connect_status() -> UiStatus {
 }
 
 #[inline]
-#[cfg(all(
-    feature = "flutter",
-    not(any(target_os = "android", target_os = "ios"))
-))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn get_lan_server_runtime_status() -> (String, String) {
     LAN_SERVER_RUNTIME_STATUS.lock().unwrap().clone()
 }
@@ -1092,7 +1088,6 @@ async fn check_connect_status_(reconnect: bool, rx: mpsc::UnboundedReceiver<ipc:
                             Ok(Some(ipc::Data::VideoConnCount(Some(n)))) => {
                                 video_conn_count = n;
                             }
-                            #[cfg(feature = "flutter")]
                             Ok(Some(ipc::Data::LanServerStatus(Some(status)))) => {
                                 *LAN_SERVER_RUNTIME_STATUS.lock().unwrap() = status;
                             }
@@ -1128,8 +1123,8 @@ async fn check_connect_status_(reconnect: bool, rx: mpsc::UnboundedReceiver<ipc:
                         #[cfg(feature = "flutter")]
                         {
                             c.send(&ipc::Data::VideoConnCount(None)).await.ok();
-                            c.send(&ipc::Data::LanServerStatus(None)).await.ok();
                         }
+                        c.send(&ipc::Data::LanServerStatus(None)).await.ok();
                     }
                 }
             }
@@ -1152,7 +1147,6 @@ async fn check_connect_status_(reconnect: bool, rx: mpsc::UnboundedReceiver<ipc:
             #[cfg(feature = "flutter")]
             video_conn_count,
         };
-        #[cfg(feature = "flutter")]
         {
             *LAN_SERVER_RUNTIME_STATUS.lock().unwrap() = (
                 crate::lan_server::RUNTIME_STATE_FAILED.to_owned(),

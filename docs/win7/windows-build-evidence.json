@@ -1,0 +1,111 @@
+{
+  "host": "win-dev-01",
+  "system": "Windows-10-10.0.19045-SP0",
+  "checks": [
+    {
+      "arch": "x64",
+      "check": "main-version",
+      "exit_code": 0,
+      "stdout": "1.3.0",
+      "stderr": ""
+    },
+    {
+      "arch": "x64",
+      "check": "sciter-abi",
+      "exit_code": 0,
+      "stdout": "Sciter value, window and script dispatch ABI checks passed",
+      "stderr": ""
+    },
+    {
+      "arch": "x86",
+      "check": "main-version",
+      "exit_code": 0,
+      "stdout": "1.3.0",
+      "stderr": ""
+    },
+    {
+      "arch": "x86",
+      "check": "sciter-abi",
+      "exit_code": 0,
+      "stdout": "Sciter value, window and script dispatch ABI checks passed",
+      "stderr": ""
+    }
+  ],
+  "artifacts": [
+    {
+      "name": "subnetdesk-1.3.0-win7-x64-imports.json",
+      "bytes": 46859,
+      "sha256": "7fef6454c66b8a482d05fe06f01502604148b4e257272c8b07585c15abdf3d5a"
+    },
+    {
+      "name": "subnetdesk-1.3.0-win7-x64-sciter-smoke.exe",
+      "bytes": 282112,
+      "sha256": "a1a368e488586b73129842fb1a79735f9483ddd098b87df0acbf5091611a5597"
+    },
+    {
+      "name": "subnetdesk-1.3.0-win7-x64.exe",
+      "bytes": 12481536,
+      "sha256": "718c8f7fe4dbb7464e95f8e8b1eae69dd9febebb2ae1c48df299695f1cffdc8f"
+    },
+    {
+      "name": "subnetdesk-1.3.0-win7-x64.zip",
+      "bytes": 18014701,
+      "sha256": "641531525be9986c92664b1e5e46cb65a474e43bb433874cc828ada0b6bb9066"
+    },
+    {
+      "name": "subnetdesk-1.3.0-win7-x86-imports.json",
+      "bytes": 46320,
+      "sha256": "06a6f9550efe62b6dd98a3d657d1b894925243ef7575565f747e58632d4f8cb8"
+    },
+    {
+      "name": "subnetdesk-1.3.0-win7-x86-sciter-smoke.exe",
+      "bytes": 250368,
+      "sha256": "97ee7e0955c2c2f213da9cd1848171d1c0321dff70df71ecb3ac8ac0d705a8fe"
+    },
+    {
+      "name": "subnetdesk-1.3.0-win7-x86.exe",
+      "bytes": 11420672,
+      "sha256": "420541282ab49c4f81d5b3ffbce381c17bebb2a4850a11df24c614bf230600f7"
+    },
+    {
+      "name": "subnetdesk-1.3.0-win7-x86.zip",
+      "bytes": 16568806,
+      "sha256": "0fb030f11e783246676a17f297b3389553d09ec7a4452b6e50aa8ad2bbe0c0a5"
+    }
+  ],
+  "source_inputs": {
+    "scripts/build_win7.py": "ee33bc4fa1742bbb96948fd733320cda5b0ec916191de4171e25322a6fa8b08e",
+    "scripts/ci_win7.ps1": "322e2969c8cc12b82f6b2798f0094ee8e8f4eecc7b9b96f9b49d38e966134db6",
+    "scripts/test_win7_build.py": "2a827e3640f8c3515487756609816af4ce96216757498d9f97bbd1a5fdee1eee",
+    "res/vcpkg/libyuv/portfile.cmake": "02fa04f5db7cf311b17492269459c1a59bd84faf3280bbefb10a7355337c5ccf",
+    "res/vcpkg/aom/portfile.cmake": "d836ae85d40ac2a6a20c5442f3e87dd4e76c1aab11f00ee8f2e1293b2ca509e6",
+    "res/inline-sciter.py": "123dbf84022a4197caad8353ce775f08d6cc8d2e158141aa22890e7a90afefcc",
+    "res/win7/ports/opus/portfile.cmake": "0cfff83949bc9804f34e70c273d54a1d64d2e420af2e9ee7f85a5e498cb2bfcf",
+    "res/win7/vcpkg.json": "5c41998ba4e6b654dad224bd5c44657d8427bb789dc5b03d6b588f314e8f247d",
+    ".cargo/config.toml": "9beb7fa9d18be3d94a1fd96ad7309826ce599b33788c6eaa4db7576776165d76",
+    "Cargo.toml": "c05689b3cbdebab68106a56a1964c0382ac978f41c23ad0f9e4ca4ea53549316",
+    "Cargo.lock": "a398201bdeed2592111c484ae8269161ae38fd2910b3538cda34ebf1c24bb8e9"
+  },
+  "base_commit": "b87ed2ab0ec90f2508346cb3be91139b29d6f76a",
+  "completed_at_utc": "2026-10-08T14:39:49Z",
+  "build_elapsed_seconds": 1088,
+  "jenkins_node": "ci-windows-01",
+  "execution": "SSH on Jenkins Windows device; no Jenkins job/build number",
+  "pe_reports": {
+    "x64": {
+      "files": 5,
+      "errors": 0
+    },
+    "x86": {
+      "files": 5,
+      "errors": 0
+    }
+  },
+  "limitations": [
+    "Windows 10 build/runtime smoke only; Windows 7 SP1 not tested",
+    "Sciter video thiscall and full remote session not tested",
+    "Portable extraction/installation and service lifecycle not tested",
+    "Full Flutter UI parity pending; see design-qa.md",
+    "PE gate covers known unsupported imports, not all Win7 APIs/dynamic calls"
+  ]
+}

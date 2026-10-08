@@ -92,7 +92,7 @@ ringbuf = "0.3"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 mac_address = "1.1"
 mdns-sd = { version = "=0.20.2", default-features = false, features = ["logging"] }
-sciter-rs = { git = "https://github.com/rustdesk-org/rust-sciter", branch = "dyn" }
+sciter-rs = { path = "libs/sciter-rs" }
 sys-locale = "0.3"
 enigo = { path = "libs/enigo", features = [ "with_serde" ] }
 clipboard = { path = "libs/clipboard" }

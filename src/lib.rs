@@ -23,6 +23,7 @@ mod lan_identity;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod lan_mdns;
 mod lan_protocol;
+mod lan_ui;
 mod lan_server;
 #[cfg(all(
     feature = "flutter",

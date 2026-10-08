@@ -1,0 +1,93 @@
+name: Build Win7 Sciter candidates
+
+on:
+  push:
+    branches:
+      - "win7-test/**"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  win7:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
+    env:
+      WIN7_ARCH: ${{ matrix.arch }}
+      CARGO_BUILD_JOBS: 4
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+      VCPKG_ROOT: C:\vcpkg-win7
+      VCPKG_INSTALLED_ROOT: C:\vcpkg-win7\installed
+      VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+      - uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c # v1.13.0
+        with:
+          arch: ${{ matrix.arch }}
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: nightly-2025-08-01
+          components: rust-src
+      - name: Install native build tools
+        shell: pwsh
+        run: |
+          choco install nasm llvm --yes --no-progress
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "C:\Program Files\NASM" >> $env:GITHUB_PATH
+          "C:\Program Files\LLVM\bin" >> $env:GITHUB_PATH
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          python -m pip install brotli
+      - name: Build Win7 native dependencies
+        shell: pwsh
+        env:
+          VCPKG_ROOT: C:\vcpkg-win7
+          VCPKG_INSTALLED_ROOT: C:\vcpkg-win7\installed
+        run: |
+          git clone https://github.com/microsoft/vcpkg $env:VCPKG_ROOT
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          git -C $env:VCPKG_ROOT checkout 120deac3062162151622ca4860575a33844ba10b
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --enforce-port-checks --triplet ${{ matrix.arch }}-windows-static --x-manifest-root="$pwd/res/win7" --overlay-triplets="$pwd/res/win7/triplets" --overlay-ports="$pwd/res/win7/ports" --overlay-ports="$pwd/res/vcpkg" --x-install-root="$env:VCPKG_INSTALLED_ROOT"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Check build and import gates
+        run: python -m unittest discover -s scripts -p test_win7_build.py
+      - name: Build app, service and portable launcher
+        env:
+          VCPKG_ROOT: C:\vcpkg-win7
+          VCPKG_INSTALLED_ROOT: C:\vcpkg-win7\installed
+        run: python scripts/build_win7.py --arch ${{ matrix.arch }}
+      - name: Check main executable startup
+        shell: pwsh
+        run: |
+          @'
+          import os, re, subprocess
+          from pathlib import Path
+          arch = os.environ["WIN7_ARCH"]
+          package = Path("Cargo.toml").read_text(encoding="utf-8").split("[package]", 1)[1].split("\n[", 1)[0]
+          version = re.search(r'^version\s*=\s*"([^"\n]+)"', package, re.MULTILINE).group(1)
+          exe = Path(f"target/win7-dist/subnetdesk-{version}-win7-{arch}/rustdesk.exe").resolve()
+          result = subprocess.run([str(exe), "--version"], capture_output=True, text=True, timeout=30, check=True)
+          if result.stdout.strip() != version:
+              raise RuntimeError(f"Version check failed: {result.stdout!r} {result.stderr!r}")
+          print(f"{arch} main startup passed: {version}")
+          '@ | python -
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: subnetdesk-win7-${{ matrix.arch }}-candidate
+          path: |
+            target/win7-dist/*.zip
+            target/win7-dist/*.exe
+            target/win7-dist/*-imports.json
+          retention-days: 30
+          if-no-files-found: error

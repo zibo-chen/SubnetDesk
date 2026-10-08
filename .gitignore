@@ -65,3 +65,7 @@ flutter/web/
 /third_party/libdrmtap/
 res/*.pkg.tar.zst
 res/pkg/
+
+# Native Sciter UI acceptance evidence
+!docs/win7/screenshots/*.png
+!src/ui/icons/*.svg

@@ -1,0 +1,6 @@
+{
+  "name": "subnetdesk-win7",
+  "version-string": "1.3.0",
+  "dependencies": ["aom", "libjpeg-turbo", "opus", "libvpx", "libyuv"],
+  "builtin-baseline": "120deac3062162151622ca4860575a33844ba10b"
+}

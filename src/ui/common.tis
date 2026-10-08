@@ -247,7 +247,26 @@ function msgbox(type, title, content, link="", callback=null, height=180, width=
     width += is_xfce ? 50 : 0;
     height += is_xfce ? 50 : 0;
 
-    if (type.indexOf("input-password") >= 0) {
+    if (type == "lan-device-first-use" || type == "lan-device-key-changed") {
+        callback = function(res) {
+            handler.trust_lan_device(!!res);
+            if (!res) view.close();
+            else self.timer(1ms, function() { msgbox("connecting", "Connecting...", "Logging in..."); });
+        };
+        height = 260;
+    } else if (type == "lan-login-required") {
+        callback = function(res) {
+            if (!res) { view.close(); return; }
+            var error = res.identity_id ? handler.login_lan_identity(res.identity_id, !!res.remember) : handler.login_lan(res.username || "", res.password || "", !!res.remember);
+            res.password = "";
+            if (error) {
+                self.timer(1ms, function() { msgbox(type, title, error, ""); });
+                return;
+            }
+            self.timer(1ms, function() { msgbox("connecting", "Connecting...", "Logging in..."); });
+        };
+        height = 300;
+    } else if (type.indexOf("input-password") >= 0) {
         callback = function (res) {
             if (!res) {
                 view.close();

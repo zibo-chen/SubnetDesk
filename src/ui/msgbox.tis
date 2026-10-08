@@ -97,6 +97,17 @@ class MsgboxComponent: Reactor.Component {
     }
 
     function getContent() {
+        if (this.type == "lan-login-required") {
+            var identities = [];
+            try { identities = JSON.parse(handler.get_lan_identities()); } catch(_) {}
+            return <div .form .lan-login>
+                <p>{this.content}</p>
+                {identities.length ? <label>{translate("LAN identities")}<select name="identity_id"><option value="" selected>{translate("Username") + " / " + translate("Password")}</option>{identities.map(function(identity) { return <option value={identity.id}>{identity.name + " · " + identity.username}</option>; })}</select></label> : ""}
+                <label>{translate("Username")}<input|text name="username" /></label>
+                <label>{translate("Password")}<input|password name="password" /></label>
+                <button|checkbox name="remember">{translate("Remember password")}</button>
+            </div>;
+        }
         if (this.type == "input-password") {
             return this.getInputPasswordContent();
         } else if (this.type == "input-2fa") {
@@ -165,8 +176,8 @@ class MsgboxComponent: Reactor.Component {
         self.timer(3ms, msgboxTimerFunc);
         return (<div><div style="position: absolute; size:*; background:black; opacity:0.5;" />
         <div style="size: *; position: absolute;">
-            <div style={"border: " + color + " solid 1px; background: color(bg); margin: *; width:" + (this.width) + "px; min-height:" + (this.height) + "px"}>
-            <div .caption style={"background: " + color}>
+            <div .session-dialog style={"margin: *; width:" + (this.width) + "px; min-height:" + (this.height) + "px"}>
+            <div .caption style={"color: " + color}>
                 {translate(this.title)}
             </div>
             <div style="padding: 1em 2em; size: *;">
@@ -329,8 +340,15 @@ class MsgboxComponent: Reactor.Component {
         this.$(#error).text = err;
     }
     
+    event change $(select[name=identity_id]) (_,select) {
+        for(var input in this.$$(.lan-login input)) input.state.disabled=!!select.value;
+    }
+
     function getValues() {
         var values = { type: this.type };
+        for (var el in this.$$(.form select)) {
+            values[el.attributes["name"]] = el.value;
+        }
         for (var el in this.$$(.form input)) {
             values[el.attributes["name"]] = el.value;
         }

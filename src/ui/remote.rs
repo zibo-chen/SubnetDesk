@@ -507,6 +507,10 @@ impl sciter::EventHandler for SciterSession {
         fn is_port_forward();
         fn is_rdp();
         fn login(String, String, String, bool);
+        fn login_lan(String, String, bool);
+        fn login_lan_identity(String, bool);
+        fn get_lan_identities();
+        fn trust_lan_device(bool);
         fn new_rdp();
         fn send_mouse(i32, i32, i32, bool, bool, bool, bool);
         fn enter(String);
@@ -579,6 +583,32 @@ impl sciter::EventHandler for SciterSession {
 }
 
 impl SciterSession {
+    fn reconnect(&self, _force: bool) {
+        self.0.reconnect();
+    }
+
+    fn login_lan(&self, username: String, password: String, remember: bool) -> String {
+        match self.submit_lan_credentials(username, password, remember) {
+            Ok(()) => String::new(),
+            Err(err) => err.to_string(),
+        }
+    }
+
+    fn trust_lan_device(&self, trusted: bool) {
+        self.confirm_lan_device(trusted);
+    }
+
+    fn get_lan_identities(&self) -> String {
+        serde_json::json!(crate::lan_identity::list()).to_string()
+    }
+
+    fn login_lan_identity(&self, identity_id: String, bind_on_success: bool) -> String {
+        self.submit_lan_identity(identity_id, bind_on_success)
+            .err()
+            .map(|err| err.to_string())
+            .unwrap_or_default()
+    }
+
     pub fn new(cmd: String, id: String, password: String, args: Vec<String>) -> Self {
         let session: Session<SciterHandler> = Session {
             password: password.clone(),
