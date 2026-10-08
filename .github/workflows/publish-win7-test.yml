@@ -1,0 +1,55 @@
+name: Publish Win7 test release
+
+on:
+  push:
+    branches:
+      - "win7-test/**"
+    paths:
+      - ".github/workflows/publish-win7-test.yml"
+      - "scripts/publish_win7_test.py"
+      - "docs/win7/test-release-notes.md"
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful Win7 build run ID
+        required: true
+        default: "37796276312"
+      source_commit:
+        description: Full source commit SHA
+        required: true
+        default: "fa5726be35e7182395ed785ddff326525ce121b5"
+      tag:
+        description: Test release tag
+        required: true
+        default: "win7-test-20261008"
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ${{ inputs.tag || 'win7-test-20261008' }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      SOURCE_RUN_ID: ${{ inputs.build_run_id || '37796276312' }}
+      SOURCE_COMMIT: ${{ inputs.source_commit || 'fa5726be35e7182395ed785ddff326525ce121b5' }}
+      RELEASE_TAG: ${{ inputs.tag || 'win7-test-20261008' }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          run-id: ${{ env.SOURCE_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: subnetdesk-win7-*-candidate
+          merge-multiple: true
+          digest-mismatch: error
+          path: win7-artifacts
+      - name: Verify packages and publish prerelease
+        run: |
+          python3 scripts/publish_win7_test.py --run-id "$SOURCE_RUN_ID" --commit "$SOURCE_COMMIT" --tag "$RELEASE_TAG" --artifacts win7-artifacts --notes docs/win7/test-release-notes.md
