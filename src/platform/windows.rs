@@ -731,6 +731,10 @@ pub fn send_sas() {
     unsafe { SendSAS(if is_root() { FALSE } else { TRUE }); }
 }
 
+lazy_static::lazy_static! {
+    static ref SUPPRESS: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
+}
+
 pub fn desktop_changed() -> bool {
     unsafe { inputDesktopSelected() == FALSE }
 }
