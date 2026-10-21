@@ -949,6 +949,8 @@ def build_flutter_windows(version, features, skip_portable_pack):
     os.chdir('..')
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
                  flutter_build_dir_2)
+    if skip_portable_pack:
+        return
     # Publish a directory package with a stable entry point and an isolated profile.
     portable_output = Path('target/portable') / f'subnetdesk-{version}-{win_arch}-portable'
     if portable_output.exists():
@@ -960,8 +962,6 @@ def build_flutter_windows(version, features, skip_portable_pack):
         '--launcher', str(Path(flutter_build_dir_2) / 'SubnetDeskLauncher.exe'),
         '--output', str(portable_output),
     ]))
-    if skip_portable_pack:
-        return
     os.chdir('libs/portable')
     system2('pip3 install -r requirements.txt')
     system2(
