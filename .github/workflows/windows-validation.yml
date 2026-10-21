@@ -79,12 +79,19 @@ jobs:
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
       with:
         prefix-key: ${{ matrix.job.os }}
+        cache-on-failure: true
     - name: Setup vcpkg with Github Actions binary cache
       uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
       with:
         vcpkgDirectory: C:\vcpkg
         vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
         doNotCache: false
+    - name: Restore compiled vcpkg dependencies
+      id: vcpkg-cache
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: C:/vcpkg/installed
+        key: windows-validation-vcpkg-v1-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
     - name: Install vcpkg dependencies
       env:
         VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
@@ -104,6 +111,12 @@ jobs:
         fi
         head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
       shell: bash
+    - name: Save compiled vcpkg dependencies
+      if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: C:/vcpkg/installed
+        key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
     - name: Run Windows Flutter and portable package tests
       shell: pwsh
       run: |-

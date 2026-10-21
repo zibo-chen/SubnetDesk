@@ -28,6 +28,10 @@ set_target_properties(subnetdesk_portable_launcher PROPERTIES OUTPUT_NAME "Subne
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
 
+# runner.exe.manifest supplies the UAC level for both executables.
+target_link_options(${BINARY_NAME} PRIVATE "/MANIFESTUAC:NO")
+target_link_options(subnetdesk_portable_launcher PRIVATE "/MANIFESTUAC:NO")
+
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION_MAJOR=${FLUTTER_VERSION_MAJOR}")
