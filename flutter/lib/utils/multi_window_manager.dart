@@ -460,6 +460,19 @@ class RustDeskMultiWindowManager {
     }
   }
 
+  /// Session windows only, excluding the main window and closed/reused shells.
+  Map<int, WindowType> get sessionWindows => {
+    for (final entry in {
+      WindowType.RemoteDesktop: _remoteDesktopWindows,
+      WindowType.FileTransfer: _fileTransferWindows,
+      WindowType.ViewCamera: _viewCameraWindows,
+      WindowType.PortForward: _portForwardWindows,
+      WindowType.Terminal: _terminalWindows,
+    }.entries)
+      for (final id in entry.value)
+        if (_activeWindows.contains(id)) id: entry.key,
+  };
+
   Set<int> getActiveWindows() {
     return _activeWindows;
   }

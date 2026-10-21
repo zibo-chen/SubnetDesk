@@ -29,6 +29,10 @@ macro_rules! my_println{
 /// If it returns [`Some`], then the process will continue, and flutter gui will be started.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn core_main() -> Option<Vec<String>> {
+    if let Err(err) = hbb_common::app_paths::initialize(&crate::get_app_name(), "com.zibochen") {
+        eprintln!("Cannot open SubnetDesk data directory: {err}");
+        return None;
+    }
     if !crate::common::global_init() {
         return None;
     }
@@ -45,12 +49,29 @@ pub fn core_main() -> Option<Vec<String>> {
     let mut _is_run_as_system = false;
     let mut _is_quick_support = false;
     let mut _is_flutter_invoke_new_connection = false;
-    let mut no_server = false;
-    let mut arg_exe = Default::default();
+    let mut background = false;
+    let mut skip_data_dir_value = false;
     for arg in std::env::args() {
-        if i == 0 {
-            arg_exe = arg;
-        } else if i > 0 {
+        if i > 0 {
+            if skip_data_dir_value {
+                skip_data_dir_value = false;
+                i += 1;
+                continue;
+            }
+            if arg == "--data-dir" {
+                skip_data_dir_value = true;
+                i += 1;
+                continue;
+            }
+            if arg.starts_with("--data-dir=") || arg == "--portable" {
+                i += 1;
+                continue;
+            }
+            if matches!(arg.as_str(), "--background" | "--tray" | "--server") {
+                background = true;
+                i += 1;
+                continue;
+            }
             #[cfg(feature = "flutter")]
             if [
                 "--connect",
@@ -72,44 +93,15 @@ pub fn core_main() -> Option<Vec<String>> {
             } else if arg == "--quick_support" {
                 _is_quick_support = true;
             } else if arg == "--no-server" {
-                no_server = true;
+                // Obsolete supervisor argument; the interactive process owns the host.
             } else {
                 args.push(arg);
             }
         }
         i += 1;
     }
-    #[cfg(target_os = "macos")]
-    if args.is_empty() {
-        if !crate::check_process("--server", false) {
-            match crate::run_me(vec!["--server"]) {
-                Ok(_) => no_server = true,
-                Err(err) => {
-                    log::error!("Failed to start macOS background server: {err}");
-                    if !crate::check_process("--tray", true) {
-                        hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-                    }
-                }
-            }
-        } else if !crate::check_process("--tray", true) {
-            hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-        }
-    }
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    if args.is_empty() {
-        #[cfg(target_os = "linux")]
-        let should_check_start_tray = crate::check_process("--server", false);
-        // We can use `crate::check_process("--server", false)` on Windows.
-        // Because `--server` process is the System user's process. We can't get the arguments in `check_process()`.
-        // We can assume that self service running means the server is also running on Windows.
-        #[cfg(target_os = "windows")]
-        let should_check_start_tray = crate::platform::is_self_service_running()
-            && crate::platform::is_cur_exe_the_installed();
-        if should_check_start_tray && !crate::check_process("--tray", true) {
-            #[cfg(target_os = "linux")]
-            hbb_common::allow_err!(crate::platform::check_autostart_config());
-            hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-        }
+    if background {
+        flutter_args.push("--background".to_owned());
     }
     #[cfg(not(debug_assertions))]
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -135,11 +127,8 @@ pub fn core_main() -> Option<Vec<String>> {
     if _is_flutter_invoke_new_connection {
         return core_main_invoke_new_connection(std::env::args());
     }
-    let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
-    if click_setup && !config::is_disable_installation() {
-        args.push("--install".to_owned());
-        flutter_args.push("--install".to_string());
-    }
+    #[cfg(windows)]
+    let click_setup = false;
     if args.contains(&"--noinstall".to_string()) {
         args.clear();
     }
@@ -158,15 +147,6 @@ pub fn core_main() -> Option<Vec<String>> {
             println!("{}", crate::BUILD_DATE);
             return None;
         }
-    }
-    #[cfg(windows)]
-    {
-        _is_quick_support |= !crate::platform::is_installed()
-            && args.is_empty()
-            && (is_quick_support_exe(&arg_exe)
-                || config::LocalConfig::get_option("pre-elevate-service") == "Y"
-                || (!click_setup && crate::platform::is_elevated(None).unwrap_or(false)));
-        crate::portable_service::client::set_quick_support(_is_quick_support);
     }
     let mut log_name = "".to_owned();
     // Keep portable-service logs under a stable directory name.
@@ -190,20 +170,12 @@ pub fn core_main() -> Option<Vec<String>> {
     }
 
     #[cfg(windows)]
-    if !crate::platform::is_installed()
-        && args.is_empty()
-        && _is_quick_support
-        && !_is_elevate
-        && !_is_run_as_system
-    {
-        use crate::portable_service::client;
-        if let Err(e) = client::start_portable_service(client::StartPara::Direct) {
-            log::error!("Failed to start portable service: {:?}", e);
-        }
-    }
-    #[cfg(windows)]
-    if !crate::platform::is_installed() && (_is_elevate || _is_run_as_system) {
+    if _is_elevate || _is_run_as_system {
         crate::platform::elevate_or_run_as_system(click_setup, _is_elevate, _is_run_as_system);
+        return None;
+    }
+    if args.first().is_some_and(|arg| matches!(arg.as_str(), "--silent-install" | "--silent-update" | "--service" | "--install-service")) {
+        log::error!("System installation commands are unavailable in the user-session runtime");
         return None;
     }
     #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
@@ -220,7 +192,35 @@ pub fn core_main() -> Option<Vec<String>> {
             crate::platform::try_remove_temp_update_files();
             hbb_common::config::PeerConfig::preload_peers();
         }
-        std::thread::spawn(move || crate::start_server(false, no_server));
+        match crate::desktop_runtime::claim() {
+            Ok(true) => {},
+            Ok(false) => {
+                #[cfg(windows)]
+                {
+                    flutter_args.push("--existing-instance".to_owned());
+                    return Some(flutter_args);
+                }
+                #[cfg(not(windows))]
+                {
+                    if !background {
+                        if let Err(err) = crate::ipc::send_url_scheme(String::new()) {
+                            log::debug!("Existing application is still starting: {err}");
+                        }
+                    }
+                    return None;
+                }
+            },
+            Err(err) => { log::error!("Cannot start desktop runtime: {err:#}"); return None; },
+        }
+        std::thread::spawn(|| crate::start_server(true, false));
+        #[cfg(windows)]
+        std::thread::spawn(|| {
+            if let Err(err) = crate::portable_service::client::start_portable_service(
+                crate::portable_service::client::StartPara::Direct,
+            ) {
+                log::error!("Secure desktop agent is unavailable: {err:#}");
+            }
+        });
     } else {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         // Root CLI management commands must talk to the user `--server` main IPC;
@@ -376,52 +376,8 @@ pub fn core_main() -> Option<Vec<String>> {
                 std::fs::remove_file(&args[1]).ok();
                 return None;
             }
-        } else if args[0] == "--tray" {
-            if !crate::check_process("--tray", true) {
-                crate::tray::start_tray();
-            }
-            return None;
-        } else if args[0] == "--install-service" {
-            log::info!("start --install-service");
-            crate::platform::install_service();
-            return None;
-        } else if args[0] == "--uninstall-service" {
-            log::info!("start --uninstall-service");
-            crate::platform::uninstall_service(false, true);
-            return None;
-        } else if args[0] == "--service" {
-            log::info!("start --service");
-            crate::start_os_service();
-            return None;
-        } else if args[0] == "--server" {
-            log::info!("start --server with user {}", crate::username());
-            #[cfg(target_os = "linux")]
-            {
-                hbb_common::allow_err!(crate::platform::check_autostart_config());
-                std::process::Command::new("pkill")
-                    .arg("-f")
-                    .arg(&format!("{} --tray", crate::get_app_name().to_lowercase()))
-                    .status()
-                    .ok();
-                hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-            }
-            #[cfg(windows)]
-            crate::privacy_mode::restore_reg_connectivity(true, false);
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            {
-                crate::start_server(true, false);
-            }
-            #[cfg(target_os = "macos")]
-            {
-                if !crate::check_process("--tray", true) {
-                    hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-                }
-                let handler = std::thread::spawn(move || crate::start_server(true, false));
-                crate::tray::start_server_event_loop();
-                // Prevent the server from exiting when its main-thread event
-                // loop encounters an error.
-                hbb_common::allow_err!(handler.join());
-            }
+        } else if ["--service", "--install-service", "--uninstall-service"].contains(&args[0].as_str()) {
+            log::error!("System services are no longer supported. Start SubnetDesk in the user session.");
             return None;
         } else if args[0] == "--import-config" || args[0] == "--import-config-force" {
             if args.len() == 2 {

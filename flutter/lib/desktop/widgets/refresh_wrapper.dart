@@ -29,6 +29,9 @@ class RefreshWrapperState extends State<RefreshWrapper> {
 
   rebuild() {
     debugPrint("=====Global State Rebuild (win-${kWindowId ?? 'main'})=====");
+    // GetMaterialApp reads Get.locale after its initial creation. Keep native
+    // Material dialogs and popup menus in sync with the selected app language.
+    Get.locale = currentAppLocale();
     if (Get.context != null) {
       (context as Element).visitChildren(_rebuildElement);
     }

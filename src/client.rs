@@ -1913,12 +1913,18 @@ impl LoginConfigHandler {
             LocalConfig::set_remote_id(&connected_endpoint);
         }
         if !self.lan_fingerprint.is_empty() && !self.lan_access_username.is_empty() {
+            let additions = serde_json::from_str::<serde_json::Value>(&pi.platform_additions)
+                .unwrap_or_default();
+            let device_type = crate::device_type::normalize(
+                additions.get("device_type").and_then(|value| value.as_str()).unwrap_or_default()
+            );
             if let Err(err) = LocalConfig::record_recent_lan_endpoint(
                 &connected_endpoint,
                 &self.lan_access_username,
                 &pi.hostname,
                 &pi.platform,
                 &self.lan_fingerprint,
+                device_type,
             ) {
                 log::error!("Failed to store recent LAN endpoint: {err}");
             }

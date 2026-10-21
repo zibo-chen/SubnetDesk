@@ -77,12 +77,15 @@ pub(crate) fn lan_server_info() -> String {
         "credential_revision": Config::get_credential_revision(),
         "device_name": crate::lan::device_display_name(),
         "system_device_name": crate::hostname(),
+        "device_type": crate::device_type::local(),
         "fingerprint": crate::lan_protocol::fingerprint(&Config::get_key_pair().1),
         "addresses": addresses,
         "port": port,
         "listen_addresses": Config::get_option("lan-listen-addresses"),
         "allowed_networks": Config::get_option("lan-allowed-networks"),
         "discovery_enabled": Config::get_option("lan-discovery-enabled") != "N",
+        "service_stopped": Config::get_option("stop-service") == "Y",
+        "host_permissions_ready": crate::host_permissions::ready(),
         "web_access_enabled": Config::get_option("web-access-enabled") == "Y",
         "web_listen_port": web_listen_port,
         "web_https_enabled": web_https_enabled,
@@ -103,6 +106,8 @@ pub(crate) fn lan_server_running_for_ui(runtime_state: &str) -> bool {
 }
 
 pub(crate) fn should_sync_lan_settings_to_background() -> bool {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if crate::desktop_runtime::is_host() { return false; }
     #[cfg(target_os = "macos")]
     {
         true
@@ -233,6 +238,8 @@ pub(crate) fn recent_lan_endpoint_to_map(
         "username": recent.username,
         "hostname": recent.hostname,
         "platform": recent.platform,
+        "device_type": presence.map(|peer| peer.device_type.as_str())
+            .filter(|value| !value.is_empty()).unwrap_or(&recent.device_type),
         "alias": alias,
         "fingerprint": recent.fingerprint,
         "online": presence.and_then(|peer| peer.online_state(now)),

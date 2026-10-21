@@ -66,7 +66,11 @@ impl LanServer {
     }
 
     pub(crate) fn is_discoverable() -> bool {
-        discoverable_state(Self::is_running(), service_ready())
+        // Discovery advertises presence, independently of incoming access.
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        return !desktop_stopping();
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        return Self::is_running() && service_ready();
     }
 
     #[cfg(not(target_os = "ios"))]
@@ -76,7 +80,15 @@ impl LanServer {
         loop {
             let generation = RESTART_GENERATION.load(Ordering::SeqCst);
             let signature = listener_signature();
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            if crate::desktop_runtime::is_stopping() {
+                server.write().unwrap().close_connections();
+                ACTIVE_LISTENERS.store(0, Ordering::SeqCst);
+                set_runtime_status(RUNTIME_STATE_STOPPED, String::new());
+                return;
+            }
             if !service_ready() {
+                server.write().unwrap().close_connections();
                 ACTIVE_LISTENERS.store(0, Ordering::SeqCst);
                 set_runtime_status(RUNTIME_STATE_STOPPED, String::new());
                 tokio::time::sleep(Duration::from_secs(1)).await;
@@ -101,6 +113,7 @@ impl LanServer {
                 if generation != RESTART_GENERATION.load(Ordering::SeqCst)
                     || signature != listener_signature()
                     || !service_ready()
+                    || desktop_stopping()
                 {
                     break;
                 }
@@ -160,13 +173,17 @@ pub fn normalize_allowed_networks(value: &str) -> ResultType<String> {
         .map(|networks| networks.join(","))
 }
 
-fn service_ready() -> bool {
-    Config::lan_credentials_configured()
-        && !option2bool("stop-service", &Config::get_option("stop-service"))
+fn desktop_stopping() -> bool {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    return crate::desktop_runtime::is_stopping();
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    false
 }
 
-fn discoverable_state(running: bool, ready: bool) -> bool {
-    running && ready
+fn service_ready() -> bool {
+    !desktop_stopping() && Config::lan_credentials_configured()
+        && crate::host_permissions::ready()
+        && !option2bool("stop-service", &Config::get_option("stop-service"))
 }
 
 fn listen_port() -> u16 {
@@ -410,13 +427,5 @@ mod tests {
         );
         assert!(normalize_listen_addresses("host.lan").is_err());
         assert!(normalize_allowed_networks("192.168.1.1").is_err());
-    }
-
-    #[test]
-    fn discovery_requires_an_active_ready_listener() {
-        assert!(discoverable_state(true, true));
-        assert!(!discoverable_state(false, true));
-        assert!(!discoverable_state(true, false));
-        assert!(!discoverable_state(false, false));
     }
 }

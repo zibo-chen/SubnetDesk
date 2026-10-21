@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Generate every shipped SubnetDesk icon from res/subnetdesk-icon.svg."""
+"""Export all platform icons from the approved two-window brand mark."""
 
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import shutil
@@ -13,9 +14,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "res/subnetdesk-icon.svg"
+SOURCE = ROOT / "res/subnetdesk-mark.png"
 MANIFEST = ROOT / "res/subnetdesk-icon-manifest.json"
-BACKGROUND = (0x0B, 0x1F, 0x33, 0xFF)
+BACKGROUND = (0xF8, 0xF5, 0xF0, 0xFF)
 
 PNG_TARGETS = {
     "res/icon.png": (1024, 1024, "RGBA"),
@@ -123,6 +124,26 @@ def save_monochrome(mask, path: Path, size: int, luminance: int) -> None:
     Image.merge("LA", (gray, alpha)).save(path, format="PNG", optimize=True)
 
 
+def save_tray_icons(image) -> None:
+    from PIL import Image, ImageOps
+
+    # Remove the source's faint edge pixels and excess canvas so the two-window
+    # mark stays legible at the menu bar's 18-point display size.
+    mask = image.getchannel("A").point(lambda value: 255 if value >= 128 else 0)
+    bounds = mask.getbbox()
+    if bounds is None:
+        raise SystemExit("SubnetDesk tray icon source is empty")
+    mask = mask.crop(bounds)
+    for relative, size, luminance in (
+        ("res/mac-tray-dark-x2.png", 60, 255),
+        ("res/mac-tray-light-x2.png", 48, 0),
+    ):
+        alpha = Image.new("L", (size, size), 0)
+        mark = ImageOps.contain(mask, (size - 4, size - 4), Image.Resampling.LANCZOS)
+        alpha.paste(mark, ((size - mark.width) // 2, (size - mark.height) // 2))
+        save_monochrome(alpha, ROOT / relative, size, luminance)
+
+
 def write_icns(image, destination: Path) -> None:
     iconutil = shutil.which("iconutil")
     if not iconutil:
@@ -151,6 +172,7 @@ def generated_paths() -> list[Path]:
             ROOT / "res/icon.ico",
             ROOT / "res/tray-icon.ico",
             ROOT / "res/scalable.svg",
+            ROOT / "res/subnetdesk-icon.svg",
             ROOT / "flutter/assets/icon.svg",
             ROOT / "flutter/windows/runner/resources/app_icon.ico",
             ROOT / "flutter/macos/Runner/AppIcon.icns",
@@ -191,11 +213,8 @@ def generate() -> None:
     if not SOURCE.is_file():
         raise SystemExit(f"missing icon source: {SOURCE}")
     with tempfile.TemporaryDirectory(prefix="subnetdesk-icon-") as temp:
-        raster = Path(temp) / "icon.png"
-        render_svg(raster)
-        base = Image.open(raster).convert("RGBA")
-        if base.size != (1024, 1024):
-            raise SystemExit(f"expected a 1024x1024 raster, got {base.size}")
+        # Scaling here is export packaging, not a separate redraw of the mark.
+        base = resized(Image.open(SOURCE).convert("RGBA"), 1024)
 
         for relative, (width, height, _mode) in PNG_TARGETS.items():
             if width != height:
@@ -215,9 +234,8 @@ def generate() -> None:
             sizes=[(16, 16), (24, 24), (32, 32), (48, 48)],
         )
 
-        mask = monochrome_mask(base)
-        save_monochrome(mask, ROOT / "res/mac-tray-dark-x2.png", 60, 255)
-        save_monochrome(mask, ROOT / "res/mac-tray-light-x2.png", 48, 0)
+        mask = base.getchannel("A")
+        save_tray_icons(base)
 
         for density, (launcher, foreground, stat) in ANDROID_DENSITIES.items():
             directory = ROOT / f"flutter/android/app/src/main/res/mipmap-{density}"
@@ -233,8 +251,12 @@ def generate() -> None:
             save_rgb(base, ios_dir / filename, size)
 
         write_icns(base, ROOT / "flutter/macos/Runner/AppIcon.icns")
-        shutil.copyfile(SOURCE, ROOT / "res/scalable.svg")
-        shutil.copyfile(SOURCE, ROOT / "flutter/assets/icon.svg")
+        # Linux and Flutter's SVG consumers receive the same image as PNG
+        # consumers, rather than a second independently redrawn logo.
+        encoded = base64.b64encode(SOURCE.read_bytes()).decode("ascii")
+        svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><image width="1024" height="1024" href="data:image/png;base64,' + encoded + '"/></svg>\n'
+        for relative in ("res/subnetdesk-icon.svg", "res/scalable.svg", "flutter/assets/icon.svg"):
+            (ROOT / relative).write_text(svg)
         write_manifest()
 
 

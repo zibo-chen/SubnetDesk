@@ -17,6 +17,13 @@ add_executable(${BINARY_NAME} WIN32
   "runner.exe.manifest"
 )
 
+add_executable(subnetdesk_portable_launcher WIN32
+  "portable_main.cpp"
+  "runner.exe.manifest"
+)
+apply_standard_settings(subnetdesk_portable_launcher)
+set_target_properties(subnetdesk_portable_launcher PROPERTIES OUTPUT_NAME "SubnetDeskLauncher")
+
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
@@ -33,7 +40,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
-target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
+target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app shell32)
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

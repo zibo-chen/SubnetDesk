@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter_hbb/common/widgets/subnet_ui.dart';
 import 'dart:convert';
 
 import 'package:app_links/app_links.dart';
@@ -62,6 +63,7 @@ final isWebOnWindows = isWebOnWindows_;
 final isWebOnLinux = isWebOnLinux_;
 final isWebOnMacOs = isWebOnMacOS_;
 var isMobile = isAndroid || isIOS;
+bool desktopTrayAvailable = false;
 var version = '';
 int androidVersion = 0;
 
@@ -261,17 +263,17 @@ class ColorThemeExtension extends ThemeExtension<ColorThemeExtension> {
 class MyTheme {
   MyTheme._();
 
-  static const Color grayBg = Color(0xFFEFEFF2);
-  static const Color accent = Color(0xFF0071FF);
-  static const Color accent50 = Color(0x770071FF);
-  static const Color accent80 = Color(0xAA0071FF);
+  static const Color grayBg = Color(0xFFF0EAF2);
+  static const Color accent = Color(0xFF332B3B);
+  static const Color accent50 = Color(0x77332B3B);
+  static const Color accent80 = Color(0xAA332B3B);
   static const Color canvasColor = Color(0xFF212121);
   static const Color border = Color(0xFFCCCCCC);
   static const Color idColor = Color(0xFF00B6F0);
   static const Color darkGray = Color.fromARGB(255, 148, 148, 148);
   static const Color cmIdColor = Color(0xFF21790B);
   static const Color dark = Colors.black87;
-  static const Color button = Color(0xFF2C8CFF);
+  static const Color button = Color(0xFF332B3B);
   static const Color hoverBorder = Color(0xFF999999);
 
   // ListTile
@@ -590,8 +592,8 @@ class MyTheme {
   );
 
   static void applyPlatformFontFallback(TargetPlatform platform) {
-    lightTheme = applySafePlatformFontFallback(lightTheme, platform);
-    darkTheme = applySafePlatformFontFallback(darkTheme, platform);
+    lightTheme = applySafePlatformFontFallback(SubnetPalette.apply(lightTheme), platform);
+    darkTheme = applySafePlatformFontFallback(SubnetPalette.apply(darkTheme), platform);
   }
 
   static ThemeMode getThemeModePreference() {
@@ -686,7 +688,7 @@ List<Locale> supportedLocales = const [
   Locale('da'),
   Locale('eo'),
   Locale('tr'),
-  Locale('kz'),
+  Locale('kk'),
   Locale('es'),
   Locale('nl'),
   Locale('nb'),
@@ -694,7 +696,7 @@ List<Locale> supportedLocales = const [
   Locale('eu'),
   Locale('bg'),
   Locale('be'),
-  Locale('vn'),
+  Locale('vi'),
   Locale('uk'),
   Locale('fa'),
   Locale('ca'),
@@ -710,6 +712,12 @@ List<Locale> supportedLocales = const [
   Locale('ar'),
   Locale('he'),
   Locale('hr'),
+  Locale('fi'),
+  Locale('ka'),
+  Locale('ta'),
+  Locale('ml'),
+  Locale('hi'),
+  Locale('gu'),
 ];
 
 String formatDurationToTime(Duration duration) {
@@ -1383,7 +1391,7 @@ Color? _msgboxColor(String type) {
   if (type.contains("error") || type == "re-input-password") {
     return Color(0xFFE04F5F);
   }
-  return Color(0xFF2C8CFF);
+  return Color(0xFF332B3B);
 }
 
 Widget msgboxIcon(String type) {
@@ -2064,16 +2072,41 @@ Future _saveSessionWindowPosition(
   }
 }
 
-Future<Size> _adjustRestoreMainWindowSize(double? width, double? height) async {
+Size mainWindowSizeForWorkArea(Size desired, Size workArea) {
+  final minSize = kDesktopMainWindowMinimumSize;
+  return Size(
+    desired.width.clamp(minSize.width,
+        workArea.width < minSize.width ? minSize.width : workArea.width).toDouble(),
+    desired.height.clamp(minSize.height,
+        workArea.height < minSize.height ? minSize.height : workArea.height).toDouble(),
+  );
+}
+
+Future<Size> fitMainWindowToCurrentScreen(Size desired) async {
+  try {
+    final screen = await window_size.getCurrentScreen();
+    if (screen != null) {
+      // window_size returns physical screen coordinates on Windows, points on macOS.
+      final scale = isWindows && screen.scaleFactor > 0 ? screen.scaleFactor : 1.0;
+      return mainWindowSizeForWorkArea(desired,
+          Size(screen.visibleFrame.width / scale, screen.visibleFrame.height / scale));
+    }
+  } catch (error) {
+    debugPrint('Unable to read main-window work area: $error');
+  }
+  return desired;
+}
+
+Future<Size> _adjustRestoreMainWindowSize(double? width, double? height, {Size? fallbackSize}) async {
   const double minWidth = 1;
   const double minHeight = 1;
   const double maxWidth = 6480;
   const double maxHeight = 6480;
 
-  final defaultWidth =
+  final defaultWidth = fallbackSize?.width ??
       ((isDesktop || isWebDesktop) ? 1280 : kMobileDefaultDisplayWidth)
           .toDouble();
-  final defaultHeight =
+  final defaultHeight = fallbackSize?.height ??
       ((isDesktop || isWebDesktop) ? 720 : kMobileDefaultDisplayHeight)
           .toDouble();
   double restoreWidth = width ?? defaultWidth;
@@ -2235,7 +2268,11 @@ Future<bool> restoreWindowPosition(
     }
   }
 
-  final size = await _adjustRestoreMainWindowSize(lpos.width, lpos.height);
+  var size = await _adjustRestoreMainWindowSize(lpos.width, lpos.height,
+      fallbackSize: type == WindowType.Main ? kDesktopMainWindowSize : null);
+  if (type == WindowType.Main && !bind.isIncomingOnly()) {
+    size = await fitMainWindowToCurrentScreen(size);
+  }
   final offsetLeftTop = await _adjustRestoreMainWindowOffset(
     lpos.offsetWidth,
     lpos.offsetHeight,
@@ -2838,51 +2875,18 @@ bool isRunningInPortableMode() {
 }
 
 /// Window status callback
+/// All windows may be hidden while the host continues accepting connections.
 Future<void> onActiveWindowChanged() async {
-  print(
-    "[MultiWindowHandler] active window changed: ${rustDeskWinManager.getActiveWindows()}",
-  );
   if (rustDeskWinManager.getActiveWindows().isEmpty) {
-    // close all sub windows
-    try {
-      if (isLinux) {
-        await Future.wait([
-          saveWindowPosition(WindowType.Main),
-          rustDeskWinManager.closeAllSubWindows(),
-        ]);
-      } else {
-        await rustDeskWinManager.closeAllSubWindows();
-      }
-    } catch (err) {
-      debugPrintStack(label: "$err");
-    } finally {
-      debugPrint("Start closing SubnetDesk...");
-      await windowManager.setPreventClose(false);
-      await windowManager.close();
-      if (isMacOS) {
-        // If we call without delay, `flutter/macos/Runner/MainFlutterWindow.swift` can handle the "terminate" event.
-        // But the app will not close.
-        //
-        // No idea why we need to delay here, `terminate()` itself is also an async function.
-        //
-        // A quick workaround, use `Timer.periodic` to avoid the app not closing.
-        // Because `await windowManager.close()` and `RdPlatformChannel.instance.terminate()`
-        // may not work since `Flutter 3.24.4`, see the following logs.
-        // A delay will allow the app to close.
-        //
-        //```
-        // embedder.cc (2725): 'FlutterPlatformMessageCreateResponseHandle' returned 'kInvalidArguments'. Engine handle was invalid.
-        // 2024-11-11 11:41:11.546 RustDesk[90272:2567686] Failed to create a FlutterPlatformMessageResponseHandle (2)
-        // embedder.cc (2672): 'FlutterEngineSendPlatformMessage' returned 'kInvalidArguments'. Invalid engine handle.
-        // 2024-11-11 11:41:11.565 RustDesk[90272:2567686] Failed to send message to Flutter engine on channel 'flutter/lifecycle' (2).
-        // ```
-        periodic_immediate(
-          Duration(milliseconds: 30),
-          RdPlatformChannel.instance.terminate,
-        );
-      }
-    }
+    await windowManager.hide();
   }
+}
+
+Future<void> quitDesktopApp() async {
+  await saveWindowPosition(WindowType.Main);
+  await rustDeskWinManager.closeAllSubWindows();
+  await bind.mainSetLocalOption(key: 'desktop-shutdown', value: 'Y');
+  await RdPlatformChannel.instance.terminate();
 }
 
 Timer periodic_immediate(Duration duration, Future<void> Function() callback) {
@@ -3064,12 +3068,7 @@ Future<bool> callMainCheckSuperUserPermission() async {
 }
 
 Future<void> start_service(bool is_start) async {
-  bool checked = !bind.mainIsInstalled() ||
-      !isMacOS ||
-      await callMainCheckSuperUserPermission();
-  if (checked) {
-    await mainSetBoolOption(kOptionStopService, !is_start);
-  }
+  await mainSetBoolOption(kOptionStopService, !is_start);
 }
 
 Future<bool> canBeBlocked() async {

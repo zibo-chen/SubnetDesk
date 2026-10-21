@@ -78,14 +78,7 @@ use windows::Win32::{
         PROCESS_QUERY_LIMITED_INFORMATION as WIN_PROCESS_QUERY_LIMITED_INFORMATION,
     },
 };
-use windows_service::{
-    define_windows_service,
-    service::{
-        ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
-        ServiceType,
-    },
-    service_control_handler::{self, ServiceControlHandlerResult},
-};
+
 use winreg::{enums::*, RegKey};
 
 mod acl;
@@ -510,26 +503,13 @@ fn fix_cursor_mask(
     return true;
 }
 
-define_windows_service!(ffi_service_main, service_main);
-
-fn service_main(arguments: Vec<OsString>) {
-    if let Err(e) = run_service(arguments) {
-        log::error!("run_service failed: {}", e);
-    }
-}
-
 pub fn start_os_service() {
-    if let Err(e) =
-        windows_service::service_dispatcher::start(crate::get_app_name(), ffi_service_main)
-    {
-        log::error!("start_service failed: {}", e);
-    }
+    log::error!("System services are no longer supported; run the interactive application");
 }
-
-const SERVICE_TYPE: ServiceType = ServiceType::OWN_PROCESS;
 
 extern "C" {
     fn get_current_session(rdp: BOOL) -> DWORD;
+    fn LaunchSessionAgentWin(command: *const u16, session: DWORD, error: *mut DWORD) -> HANDLE;
     fn is_session_locked(session_id: DWORD) -> BOOL;
     fn LaunchProcessWin(
         cmd: *const u16,
@@ -624,174 +604,6 @@ fn authorize_service_scoped_ipc_connection(
 
 extern "system" {
     fn BlockInput(v: BOOL) -> BOOL;
-}
-
-#[tokio::main(flavor = "current_thread")]
-async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
-    let event_handler = move |control_event| -> ServiceControlHandlerResult {
-        log::info!("Got service control event: {:?}", control_event);
-        match control_event {
-            ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
-            ServiceControl::Stop | ServiceControl::Preshutdown | ServiceControl::Shutdown => {
-                send_close(crate::POSTFIX_SERVICE).ok();
-                ServiceControlHandlerResult::NoError
-            }
-            _ => ServiceControlHandlerResult::NotImplemented,
-        }
-    };
-
-    // Register system service event handler
-    let status_handle = service_control_handler::register(crate::get_app_name(), event_handler)?;
-
-    let next_status = ServiceStatus {
-        // Should match the one from system service registry
-        service_type: SERVICE_TYPE,
-        // The new state
-        current_state: ServiceState::Running,
-        // Accept stop events when running
-        controls_accepted: ServiceControlAccept::STOP,
-        // Used to report an error when starting or stopping only, otherwise must be zero
-        exit_code: ServiceExitCode::Win32(0),
-        // Only used for pending states, otherwise must be zero
-        checkpoint: 0,
-        // Only used for pending states, otherwise must be zero
-        wait_hint: Duration::default(),
-        process_id: None,
-    };
-
-    // Tell the system that the service is running now
-    status_handle.set_service_status(next_status)?;
-
-    let mut session_id = unsafe { get_current_session(share_rdp()) };
-    log::info!("session id {}", session_id);
-    let mut h_process = launch_server(session_id, true).await.unwrap_or(NULL);
-    let mut incoming = ipc::new_listener(crate::POSTFIX_SERVICE).await?;
-    let mut stored_usid = None;
-    loop {
-        let sids: Vec<_> = get_available_sessions(false)
-            .iter()
-            .map(|e| e.sid)
-            .collect();
-        if !sids.contains(&session_id) || !is_share_rdp() {
-            let current_active_session = unsafe { get_current_session(share_rdp()) };
-            if session_id != current_active_session {
-                session_id = current_active_session;
-                // https://github.com/rustdesk/rustdesk/discussions/10039
-                let count = ipc::get_port_forward_session_count(1000).await.unwrap_or(0);
-                if count == 0 {
-                    h_process = launch_server(session_id, true).await.unwrap_or(NULL);
-                }
-            }
-        }
-        let res = timeout(super::SERVICE_INTERVAL, incoming.next()).await;
-        match res {
-            Ok(res) => match res {
-                Some(Ok(stream)) => {
-                    let mut stream = ipc::Connection::new(stream);
-                    // Keep IPC authorization consistent with the session we are currently serving.
-                    // Recompute expected session right before authorization to avoid using a stale
-                    // session_id after awaiting incoming.next().
-                    let expected_active_session_id =
-                        resolve_expected_active_session_id_for_service(session_id);
-                    if !authorize_service_scoped_ipc_connection(&stream, expected_active_session_id)
-                    {
-                        continue;
-                    }
-                    if let Ok(Some(data)) = stream.next_timeout(1000).await {
-                        match data {
-                            ipc::Data::Close => {
-                                log::info!("close received");
-                                break;
-                            }
-                            ipc::Data::SAS => {
-                                send_sas();
-                            }
-                            ipc::Data::UserSid(usid) => {
-                                if let Some(usid) = usid {
-                                    if session_id != usid {
-                                        log::info!(
-                                            "session changed from {} to {}",
-                                            session_id,
-                                            usid
-                                        );
-                                        session_id = usid;
-                                        stored_usid = Some(session_id);
-                                        h_process =
-                                            launch_server(session_id, true).await.unwrap_or(NULL);
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {}
-            },
-            Err(_) => {
-                // timeout
-                unsafe {
-                    let tmp = get_current_session(share_rdp());
-                    if tmp == 0xFFFFFFFF {
-                        continue;
-                    }
-                    let mut close_sent = false;
-                    if tmp != session_id && stored_usid != Some(session_id) {
-                        log::info!("session changed from {} to {}", session_id, tmp);
-                        session_id = tmp;
-                        let count = ipc::get_port_forward_session_count(1000).await.unwrap_or(0);
-                        if count == 0 {
-                            send_close_async("").await.ok();
-                            close_sent = true;
-                        }
-                    }
-                    let mut exit_code: DWORD = 0;
-                    if h_process.is_null()
-                        || (GetExitCodeProcess(h_process, &mut exit_code) == TRUE
-                            && exit_code != STILL_ACTIVE
-                            && CloseHandle(h_process) == TRUE)
-                    {
-                        match launch_server(session_id, !close_sent).await {
-                            Ok(ptr) => {
-                                h_process = ptr;
-                            }
-                            Err(err) => {
-                                log::error!("Failed to launch server: {}", err);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if !h_process.is_null() {
-        send_close_async("").await.ok();
-        unsafe { CloseHandle(h_process) };
-    }
-
-    status_handle.set_service_status(ServiceStatus {
-        service_type: SERVICE_TYPE,
-        current_state: ServiceState::Stopped,
-        controls_accepted: ServiceControlAccept::empty(),
-        exit_code: ServiceExitCode::Win32(0),
-        checkpoint: 0,
-        wait_hint: Duration::default(),
-        process_id: None,
-    })?;
-
-    Ok(())
-}
-
-async fn launch_server(session_id: DWORD, close_first: bool) -> ResultType<HANDLE> {
-    if close_first {
-        // in case started some elsewhere
-        send_close_async("").await.ok();
-    }
-    let cmd = format!(
-        "\"{}\" --server",
-        std::env::current_exe()?.to_str().unwrap_or("")
-    );
-    launch_privileged_process(session_id, &cmd)
 }
 
 pub fn launch_privileged_process(session_id: DWORD, cmd: &str) -> ResultType<HANDLE> {
@@ -913,89 +725,10 @@ async fn send_close_async(postfix: &str) -> ResultType<()> {
 // https://www.cnblogs.com/doutu/p/4892726.html
 pub fn send_sas() {
     #[link(name = "sas")]
-    extern "system" {
-        pub fn SendSAS(AsUser: BOOL);
-    }
-    unsafe {
-        log::info!("SAS received");
-
-        // Check and temporarily set SoftwareSASGeneration if needed
-        let mut original_value: Option<u32> = None;
-        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-
-        if let Ok(policy_key) = hklm.open_subkey_with_flags(
-            "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
-            KEY_READ | KEY_WRITE,
-        ) {
-            // Read current value
-            match policy_key.get_value::<u32, _>("SoftwareSASGeneration") {
-                Ok(value) => {
-                    /*
-                    - 0 = None (disabled)
-                    - 1 = Services
-                    - 2 = Ease of Access applications
-                    - 3 = Services and Ease of Access applications (Both)
-                                      */
-                    if value != 1 && value != 3 {
-                        original_value = Some(value);
-                        log::info!("SoftwareSASGeneration is {}, setting to 1", value);
-                        // Set to 1 for SendSAS to work
-                        if let Err(e) = policy_key.set_value("SoftwareSASGeneration", &1u32) {
-                            log::error!("Failed to set SoftwareSASGeneration: {}", e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::info!(
-                        "SoftwareSASGeneration not found or error reading: {}, setting to 1",
-                        e
-                    );
-                    original_value = Some(0); // Mark that we need to restore (delete) it
-                                              // Create and set to 1
-                    if let Err(e) = policy_key.set_value("SoftwareSASGeneration", &1u32) {
-                        log::error!("Failed to set SoftwareSASGeneration: {}", e);
-                    }
-                }
-            }
-        } else {
-            log::error!("Failed to open registry key for SoftwareSASGeneration");
-        }
-
-        // Send SAS
-        SendSAS(FALSE);
-
-        // Restore original value if we changed it
-        if let Some(original) = original_value {
-            if let Ok(policy_key) = hklm.open_subkey_with_flags(
-                "Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
-                KEY_WRITE,
-            ) {
-                if original == 0 {
-                    // It didn't exist before, delete it
-                    if let Err(e) = policy_key.delete_value("SoftwareSASGeneration") {
-                        log::error!("Failed to delete SoftwareSASGeneration: {}", e);
-                    } else {
-                        log::info!("Deleted SoftwareSASGeneration (restored to original state)");
-                    }
-                } else {
-                    // Restore the original value
-                    if let Err(e) = policy_key.set_value("SoftwareSASGeneration", &original) {
-                        log::error!(
-                            "Failed to restore SoftwareSASGeneration to {}: {}",
-                            original,
-                            e
-                        );
-                    } else {
-                        log::info!("Restored SoftwareSASGeneration to {}", original);
-                    }
-                }
-            }
-        }
-    }
-}
-
-lazy_static::lazy_static! {
-    static ref SUPPRESS: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
+    extern "system" { fn SendSAS(as_user: BOOL); }
+    // The OS decides whether this signed/authorized caller may send SAS.
+    // A portable application must not change the machine's security policy.
+    unsafe { SendSAS(if is_root() { FALSE } else { TRUE }); }
 }
 
 pub fn desktop_changed() -> bool {
@@ -2321,10 +2054,16 @@ pub fn elevate(arg: &str) -> ResultType<bool> {
 }
 
 pub fn run_as_system(arg: &str) -> ResultType<()> {
-    let exe = std::env::current_exe()?.to_string_lossy().to_string();
-    if impersonate_system::run_as_system(&exe, arg).is_err() {
-        bail!(format!("Failed to run {} as system", exe));
+    let exe = std::env::current_exe()?;
+    let session = get_current_process_session_id()
+        .ok_or_else(|| hbb_common::anyhow::anyhow!("Cannot determine the interactive session"))?;
+    let command = wide_string(&format!("\"{}\" {}", exe.display(), arg));
+    let mut error = 0;
+    let process = unsafe { LaunchSessionAgentWin(command.as_ptr(), session, &mut error) };
+    if process.is_null() {
+        return Err(io::Error::from_raw_os_error(error as i32).into());
     }
+    unsafe { CloseHandle(process); }
     Ok(())
 }
 
@@ -2349,6 +2088,11 @@ pub fn elevate_or_run_as_system(is_setup: bool, is_elevate: bool, is_run_as_syst
         "--run-as-system"
     }
     .to_owned();
+    if let Some(paths) = hbb_common::app_paths::get() {
+        let data_arg = format!(" \"--data-dir={}\"", paths.root.display());
+        arg_elevate.push_str(&data_arg);
+        arg_run_as_system.push_str(&data_arg);
+    }
     let shmem_name_from_args = crate::portable_service::portable_service_shmem_name_from_args();
     if shmem_name_from_args.is_none() && crate::portable_service::has_portable_service_shmem_arg() {
         log::error!("Invalid portable service shared memory argument, aborting elevation flow");

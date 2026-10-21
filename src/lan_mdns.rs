@@ -212,6 +212,7 @@ fn announcement_properties(
         ("v".to_owned(), PROTOCOL_VERSION.to_string()),
         ("name".to_owned(), safe_display_name(display_name)),
         ("os".to_owned(), normalize_platform(platform)),
+        ("device_type".to_owned(), crate::device_type::local().to_owned()),
         ("fp".to_owned(), fingerprint.to_ascii_lowercase()),
     ])
 }
@@ -286,6 +287,9 @@ fn peer_from_mdns_fields(
         fingerprint,
         hostname,
         platform,
+        device_type: crate::device_type::normalize(
+            properties.get("device_type").map(String::as_str).unwrap_or_default()
+        ).to_owned(),
         username: String::new(),
         online: true,
         ip_mac,
@@ -437,7 +441,7 @@ mod tests {
         let properties = announcement_properties("Office PC", "Windows", REMOTE_FINGERPRINT);
         assert_eq!(
             properties.keys().cloned().collect::<std::collections::BTreeSet<_>>(),
-            ["fp", "name", "os", "v"]
+            ["device_type", "fp", "name", "os", "v"]
                 .into_iter()
                 .map(str::to_owned)
                 .collect()
@@ -469,6 +473,20 @@ mod tests {
         assert_eq!(peer.fingerprint, REMOTE_FINGERPRINT);
         assert!(peer.username.is_empty());
         assert!(peer.online);
+        assert!(peer.device_type.is_empty());
+    }
+
+    #[test]
+    fn resolved_peer_preserves_known_hardware_and_ignores_unknown_types() {
+        let mut properties = valid_properties();
+        let addresses = ["192.168.1.24".parse().unwrap()];
+        for (advertised, expected) in [("tablet", "tablet"), ("server", "server"), ("future", "")] {
+            properties.insert("device_type".to_owned(), advertised.to_owned());
+            let peer = peer_from_mdns_fields(
+                LOCAL_FINGERPRINT, "office-pc.local.", 21_118, &addresses, &properties,
+            ).unwrap();
+            assert_eq!(peer.device_type, expected);
+        }
     }
 
     #[test]

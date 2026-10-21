@@ -47,8 +47,9 @@ use hbb_common::{
 use hbb_common::{tokio::sync::Mutex as TokioMutex, ResultType};
 use scrap::CodecFormat;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     ffi::c_void,
+    future::Future,
     num::NonZeroI64,
     path::PathBuf,
     sync::{
@@ -57,10 +58,42 @@ use std::{
     },
 };
 
+#[derive(Debug, PartialEq)]
+enum LanLoginOutcome {
+    Ready,
+    Cancelled,
+    TimedOut,
+}
+
+// A credential-store call may block on OS authorization. Keep cancellation
+// responsive and bound the wait without dropping other queued UI messages.
+async fn wait_for_lan_login(
+    login: impl Future<Output = ()>,
+    receiver: &mut mpsc::UnboundedReceiver<Data>,
+    pending: &mut VecDeque<Data>,
+    limit: Duration,
+) -> LanLoginOutcome {
+    tokio::pin!(login);
+    let deadline = time::sleep(limit);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut deadline => return LanLoginOutcome::TimedOut,
+            message = receiver.recv() => match message {
+                None | Some(Data::Close) => return LanLoginOutcome::Cancelled,
+                Some(message) => pending.push_back(message),
+            },
+            _ = &mut login => return LanLoginOutcome::Ready,
+        }
+    }
+}
+
 pub struct Remote<T: InvokeUiSession> {
     handler: Session<T>,
     audio_sender: MediaSender,
     receiver: mpsc::UnboundedReceiver<Data>,
+    pending_ui_messages: VecDeque<Data>,
     sender: mpsc::UnboundedSender<Data>,
     // Stop sending local audio to remote client.
     stop_voice_call_sender: Option<std::sync::mpsc::Sender<()>>,
@@ -111,6 +144,7 @@ impl<T: InvokeUiSession> Remote<T> {
             handler,
             audio_sender: crate::client::start_audio_thread(),
             receiver,
+            pending_ui_messages: VecDeque::new(),
             sender,
             read_jobs: Vec::new(),
             write_jobs: Vec::new(),
@@ -186,7 +220,10 @@ impl<T: InvokeUiSession> Remote<T> {
                 }
                 let fingerprint = crate::lan_protocol::fingerprint(&device_public_key);
                 self.handler.get_lch().write().unwrap().lan_fingerprint = fingerprint.clone();
-                self.handler.send_initial_lan_login(&mut peer).await;
+                if !self.send_initial_lan_login(&mut peer).await {
+                    self.handle_disconnected(round);
+                    return;
+                }
                 self.handler
                     .connection_round_state
                     .lock()
@@ -232,6 +269,16 @@ impl<T: InvokeUiSession> Remote<T> {
                 let mut last_recv_time = Instant::now();
 
                 loop {
+                    let mut cancelled = false;
+                    while let Some(data) = self.pending_ui_messages.pop_front() {
+                        if !self.handle_msg_from_ui(data, &mut peer).await {
+                            cancelled = true;
+                            break;
+                        }
+                    }
+                    if cancelled {
+                        break;
+                    }
                     tokio::select! {
                         res = peer.next() => {
                             if let Some(res) = res {
@@ -549,6 +596,30 @@ impl<T: InvokeUiSession> Remote<T> {
         self.sent_close_reason = true;
     }
 
+    async fn send_initial_lan_login(&mut self, peer: &mut Stream) -> bool {
+        match wait_for_lan_login(
+            self.handler.send_initial_lan_login(peer),
+            &mut self.receiver,
+            &mut self.pending_ui_messages,
+            Duration::from_secs(10),
+        )
+        .await
+        {
+            LanLoginOutcome::Ready => true,
+            LanLoginOutcome::Cancelled => false,
+            LanLoginOutcome::TimedOut => {
+                log::warn!("LAN login timed out while waiting for the system credential store");
+                self.handler.msgbox(
+                    "error",
+                    "Login Error",
+                    "Timed out reading saved credentials. Check access to your system credential store, then reconnect.",
+                    "",
+                );
+                false
+            }
+        }
+    }
+
     async fn handle_msg_from_ui(&mut self, data: Data, peer: &mut Stream) -> bool {
         match data {
             Data::Close => {
@@ -561,7 +632,7 @@ impl<T: InvokeUiSession> Remote<T> {
                     .await;
             }
             Data::SubmitLanCredentials => {
-                self.handler.send_initial_lan_login(peer).await;
+                return self.send_initial_lan_login(peer).await;
             }
             #[cfg(all(target_os = "windows", not(feature = "flutter")))]
             Data::ToggleClipboardFile => {
@@ -2353,5 +2424,83 @@ impl Drop for VideoThread {
     fn drop(&mut self) {
         // since channels are buffered, messages sent before the disconnect will still be properly received.
         *self.discard_queue.write().unwrap() = true;
+    }
+}
+
+#[cfg(test)]
+mod lan_login_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stalled_credential_store_times_out() {
+        let (_sender, mut receiver) = mpsc::unbounded_channel();
+        let mut pending = VecDeque::new();
+        assert_eq!(
+            wait_for_lan_login(
+                std::future::pending(),
+                &mut receiver,
+                &mut pending,
+                Duration::from_millis(10),
+            )
+            .await,
+            LanLoginOutcome::TimedOut,
+        );
+    }
+
+    #[tokio::test]
+    async fn close_cancels_a_stalled_credential_store() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let mut pending = VecDeque::new();
+        sender.send(Data::Close).unwrap();
+        assert_eq!(
+            wait_for_lan_login(
+                std::future::pending(),
+                &mut receiver,
+                &mut pending,
+                Duration::from_secs(10),
+            )
+            .await,
+            LanLoginOutcome::Cancelled,
+        );
+    }
+
+    #[tokio::test]
+    async fn successful_login_preserves_queued_ui_messages() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let mut pending = VecDeque::new();
+        sender.send(Data::SubmitLanCredentials).unwrap();
+        sender.send(Data::TrustLanDevice).unwrap();
+        assert_eq!(
+            wait_for_lan_login(
+                std::future::ready(()),
+                &mut receiver,
+                &mut pending,
+                Duration::from_secs(10),
+            )
+            .await,
+            LanLoginOutcome::Ready,
+        );
+        assert!(matches!(
+            pending.pop_front(),
+            Some(Data::SubmitLanCredentials)
+        ));
+        assert!(matches!(pending.pop_front(), Some(Data::TrustLanDevice)));
+        assert!(pending.is_empty());
+    }
+
+    #[tokio::test]
+    async fn closed_ui_channel_cancels_login() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        drop(sender);
+        assert_eq!(
+            wait_for_lan_login(
+                std::future::pending(),
+                &mut receiver,
+                &mut VecDeque::new(),
+                Duration::from_secs(10),
+            )
+            .await,
+            LanLoginOutcome::Cancelled,
+        );
     }
 }

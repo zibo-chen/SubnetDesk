@@ -12,10 +12,6 @@ rust-version = "1.75"
 name = "librustdesk"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
-[[bin]]
-name = "service"
-path = "src/service.rs"
-
 [features]
 inline = []
 use_samplerate = ["samplerate"]
@@ -119,6 +115,9 @@ winapi = { version = "0.3", features = [
     "pdh",
     "synchapi",
     "memoryapi",
+    "winerror",
+    "handleapi",
+    "errhandlingapi",
     "shellapi",
     "devguid",
     "setupapi",
@@ -143,11 +142,8 @@ windows = { version = "0.61", features = [
     "Win32_UI_Shell",
 ] }
 winreg = "0.11"
-windows-service = "0.6"
 virtual_display = { path = "libs/virtual_display" }
 legacy_printer_cleanup = { path = "libs/remote_printer" }
-impersonate_system = { git = "https://github.com/rustdesk-org/impersonate-system" }
-shared_memory = "0.12"
 tauri-winrt-notification = "0.1"
 runas = "1.2"
 
@@ -166,7 +162,6 @@ piet-coregraphics = "0.6"
 foreign-types = "0.3"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
-tray-icon = { git = "https://github.com/tauri-apps/tray-icon", version = "0.21.3" }
 tao = { git = "https://github.com/rustdesk-org/tao", branch = "dev" }
 image = "0.24"
 keyring = { version = "2.3.3", default-features = false, features = [

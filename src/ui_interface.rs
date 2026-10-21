@@ -140,6 +140,10 @@ pub fn refresh_options() {
 #[inline]
 pub fn get_option<T: AsRef<str>>(key: T) -> String {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if crate::desktop_runtime::is_host() {
+        return Config::get_option(key.as_ref());
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         let map = OPTIONS.lock().unwrap();
         if let Some(v) = map.get(key.as_ref()) {
@@ -288,6 +292,10 @@ pub fn set_peer_option(id: String, name: String, value: String) {
 
 #[inline]
 pub fn get_options() -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if crate::desktop_runtime::is_host() {
+        return serde_json::to_string(&Config::get_options()).unwrap_or_default();
+    }
     let options = {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
@@ -359,6 +367,12 @@ pub fn get_sound_inputs() -> Vec<String> {
 #[inline]
 pub fn set_options(m: HashMap<String, String>) {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if crate::desktop_runtime::is_host() {
+        let _restart = ipc::CheckIfRestart::new();
+        Config::set_options(m);
+        return;
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         *OPTIONS.lock().unwrap() = m.clone();
         ipc::set_options(m).ok();
@@ -367,57 +381,17 @@ pub fn set_options(m: HashMap<String, String>) {
     Config::set_options(m);
 }
 
-#[cfg(any(target_os = "windows", test))]
-fn should_start_portable_service(is_installed: bool, value: &str, running: bool) -> bool {
-    !is_installed && value != "Y" && !running
-}
-
-#[cfg(target_os = "windows")]
-fn start_portable_service_if_needed(value: &str) {
-    if !should_start_portable_service(
-        crate::platform::is_installed(),
-        value,
-        crate::portable_service::client::running(),
-    ) {
-        return;
-    }
-    if let Err(err) = crate::portable_service::client::start_portable_service(
-        crate::portable_service::client::StartPara::Direct,
-    ) {
-        log::warn!("Failed to start Windows portable service: {err}");
-    }
-}
-
 #[inline]
 pub fn set_option(key: String, value: String) {
-    if &key == "stop-service" {
-        #[cfg(target_os = "macos")]
-        {
-            let is_stop = value == "Y";
-            if is_stop && crate::platform::uninstall_service(true, false) {
-                return;
-            }
-        }
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        {
-            if crate::platform::is_installed() {
-                if value == "Y" {
-                    if crate::platform::uninstall_service(true, false) {
-                        return;
-                    }
-                } else {
-                    if crate::platform::install_service() {
-                        return;
-                    }
-                }
-                return;
-            }
-            #[cfg(target_os = "windows")]
-            start_portable_service_if_needed(&value);
-        }
-    } else if &key == "audio-input" {
+    if &key == "audio-input" {
         #[cfg(not(target_os = "ios"))]
         crate::audio_service::restart();
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if crate::desktop_runtime::is_host() {
+        let _restart = ipc::CheckIfRestart::new();
+        Config::set_option(key, value);
+        return;
     }
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
@@ -435,18 +409,6 @@ pub fn set_option(key: String, value: String) {
     }
 }
 
-#[cfg(test)]
-mod portable_service_tests {
-    use super::should_start_portable_service;
-
-    #[test]
-    fn portable_windows_enable_requests_elevation() {
-        assert!(should_start_portable_service(false, "", false));
-        assert!(!should_start_portable_service(false, "Y", false));
-        assert!(!should_start_portable_service(true, "", false));
-        assert!(!should_start_portable_service(false, "", true));
-    }
-}
 
 #[inline]
 pub fn install_path() -> String {
@@ -519,12 +481,23 @@ pub fn check_mouse_time() {
 #[inline]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn get_connect_status() -> UiStatus {
-    UI_STATUS.lock().unwrap().clone()
+    let mut status = UI_STATUS.lock().unwrap().clone();
+    if crate::desktop_runtime::is_host() {
+        status.status_num = if crate::lan_server::LanServer::is_running() { 1 } else { -1 };
+        #[cfg(feature = "flutter")]
+        { status.video_conn_count = crate::server::AUTHED_CONNS.lock().unwrap().iter()
+            .filter(|conn| conn.conn_type == crate::server::AuthConnType::Remote).count(); }
+    }
+    status
 }
 
 #[inline]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn get_lan_server_runtime_status() -> (String, String) {
+    if crate::desktop_runtime::is_host() {
+        let status = crate::lan_server::LanServer::runtime_status();
+        return (status.state, status.last_error);
+    }
     LAN_SERVER_RUNTIME_STATUS.lock().unwrap().clone()
 }
 
@@ -663,6 +636,7 @@ fn discovery_peer_to_json(peer: &config::DiscoveryPeer, now: i64) -> serde_json:
         "username": peer.username,
         "hostname": peer.hostname,
         "platform": peer.platform,
+        "device_type": peer.device_type,
         "fingerprint": peer.fingerprint,
         "online": peer.online_state(now),
         "last_seen": peer.last_seen,
@@ -777,6 +751,13 @@ pub fn get_langs() -> String {
 
 #[inline]
 pub fn video_save_directory(root: bool) -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if let Some(paths) = hbb_common::app_paths::get() {
+        let configured = LocalConfig::get_option(OPTION_VIDEO_SAVE_DIRECTORY);
+        return if configured.is_empty() {
+            paths.root.join("recordings").to_string_lossy().into_owned()
+        } else { configured };
+    }
     let appname = crate::get_app_name();
     // ui process can show it correctly Once vidoe process created it.
     let try_create = |path: &std::path::Path| {
@@ -1003,6 +984,10 @@ pub fn new_remote(id: String, remote_type: String, _force_relay: bool) {
 #[inline]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn start_option_status_sync() {
+    if crate::desktop_runtime::is_host() {
+        *OPTION_SYNCED.lock().unwrap() = true;
+        return;
+    }
     let _sender = SENDER.lock().unwrap();
 }
 
@@ -1027,6 +1012,10 @@ pub fn get_user_default_option(key: String) -> String {
 }
 
 pub fn get_fingerprint() -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if crate::desktop_runtime::is_host() {
+        return hbb_common::lan::device_fingerprint(&Config::get_key_pair().1);
+    }
     #[cfg(any(target_os = "android", target_os = "ios"))]
     return hbb_common::lan::device_fingerprint(&Config::get_key_pair().1);
     #[cfg(not(any(target_os = "android", target_os = "ios")))]

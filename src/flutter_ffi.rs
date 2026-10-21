@@ -930,6 +930,10 @@ pub fn main_get_sound_inputs() -> Vec<String> {
 }
 
 pub fn main_get_option(key: String) -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == "desktop-runtime" {
+        return crate::desktop_runtime::state();
+    }
     get_option(key)
 }
 
@@ -962,7 +966,6 @@ pub fn main_set_option(key: String, mut value: String) {
         "lan-listen-addresses"
             | "lan-listen-port"
             | "lan-allowed-networks"
-            | "lan-discovery-enabled"
             | "web-access-enabled"
             | "web-listen-port"
             | "web-certificate-path"
@@ -1250,6 +1253,8 @@ pub fn main_discover() {
 }
 
 pub fn main_get_local_option(key: String) -> SyncReturn<String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == "desktop-runtime" { return SyncReturn(crate::desktop_runtime::state()); }
     SyncReturn(get_local_option(key))
 }
 
@@ -1291,6 +1296,12 @@ pub fn main_set_env(key: String, value: Option<String>) -> SyncReturn<()> {
 }
 
 pub fn main_set_local_option(key: String, value: String) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    match key.as_str() {
+        "start-on-boot" => { crate::desktop_runtime::set_autostart(value == "Y"); return; },
+        "desktop-shutdown" => { crate::desktop_runtime::shutdown(); return; },
+        _ => {},
+    }
     let is_texture_render_key = key.eq(config::keys::OPTION_TEXTURE_RENDER);
     let is_d3d_render_key = key.eq(config::keys::OPTION_ALLOW_D3D_RENDER);
     set_local_option(key, value.clone());
@@ -1730,6 +1741,13 @@ pub fn main_get_fingerprint() -> String {
 
 pub fn main_get_lan_server_info() -> String {
     crate::lan_ui::lan_server_info()
+}
+
+pub fn main_request_host_permissions() -> String {
+    crate::host_permissions::request()
+        .err()
+        .map(|err| err.to_string())
+        .unwrap_or_default()
 }
 
 pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
@@ -2187,7 +2205,9 @@ pub fn main_is_installed_lower_version() -> SyncReturn<bool> {
 }
 
 pub fn main_is_installed_daemon(prompt: bool) -> SyncReturn<bool> {
-    SyncReturn(is_installed_daemon(prompt))
+    let _ = prompt;
+    // Kept for bridge ABI compatibility; the application no longer installs a daemon.
+    SyncReturn(true)
 }
 
 pub fn main_is_process_trusted(prompt: bool) -> SyncReturn<bool> {
@@ -2268,9 +2288,7 @@ pub fn install_install_options() -> SyncReturn<String> {
 }
 
 pub fn main_on_main_window_close() {
-    // may called more than one times
-    #[cfg(windows)]
-    crate::portable_service::client::drop_portable_service_shared_memory();
+    // Closing a window leaves the resident runtime and secure desktop agent alive.
 }
 
 pub fn main_current_is_wayland() -> SyncReturn<bool> {

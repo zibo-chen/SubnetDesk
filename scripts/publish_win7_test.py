@@ -48,19 +48,19 @@ def main():
         package = packages[0]
         name = package.stem
         report = json.loads((args.artifacts / f"{name}-imports.json").read_text())
-        if len(report) != 5 or any(r.get("errors") for r in report):
+        if len(report) != 4 or any(r.get("errors") for r in report):
             raise RuntimeError(f"{arch} PE report failed")
         with tempfile.TemporaryDirectory() as directory:
             payload = Path(directory)
             with zipfile.ZipFile(package) as archive:
                 if any(Path(m.filename).name != m.filename for m in archive.infolist()):
                     raise RuntimeError("Unexpected package paths")
-                required = {"rustdesk.exe", "service.exe", "sciter.dll", "sciter-license.htm",
+                required = {"rustdesk.exe", "sciter.dll", "sciter-license.htm",
                             "sciter-bindings-license.txt", "material-icons-license.txt", "material-icons-notice.txt"}
                 if not required.issubset(archive.namelist()):
                     raise RuntimeError("Missing package files or licenses")
                 archive.extractall(payload)
-            paths = [payload / f for f in ("rustdesk.exe", "service.exe", "sciter.dll")]
+            paths = [payload / f for f in ("rustdesk.exe", "sciter.dll")]
             paths += [args.artifacts / f"{name}.exe", args.artifacts / f"{name}-sciter-smoke.exe"]
             for path in paths:
                 errors = audit_win7_pe.violations(audit_win7_pe.inspect(path), arch)
@@ -70,7 +70,7 @@ def main():
             destination = output / f"{name}{suffix}"
             shutil.copyfile(args.artifacts / destination.name, destination)
             assets.append(destination)
-        print(f"{arch}: package contents and five PE files verified", flush=True)
+        print(f"{arch}: package contents and four PE files verified", flush=True)
     provenance = output / "github-ci-build.json"
     provenance.write_text(json.dumps(run, indent=2) + "\n", encoding="utf-8")
     assets.append(provenance)

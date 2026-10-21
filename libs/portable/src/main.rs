@@ -17,7 +17,7 @@ const APP_METADATA: &[u8] = include_bytes!("../app_metadata.toml");
 const APP_METADATA: &[u8] = &[];
 const APP_METADATA_CONFIG: &str = "meta.toml";
 const META_LINE_PREFIX_TIMESTAMP: &str = "timestamp = ";
-const APP_PREFIX: &str = "subnetdesk";
+const APP_PREFIX: &str = "app";
 const APPNAME_RUNTIME_ENV_KEY: &str = "RUSTDESK_APPNAME";
 #[cfg(windows)]
 const SET_FOREGROUND_WINDOW_ENV_KEY: &str = "SET_FOREGROUND_WINDOW";
@@ -25,7 +25,6 @@ const SET_FOREGROUND_WINDOW_ENV_KEY: &str = "SET_FOREGROUND_WINDOW";
 fn default_unpack_dir(data_local_dir: &Path) -> PathBuf {
     data_local_dir.join(APP_PREFIX)
 }
-
 fn is_timestamp_matches(dir: &Path, ts: &mut u64) -> bool {
     let Ok(app_metadata) = std::str::from_utf8(APP_METADATA) else {
         return true;
@@ -73,12 +72,9 @@ fn setup(
     let dir = if let Some(dir) = dir {
         dir
     } else {
-        // home dir
-        if let Some(dir) = dirs::data_local_dir() {
-            default_unpack_dir(&dir)
-        } else {
-            eprintln!("not found data local dir");
-            return None;
+        match std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)) {
+            Some(root) => default_unpack_dir(&root),
+            None => { eprintln!("Cannot locate the portable application directory"); return None; },
         }
     };
 
@@ -89,14 +85,17 @@ fn setup(
             *_ui = true;
             ui::setup();
         }
-        std::fs::remove_dir_all(&dir).ok();
+        // Keep userdata and the existing runtime intact until individual files are verified.
     }
     for file in reader.files.iter() {
-        file.write_to_file(&dir);
+        if let Err(err) = file.write_to_file(&dir) {
+            eprintln!("Cannot unpack {}: {err}", file.path);
+            #[cfg(windows)]
+            native_windows_gui::simple_message("SubnetDesk", &format!("Cannot unpack {}: {err}", file.path));
+            return None;
+        }
     }
     write_meta(&dir, ts);
-    #[cfg(windows)]
-    win::copy_runtime_broker(&dir);
     #[cfg(linux)]
     reader.configure_permission(&dir);
     Some(dir.join(&reader.exe))
@@ -142,8 +141,12 @@ fn execute(path: PathBuf, args: Vec<String>, _ui: bool) {
     let exe = std::env::current_exe().unwrap_or_default();
     let exe_name = exe.file_name().unwrap_or_default();
     // run executable
-    let mut cmd = Command::new(path);
+    let mut cmd = Command::new(&path);
     cmd.args(args);
+    if let Some(root) = exe.parent() {
+        cmd.env("SUBNETDESK_PORTABLE_ROOT", root);
+    }
+    if let Some(app_dir) = path.parent() { cmd.current_dir(app_dir); }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -163,53 +166,32 @@ fn execute(path: PathBuf, args: Vec<String>, _ui: bool) {
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
     }
-    let _child = cmd.spawn();
-
-    #[cfg(windows)]
-    if _ui {
-        match _child {
-            Ok(child) => unsafe {
-                winapi::um::winuser::AllowSetForegroundWindow(child.id() as u32);
-            },
-            Err(e) => {
-                eprintln!("{:?}", e);
-            }
+    match cmd.spawn() {
+        Ok(_child) => {
+            #[cfg(windows)]
+            if _ui { unsafe {
+                winapi::um::winuser::AllowSetForegroundWindow(_child.id() as u32);
+            } }
+        }
+        Err(err) => {
+            eprintln!("Cannot start {}: {err}", path.display());
+            #[cfg(windows)]
+            native_windows_gui::simple_message("SubnetDesk", &format!("Cannot start {}: {err}", path.display()));
         }
     }
 }
 
 fn main() {
-    let mut args = Vec::new();
-    let mut arg_exe = Default::default();
-    let mut i = 0;
-    for arg in std::env::args() {
-        if i == 0 {
-            arg_exe = arg.clone();
-        } else {
-            args.push(arg);
-        }
-        i += 1;
-    }
-    let click_setup = args.is_empty() && arg_exe.to_lowercase().ends_with("install.exe");
-    #[cfg(windows)]
-    let quick_support = args.is_empty() && win::is_quick_support_exe(&arg_exe);
-    #[cfg(not(windows))]
-    let quick_support = false;
-
+    let args: Vec<String> = std::env::args().skip(1).collect();
     let mut ui = false;
     let reader = BinaryReader::default();
     if let Some(exe) = setup(
         reader,
         None,
-        click_setup || args.contains(&"--silent-install".to_owned()),
+        false,
         &args,
         &mut ui,
     ) {
-        if click_setup {
-            args = vec!["--install".to_owned()];
-        } else if quick_support {
-            args = vec!["--quick_support".to_owned()];
-        }
         execute(exe, args, ui);
     }
 }
@@ -220,47 +202,10 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn default_unpack_dir_is_isolated_from_rustdesk() {
+    fn portable_runtime_stays_beside_the_launcher() {
         assert_eq!(
-            default_unpack_dir(Path::new(r"C:\Users\user\AppData\Local")),
-            Path::new(r"C:\Users\user\AppData\Local").join("subnetdesk")
+            default_unpack_dir(Path::new(r"D:\SubnetDesk")),
+            Path::new(r"D:\SubnetDesk").join("app")
         );
-    }
-}
-
-#[cfg(windows)]
-mod win {
-    use std::{fs, os::windows::process::CommandExt, path::Path, process::Command};
-
-    // Used for privacy mode(magnifier impl).
-    pub const RUNTIME_BROKER_EXE: &'static str = "C:\\Windows\\System32\\RuntimeBroker.exe";
-    pub const WIN_TOPMOST_INJECTED_PROCESS_EXE: &'static str = "RuntimeBroker_rustdesk.exe";
-
-    pub(super) fn copy_runtime_broker(dir: &Path) {
-        let src = RUNTIME_BROKER_EXE;
-        let tgt = WIN_TOPMOST_INJECTED_PROCESS_EXE;
-        let target_file = dir.join(tgt);
-        if target_file.exists() {
-            if let (Ok(src_file), Ok(tgt_file)) = (fs::read(src), fs::read(&target_file)) {
-                let src_md5 = format!("{:x}", md5::compute(&src_file));
-                let tgt_md5 = format!("{:x}", md5::compute(&tgt_file));
-                if src_md5 == tgt_md5 {
-                    return;
-                }
-            }
-        }
-        let _allow_err = Command::new("taskkill")
-            .args(&["/F", "/IM", "RuntimeBroker_rustdesk.exe"])
-            .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
-            .output();
-        let _allow_err = std::fs::copy(src, &format!("{}\\{}", dir.to_string_lossy(), tgt));
-    }
-
-    /// Check if the executable is a Quick Support version.
-    /// Note: This function must be kept in sync with `src/core_main.rs`.
-    #[inline]
-    pub(super) fn is_quick_support_exe(exe: &str) -> bool {
-        let exe = exe.to_lowercase();
-        exe.contains("-qs-") || exe.contains("-qs.exe") || exe.contains("_qs.exe")
     }
 }

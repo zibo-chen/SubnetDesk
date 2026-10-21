@@ -8,6 +8,7 @@ class Peer {
   String username; // pc username
   String hostname;
   String platform;
+  String deviceType;
   String alias;
   String fingerprint;
   String rdpPort;
@@ -29,6 +30,7 @@ class Peer {
         username = json['username'] ?? '',
         hostname = json['hostname'] ?? '',
         platform = json['platform'] ?? '',
+        deviceType = json['device_type'] is String ? json['device_type'] : '',
         alias = json['alias'] ?? '',
         fingerprint = json['fingerprint'] ?? '',
         rdpPort = json['rdpPort'] ?? '',
@@ -44,6 +46,7 @@ class Peer {
       "username": username,
       "hostname": hostname,
       "platform": platform,
+      "device_type": deviceType,
       "alias": alias,
       "fingerprint": fingerprint,
       "rdpPort": rdpPort,
@@ -59,6 +62,7 @@ class Peer {
     required this.username,
     required this.hostname,
     required this.platform,
+    this.deviceType = '',
     required this.alias,
     required this.fingerprint,
     required this.rdpPort,
@@ -81,6 +85,7 @@ class Peer {
         username == other.username &&
         hostname == other.hostname &&
         platform == other.platform &&
+        deviceType == other.deviceType &&
         alias == other.alias &&
         fingerprint == other.fingerprint &&
         rdpPort == other.rdpPort &&
@@ -93,6 +98,7 @@ class Peer {
         username: other.username,
         hostname: other.hostname,
         platform: other.platform,
+        deviceType: other.deviceType,
         alias: other.alias,
         fingerprint: other.fingerprint,
         rdpPort: other.rdpPort,

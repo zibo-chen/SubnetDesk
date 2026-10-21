@@ -41,8 +41,19 @@ class RdPlatformChannel {
 
   /// Terminate .app manually.
   Future<void> terminate() {
-    assert(isMacOS);
     return _hostMethodChannel.invokeMethod("terminate");
+  }
+
+  Future<void> configureDesktopRuntime(
+    Map<String, dynamic> options,
+    Future<void> Function(String action) onAction,
+  ) async {
+    _hostMethodChannel.setMethodCallHandler((call) async {
+      if (call.method == 'desktopAction' && call.arguments is String) {
+        await onAction(call.arguments as String);
+      }
+    });
+    await _hostMethodChannel.invokeMethod('configureDesktopRuntime', options);
   }
 
   Future<LocalNetworkPermissionStatus> checkLocalNetworkPermission() async {

@@ -91,6 +91,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   // Uri links dispatch
   HWND hwnd = ::FindWindowW(getWindowClassName(), app_name.c_str());
+  const bool existing_instance = std::find(rust_args.begin(), rust_args.end(), "--existing-instance") != rust_args.end();
+  if (existing_instance) {
+    for (int attempt = 0; !hwnd && attempt < 60; ++attempt) {
+      Sleep(50);
+      hwnd = ::FindWindowW(getWindowClassName(), app_name.c_str());
+    }
+    if (!hwnd) return EXIT_FAILURE;
+  }
   if (hwnd != NULL) {
     // Allow multiple flutter instances when being executed by parameters
     // contained in whitelists.
@@ -103,6 +111,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                     whitelist_param) != command_line_arguments.end();
     }
     if (!allow_multiple_instances) {
+      if (std::find(command_line_arguments.begin(), command_line_arguments.end(), "--background") != command_line_arguments.end()) {
+        return EXIT_SUCCESS;
+      }
       if (!command_line_arguments.empty()) {
         // Dispatch command line arguments
         SendAppLink(hwnd);

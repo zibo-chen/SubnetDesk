@@ -96,7 +96,7 @@ lazy_static::lazy_static! {
     static ref IS_SERVER: bool = std::env::args().nth(1) == Some("--server".to_owned());
     // Is server logic running. The server code can invoked to run by the main process if --server is not running.
     static ref SERVER_RUNNING: Arc<RwLock<bool>> = Default::default();
-    static ref IS_MAIN: bool = std::env::args().nth(1).map_or(true, |arg| !arg.starts_with("--"));
+    static ref IS_MAIN: bool = std::env::args().skip(1).all(|arg| !arg.starts_with("--") || matches!(arg.as_str(), "--background" | "--portable" | "--data-dir") || arg.starts_with("--data-dir="));
     static ref IS_CM: bool = std::env::args().nth(1) == Some("--cm".to_owned()) || std::env::args().nth(1) == Some("--cm-no-ui".to_owned());
 }
 
@@ -212,6 +212,8 @@ pub fn is_support_relative_mouse_mode_num(ver: i64) -> bool {
 // is server process, with "--server" args
 #[inline]
 pub fn is_server() -> bool {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if crate::desktop_runtime::is_host() { return true; }
     *IS_SERVER
 }
 

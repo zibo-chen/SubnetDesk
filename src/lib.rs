@@ -18,12 +18,14 @@ pub mod common;
 pub mod ipc;
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
 mod diagnostics;
+mod device_type;
 mod lan;
 mod lan_identity;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod lan_mdns;
 mod lan_protocol;
 mod lan_ui;
+mod host_permissions;
 mod lan_server;
 #[cfg(all(
     feature = "flutter",
@@ -48,6 +50,8 @@ use common::*;
 mod clipboard;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod core_main;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod desktop_runtime;
 mod lang;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod port_forward;
@@ -55,9 +59,6 @@ mod port_forward;
 #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod plugin;
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-mod tray;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod whiteboard;

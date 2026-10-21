@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Sciter app, service and portable launcher for a dedicated Win7 target."""
+"""Build the Sciter app and portable launcher for a dedicated Win7 target."""
 import argparse
 import hashlib
 import json
@@ -78,7 +78,7 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "target" / "win7-dist")
     parser.add_argument("--print-commands", action="store_true")
     args = parser.parse_args()
-    commands = [cargo_command(args.arch, "-p", "rustdesk", "--features", "inline", "--bin", "rustdesk", "--bin", "service"),
+    commands = [cargo_command(args.arch, "-p", "rustdesk", "--features", "inline", "--bin", "rustdesk"),
                 cargo_command(args.arch, "-p", "sciter-rs", "--example", "win7_smoke"),
                 cargo_command(args.arch, "-p", "rustdesk-portable-packer")]
     if args.print_commands:
@@ -134,7 +134,7 @@ def main():
         shutil.rmtree(payload)
     payload.mkdir()
     release = Path(env["CARGO_TARGET_DIR"]) / TARGETS[args.arch] / "release"
-    for file in ("rustdesk.exe", "service.exe"):
+    for file in ("rustdesk.exe",):
         shutil.copy2(release / file, payload / file)
     sciter_dll(args.arch, payload / "sciter.dll")
     shutil.copy2(ROOT / "res/win7/sciter-license.htm", payload / "sciter-license.htm")
