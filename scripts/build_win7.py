@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Sciter app and portable launcher for a dedicated Win7 target."""
+"""Build the shared Flutter UI with RustDesk's custom Win7 x64 engine."""
 import argparse
 import hashlib
 import json
@@ -10,16 +10,14 @@ import shutil
 import subprocess
 import sys
 import re
-import urllib.request
+import zipfile
+
+import audit_win7_pe
+import prepare_win7_flutter
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLCHAIN = "nightly-2025-08-01"  # Rust 1.90.0 nightly; rust-src is required.
 TARGETS = {"x64": "x86_64-win7-windows-msvc", "x86": "i686-win7-windows-msvc"}
-SDK_COMMIT = "f33df075d9eb2f8d252cb88f1b2c8096e56197ed"
-SCITER_SHA256 = {
-    "x64": "4d97528e157c55ef1fabe9e37a9697116ab66660d7da6163f90a3a7abf80dd56",
-    "x86": "285f3e6a051a7c61845cd7e4d2120781b6bdf411239f70a85c65b38a52d38f28",
-}
 
 
 def cargo_command(arch, *args):
@@ -62,100 +60,119 @@ def win7_sodium_library_path(arch, cargo_home, lock_file=ROOT / "Cargo.lock"):
     return paths[0]
 
 
-def sciter_dll(arch, destination):
-    platform = "x64" if arch == "x64" else "x32"
-    url = f"https://raw.githubusercontent.com/c-smile/sciter-sdk/{SDK_COMMIT}/bin.win/{platform}/sciter.dll"
-    with urllib.request.urlopen(url, timeout=120) as response:
-        data = response.read()
-    if hashlib.sha256(data).hexdigest() != SCITER_SHA256[arch]:
-        raise RuntimeError("Sciter DLL checksum does not match the pinned SDK")
-    destination.write_bytes(data)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--arch", required=True, choices=TARGETS)
-    parser.add_argument("--output", type=Path, default=ROOT / "target" / "win7-dist")
+    parser.add_argument("--arch", choices=("x64",), default="x64")
+    parser.add_argument("--output", type=Path, default=ROOT / "target/win7-dist")
+    parser.add_argument("--workspace", type=Path, default=ROOT / "target/win7-flutter/build")
+    parser.add_argument("--flutter-sdk", type=Path)
     parser.add_argument("--print-commands", action="store_true")
     args = parser.parse_args()
-    commands = [cargo_command(args.arch, "-p", "rustdesk", "--features", "inline", "--bin", "rustdesk"),
-                cargo_command(args.arch, "-p", "sciter-rs", "--example", "win7_smoke"),
-                cargo_command(args.arch, "-p", "rustdesk-portable-packer")]
+    command = cargo_command(args.arch, "-p", "rustdesk", "--features", "flutter,software-update", "--lib")
     if args.print_commands:
-        for command in commands:
-            print(subprocess.list2cmdline(command))
+        print(subprocess.list2cmdline(command))
+        print("flutter build windows --release --no-pub (RustDesk custom engine "
+              + prepare_win7_flutter.ENGINE["flutter_version"] + ")")
         return
     if sys.platform != "win32":
-        parser.error("Run from an MSVC developer shell on Windows 10/11; do not build on Windows 7")
+        parser.error("Build on a Windows 10/11 MSVC developer shell or GitHub Windows runner")
     if not os.environ.get("VCPKG_ROOT") or not os.environ.get("VCPKG_INSTALLED_ROOT"):
-        parser.error("Set VCPKG_ROOT and VCPKG_INSTALLED_ROOT to the Win7-specific dependency tree")
+        parser.error("Set the isolated Win7 VCPKG_ROOT and VCPKG_INSTALLED_ROOT")
     if os.environ.get("RUSTFLAGS") or os.environ.get("CARGO_ENCODED_RUSTFLAGS"):
-        parser.error("Unset RUSTFLAGS/CARGO_ENCODED_RUSTFLAGS so .cargo/config.toml applies")
+        parser.error("Unset RUSTFLAGS/CARGO_ENCODED_RUSTFLAGS so the dedicated Win7 target flags apply")
+    sdk = args.flutter_sdk or Path(os.environ.get("FLUTTER_ROOT", ""))
+    flutter = sdk / "bin/flutter.bat"
+    if not flutter.is_file():
+        parser.error("Pass --flutter-sdk pointing to Flutter " + prepare_win7_flutter.ENGINE["flutter_version"])
+    args.workspace = args.workspace.resolve()
+    if args.workspace.exists():
+        if not (args.workspace / "ui-compatibility.json").is_file():
+            parser.error("Existing workspace was not prepared by prepare_win7_flutter.py")
+        ui = args.workspace / "flutter"
+    else:
+        ui = prepare_win7_flutter.prepare(args.workspace)
+    ui_metadata = json.loads((args.workspace / "ui-compatibility.json").read_text())
+    if ui_metadata["source_sha256"] != prepare_win7_flutter.ui_source_hash():
+        parser.error("The prepared UI is stale; choose a new workspace for the current sources")
     env = os.environ.copy()
-    env["CARGO_TARGET_DIR"] = str(ROOT / "target" / "win7")
+    env["CARGO_TARGET_DIR"] = str(ROOT / "target/win7-flutter/native")
+    env["SUBNETDESK_WIN7"] = "1"
     for key in ("CFLAGS", "CXXFLAGS"):
         env[key] = env.get(key, "") + " /D_WIN32_WINNT=0x0601 /DWINVER=0x0601"
-    run = lambda command: subprocess.run(command, cwd=ROOT, env=env, check=True)
-    # Fetch import-library packages whose old manifests list only pc/uwp targets.
-    # This fetch does not compile an ordinary Windows target or its standard library.
-    native_target = "x86_64-pc-windows-msvc" if args.arch == "x64" else "i686-pc-windows-msvc"
-    run(["cargo", f"+{TOOLCHAIN}", "fetch", "--locked", "--target", native_target])
+    def run(arguments, cwd=ROOT):
+        subprocess.run([str(value) for value in arguments], cwd=cwd, env=env, check=True)
+    run(["cargo", f"+{TOOLCHAIN}", "fetch", "--locked", "--target", "x86_64-pc-windows-msvc"])
     cargo_home = Path(env.get("CARGO_HOME", str(Path.home() / ".cargo")))
     import_paths = win7_import_library_paths(args.arch, cargo_home)
     sodium_path = win7_sodium_library_path(args.arch, cargo_home)
-    # Global SODIUM_LIB_DIR also affects x64 host build dependencies for x86 builds.
-    # Cargo links overrides apply only to the dedicated target.
     for key in ("SODIUM_LIB_DIR", "SODIUM_SHARED", "SODIUM_USE_PKG_CONFIG", "SODIUM_STATIC"):
         env.pop(key, None)
-    sodium_config = Path(env["CARGO_TARGET_DIR"]) / f"sodium-{args.arch}.toml"
+    sodium_config = Path(env["CARGO_TARGET_DIR"]) / "sodium-x64.toml"
     sodium_config.parent.mkdir(parents=True, exist_ok=True)
     sodium_config.write_text(
         f"[target.{TARGETS[args.arch]}.sodium]\n"
         'rustc-link-lib = ["static=libsodium"]\n'
         f"rustc-link-search = {json.dumps([sodium_path.as_posix()])}\n"
-        f"lib = {json.dumps(sodium_path.as_posix())}\n",
-        encoding="utf-8")
-    for command in commands:
-        command.extend(["--config", str(sodium_config)])
+        f"lib = {json.dumps(sodium_path.as_posix())}\n", encoding="utf-8")
+    command.extend(["--config", str(sodium_config)])
     env["LIB"] = ";".join(str(path) for path in import_paths) + ";" + env.get("LIB", "")
-    run([sys.executable, "res/inline-sciter.py"])
-    run(commands[0])
+    run(command)
+    release = Path(env["CARGO_TARGET_DIR"]) / TARGETS[args.arch] / "release"
+    native = args.workspace / "target/release"
+    native.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(release / "librustdesk.dll", native / "librustdesk.dll")
+    run([flutter, "pub", "get", "--enforce-lockfile"], ui)
+    run([flutter, "precache", "--windows"])
+    engine_archive = ROOT / "target/win7-flutter/windows-x64-release.zip"
+    prepare_win7_flutter.install_engine(sdk, engine_archive)
+    run([flutter, "build", "windows", "--release", "--no-pub"], ui)
+    runtime = ui / "build/windows/x64/runner/Release"
+    with zipfile.ZipFile(engine_archive) as engine:
+        expected = hashlib.sha256(engine.read("flutter_windows.dll")).hexdigest()
+    if hashlib.sha256((runtime / "flutter_windows.dll").read_bytes()).hexdigest() != expected:
+        raise RuntimeError("The compiled runtime does not contain the pinned RustDesk Win7 engine")
+    host = runtime / "rustdesk.exe"
+    host.rename(runtime / "SubnetDesk.exe")
+    shutil.copy2(ROOT / "LICENCE", runtime / "SubnetDesk-LICENSE.txt")
+    shutil.copy2(sdk / "LICENSE", runtime / "Flutter-LICENSE.txt")
     manifest = (ROOT / "Cargo.toml").read_text(encoding="utf-8").split("[package]", 1)[1].split("\n[", 1)[0]
     version_match = re.search(r'^version\s*=\s*"([^"\n]+)"', manifest, re.MULTILINE)
     if not version_match:
-        raise RuntimeError("Missing package version in Cargo.toml")
-    version = version_match.group(1)
+        raise RuntimeError("Missing package version")
+    name = f"subnetdesk-{version_match.group(1)}-win7-x64-flutter"
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
-    name = f"subnetdesk-{version}-win7-{args.arch}"
-    payload = args.output / name
-    # Isolate packaging from stale DLLs or a previously built Flutter runner.
-    if payload.exists():
-        shutil.rmtree(payload)
-    payload.mkdir()
-    release = Path(env["CARGO_TARGET_DIR"]) / TARGETS[args.arch] / "release"
-    for file in ("rustdesk.exe",):
-        shutil.copy2(release / file, payload / file)
-    sciter_dll(args.arch, payload / "sciter.dll")
-    shutil.copy2(ROOT / "res/win7/sciter-license.htm", payload / "sciter-license.htm")
-    shutil.copy2(ROOT / "src/ui/icons/LICENSE", payload / "material-icons-license.txt")
-    shutil.copy2(ROOT / "src/ui/icons/NOTICE", payload / "material-icons-notice.txt")
-    shutil.copy2(ROOT / "libs/sciter-rs/LICENSE", payload / "sciter-bindings-license.txt")
-    run(commands[1])
-    smoke = release / "examples" / "win7_smoke.exe"
-    run([str(smoke), str(payload / "sciter.dll")])
-    portable = load_module("win7_portable_generate", ROOT / "libs/portable/generate.py")
-    portable.write_package_metadata(portable.generate_md5_table(str(payload), 11), str(ROOT / "libs/portable"), "./rustdesk.exe")
-    portable.write_app_metadata(str(ROOT / "libs/portable"))
-    run(commands[2])
-    launcher = args.output / f"{name}.exe"
-    shutil.copy2(release / "rustdesk-portable-packer.exe", launcher)
-    run([sys.executable, "scripts/audit_win7_pe.py", "--arch", args.arch,
-         "--report", str(args.output / f"{name}-imports.json"),
-         *(str(file) for file in payload.iterdir() if file.suffix.lower() in (".exe", ".dll")), str(launcher), str(smoke)])
-    shutil.copy2(smoke, args.output / f"{name}-sciter-smoke.exe")
-    shutil.make_archive(str(args.output / name), "zip", payload)
-    print(f"Win7 candidate built: {launcher}; verify on Windows 7 SP1 before release")
+    provenance = {
+        "ui": "shared Flutter UI", "sciter": False, "minimum_os": "Windows 7 SP1 x64",
+        "rust_target": TARGETS[args.arch], "rust_toolchain": TOOLCHAIN,
+        "ui_source_sha256": ui_metadata["source_sha256"],
+        "engine": prepare_win7_flutter.ENGINE, "engine_dll_sha256": expected,
+        "source_commit": os.environ.get("GITHUB_SHA") or subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "run": os.environ.get("GITHUB_SERVER_URL", "https://github.com") + "/" +
+               os.environ.get("GITHUB_REPOSITORY", "zibo-chen/SubnetDesk") + "/actions/runs/" +
+               os.environ.get("GITHUB_RUN_ID", "local"),
+    }
+    (runtime / "build-provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+    reports = []
+    for path in sorted(runtime.rglob("*")):
+        if "sciter" in path.name.lower() or path.name.lower() == "service.exe":
+            raise RuntimeError("Retired Sciter/service file found in the Flutter package: " + path.name)
+        if path.suffix.lower() in (".exe", ".dll", ".so"):
+            report = audit_win7_pe.inspect(path)
+            report["errors"] = audit_win7_pe.violations(report, "x64")
+            reports.append(report)
+    (args.output / (name + "-imports.json")).write_text(json.dumps(reports, indent=2), encoding="utf-8")
+    if any(report["errors"] for report in reports):
+        raise RuntimeError("Win7 PE import checks failed: " + json.dumps([
+            {"file": row["file"], "errors": row["errors"]} for row in reports if row["errors"]]))
+    portable = load_module("win7_portable_directory", ROOT / "scripts/package_portable.py")
+    archive = portable.package(runtime, runtime / "SubnetDeskLauncher.exe", args.output / name)
+    provenance["package"] = archive.name
+    provenance["sha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
+    provenance["pe_files_checked"] = len(reports)
+    (args.output / (name + "-provenance.json")).write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+    print(f"Win7 Flutter test package: {archive}; {len(reports)} PE files checked")
 
 
 if __name__ == "__main__":

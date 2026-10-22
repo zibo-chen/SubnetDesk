@@ -1,5 +1,8 @@
 # Windows CI 验证进度
 
+> 历史记录：以下是已废弃的 Sciter 路线，不能代表当前 Flutter Win7 包的验收。
+> 2026-10-21 起统一使用 RustDesk 定制 Flutter 引擎，当前入口见 [README.md](README.md)。
+
 状态：两个架构的完整候选构建、Windows 主程序启动检查、Sciter ABI 冒烟及各五项 PE 检查通过。Win7 SP1 实机及完整 UI 对齐尚待验收。
 
 最新验证：2026-10-08 14:39:49 UTC，最终构建耗时 18 分 8 秒，退出码 0。

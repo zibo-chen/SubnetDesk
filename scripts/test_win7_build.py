@@ -6,6 +6,8 @@ import unittest
 
 import audit_win7_pe
 import build_win7
+import prepare_win7_flutter
+import json
 
 
 def pe_fixture(bits, symbol="WaitOnAddress", delay=False):
@@ -36,13 +38,60 @@ def pe_fixture(bits, symbol="WaitOnAddress", delay=False):
 
 
 class Win7BuildTests(unittest.TestCase):
-    def test_every_launcher_and_service_uses_dedicated_std(self):
-        for arch, target in build_win7.TARGETS.items():
-            command = build_win7.cargo_command(arch, "-p", "rustdesk-portable-packer")
-            self.assertIn(target, command)
-            self.assertIn("build-std=std,panic_abort", command)
-            self.assertIn("--locked", command)
-            self.assertNotIn("flutter", command)
+    def test_flutter_library_uses_the_dedicated_win7_standard_library(self):
+        command = build_win7.cargo_command("x64", "-p", "rustdesk", "--features",
+                                          "flutter,software-update", "--lib")
+        self.assertIn("x86_64-win7-windows-msvc", command)
+        self.assertIn("build-std=std,panic_abort", command)
+        self.assertIn("--locked", command)
+        self.assertIn("--lib", command)
+        self.assertIn("flutter,software-update", command)
+        self.assertNotIn("inline", command)
+
+    def test_shared_ui_api_compatibility_preserves_nested_expressions_and_content(self):
+        source = '''final color = base.withValues(alpha: enabled ? opacity(0.2) : .4,);
+final field = DropdownButtonFormField<String>(initialValue: selected, items: items);
+final label = Text('SubnetDesk', style: const TextStyle(fontSize: 16));'''
+        result = prepare_win7_flutter.compatible_dart(source)
+        self.assertIn("base.withOpacity(enabled ? opacity(0.2) : .4)", result)
+        self.assertIn("DropdownButtonFormField<String>(value: selected, items: items)", result)
+        self.assertIn("Text('SubnetDesk', style: const TextStyle(fontSize: 16))", result)
+        with self.assertRaises(ValueError):
+            prepare_win7_flutter.compatible_dart("base.withValues(red: .5)")
+
+    def test_dependency_profile_preserves_unrelated_sections_and_rejects_missing_keys(self):
+        source = 'dependencies:\n  get: ^4.6.5\n  plugin:\n    git:\n      url: https://example.com/plugin\nflutter:\n  assets:\n    - assets/\n'
+        result = prepare_win7_flutter.yaml_section(source, "dependencies", {"get": "4.6.6"})
+        self.assertIn('  get: "4.6.6"', result)
+        self.assertIn("      url: https://example.com/plugin", result)
+        self.assertIn("flutter:\n  assets:\n    - assets/", result)
+        with self.assertRaises(ValueError):
+            prepare_win7_flutter.yaml_section(source, "dependencies", {"missing": "1.0.0"})
+
+    def test_engine_rejects_wrong_sdk_and_corrupt_archive_before_installing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache = root / "bin/cache"
+            cache.mkdir(parents=True)
+            version = cache / "flutter.version.json"
+            archive = root / "engine.zip"
+            archive.write_bytes(b"corrupt download")
+            version.write_text(json.dumps({"frameworkVersion": "3.44.6"}))
+            with self.assertRaisesRegex(ValueError, "3.24.5"):
+                prepare_win7_flutter.install_engine(root, archive)
+            version.write_text(json.dumps({"frameworkVersion": "3.24.5"}))
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                prepare_win7_flutter.install_engine(root, archive)
+            self.assertFalse((cache / "artifacts").exists())
+
+    def test_preparation_never_overwrites_an_existing_profile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            profile = path / "identity.toml"
+            profile.write_text("existing identity")
+            with self.assertRaises(ValueError):
+                prepare_win7_flutter.prepare(path)
+            self.assertEqual("existing identity", profile.read_text())
 
     def report(self, data):
         with tempfile.TemporaryDirectory() as directory:

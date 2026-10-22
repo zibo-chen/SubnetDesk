@@ -50,10 +50,6 @@ windowless = []
 libc = "0.2"
 lazy_static = "1.4"
 
-[[example]]
-name = "win7_smoke"
-path = "examples/win7_smoke.rs"
-
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc = "0.2"
 objc-foundation = "0.1"

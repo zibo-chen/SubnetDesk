@@ -1,0 +1,10 @@
+{
+  "flutter_version": "3.24.5",
+  "dart_version": "3.5.4",
+  "architecture": "x64",
+  "url": "https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip",
+  "asset_id": 210168939,
+  "sha256": "ec8cabf36ee4ff24c8d98de25b00e70781eb03876265aee84d0fe554a110036e",
+  "upstream_workflow": "https://github.com/rustdesk/rustdesk/blob/bd9262397208c509ea97af61f0d44621ef25611c/.github/workflows/flutter-build.yml",
+  "engine_build_workflow": "https://github.com/rustdesk/engine/blob/9176a596b1f82625dfe8831edbcc4f2c9dc22da9/.github/workflows/flutter-engine-windows-x64-release-build.yml"
+}

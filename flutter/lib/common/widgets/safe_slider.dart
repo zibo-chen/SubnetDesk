@@ -267,6 +267,9 @@ class _WindowsSafeSliderState extends State<_WindowsSafeSlider> {
                       )
                     : null,
                 child: SizedBox(
+                  width: constraints.hasBoundedWidth
+                      ? constraints.maxWidth
+                      : 144,
                   height: 48,
                   child: CustomPaint(
                     painter: _SafeSliderPainter(

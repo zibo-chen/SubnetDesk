@@ -43,6 +43,10 @@ endforeach()
 
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
+if("$ENV{SUBNETDESK_WIN7}" STREQUAL "1")
+  add_compile_definitions(WINVER=0x0601 _WIN32_WINNT=0x0601)
+  string(APPEND CMAKE_EXE_LINKER_FLAGS " /SUBSYSTEM:WINDOWS,6.01")
+endif()
 
 # Compilation settings that should be applied to most targets.
 #
@@ -100,9 +104,11 @@ endif()
 
 # Copy native assets produced by package build hooks.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
+if(NOT "$ENV{SUBNETDESK_WIN7}" STREQUAL "1")
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"
   DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
+endif()
 
 # flutter_rust_bridge
 set(RUSTDESK_LIB_BUILD_TYPE $<IF:$<CONFIG:Debug>,debug,release>)

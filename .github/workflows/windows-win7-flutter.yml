@@ -1,0 +1,154 @@
+name: Build Win7 Flutter test package
+
+on:
+  push:
+    branches:
+      - "win7-test/**"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: subnetdesk-win7-flutter-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+  VCPKG_COMMIT: "120deac3062162151622ca4860575a33844ba10b"
+  CARGO_BUILD_JOBS: "4"
+  CMAKE_BUILD_PARALLEL_LEVEL: "4"
+  VCPKG_ROOT: C:\vcpkg-win7
+  VCPKG_INSTALLED_ROOT: C:\vcpkg-win7\installed
+  VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+  SUBNETDESK_WIN7: "1"
+
+jobs:
+  win7-flutter-x64:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Checkout current source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c
+        with:
+          arch: x64
+      - name: Install LLVM
+        uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0
+        with:
+          version: "15.0.6"
+      - name: Install Flutter SDK matching the RustDesk engine
+        id: flutter
+        uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          architecture: x64
+          cache: true
+      - name: Install Win7 standard library build toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: nightly-2025-08-01
+          components: rust-src
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          prefix-key: windows-win7-flutter-x64
+          workspaces: ". -> target/win7-flutter/native"
+          cache-on-failure: true
+      - name: Cache pinned RustDesk engine download
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: target/win7-flutter/windows-x64-release.zip
+          key: rustdesk-win7-engine-${{ hashFiles('res/win7/flutter-engine.json') }}
+      - name: Check build boundary and package helpers
+        run: |
+          python -m unittest discover -s scripts -p test_win7_build.py
+          if ($LASTEXITCODE -ne 0) { throw 'Win7 build boundary tests failed' }
+          python scripts/test_package_portable.py
+          if ($LASTEXITCODE -ne 0) { throw 'Portable package tests failed' }
+      - name: Prepare the shared Flutter UI for Win7
+        run: |
+          python scripts/prepare_win7_flutter.py --workspace target/win7-flutter/build
+          if ($LASTEXITCODE -ne 0) { throw 'UI preparation failed' }
+          Push-Location target/win7-flutter/build/flutter
+          flutter pub get --enforce-lockfile
+          if ($LASTEXITCODE -ne 0) { throw 'Locked Win7 Flutter dependencies failed' }
+          flutter test --no-pub --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw 'Shared UI regression tests failed on the Win7 SDK' }
+          Pop-Location
+      - name: Verify and install the pinned RustDesk custom engine
+        run: |
+          flutter precache --windows
+          if ($LASTEXITCODE -ne 0) { throw 'Flutter Windows precache failed' }
+          python scripts/prepare_win7_flutter.py --install-engine "${{ steps.flutter.outputs['CACHE-PATH'] }}"
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned RustDesk engine verification failed' }
+      - name: Install NASM
+        run: choco install nasm --yes --no-progress
+      - name: Restore compiled Win7 dependencies
+        id: native-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: C:/vcpkg-win7/installed
+          key: win7-native-x64-v2-${{ env.VCPKG_COMMIT }}-${{ hashFiles('res/win7/vcpkg.json', 'res/win7/triplets/**', 'res/win7/ports/**', 'res/vcpkg/**') }}
+      - name: Build Win7 software codec dependencies
+        env:
+          VCPKG_ROOT: C:\vcpkg-win7
+          VCPKG_INSTALLED_ROOT: C:\vcpkg-win7\installed
+        run: |
+          $ErrorActionPreference = 'Stop'
+          "C:\Program Files\NASM" >> $env:GITHUB_PATH
+          $env:Path = "C:\Program Files\NASM;$env:Path"
+          git clone https://github.com/microsoft/vcpkg $env:VCPKG_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg checkout failed' }
+          git -C $env:VCPKG_ROOT checkout $env:VCPKG_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg revision failed' }
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --enforce-port-checks --triplet x64-windows-static --x-manifest-root="$pwd/res/win7" --overlay-triplets="$pwd/res/win7/triplets" --overlay-ports="$pwd/res/win7/ports" --overlay-ports="$pwd/res/vcpkg" --x-install-root="$env:VCPKG_INSTALLED_ROOT"
+          if ($LASTEXITCODE -ne 0) { throw 'Win7 native dependencies failed' }
+      - name: Save compiled Win7 dependencies
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: C:/vcpkg-win7/installed
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - name: Build Win7 Flutter runtime and verify every packaged PE
+        env:
+          VCPKG_ROOT: C:\vcpkg-win7
+          VCPKG_INSTALLED_ROOT: C:\vcpkg-win7\installed
+        run: |
+          python scripts/build_win7.py --arch x64 --flutter-sdk "${{ steps.flutter.outputs['CACHE-PATH'] }}"
+          if ($LASTEXITCODE -ne 0) { throw 'Win7 Flutter build or PE compatibility checks failed' }
+      - name: Smoke test the packaged Windows executable
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = Get-ChildItem target/win7-dist/subnetdesk-*-win7-x64-flutter -Directory | Select-Object -First 1
+          $info = New-Object System.Diagnostics.ProcessStartInfo
+          $info.FileName = Join-Path $package.FullName 'app/SubnetDesk.exe'
+          $info.Arguments = '--version'
+          $info.WorkingDirectory = Join-Path $package.FullName 'app'
+          $info.UseShellExecute = $false
+          $info.RedirectStandardOutput = $true
+          $info.RedirectStandardError = $true
+          $process = [System.Diagnostics.Process]::Start($info)
+          if (-not $process.WaitForExit(30000)) { $process.Kill(); throw 'Packaged version command timed out' }
+          $version = $process.StandardOutput.ReadToEnd().Trim()
+          $errorText = $process.StandardError.ReadToEnd()
+          if ($process.ExitCode -ne 0 -or $version -ne '1.3.0' -or $errorText) { throw "Packaged executable failed: $errorText" }
+          @{ exit = $process.ExitCode; version = $version; os = (Get-CimInstance Win32_OperatingSystem).Caption; win7_runtime_tested = $false } | ConvertTo-Json | Set-Content target/win7-dist/runner-smoke.json
+      - name: Upload Win7 Flutter dedicated test package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: subnetdesk-win7-x64-flutter-test
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            target/win7-dist/*.zip
+            target/win7-dist/*-imports.json
+            target/win7-dist/*-provenance.json
+            target/win7-dist/runner-smoke.json
+            target/win7-flutter/build/ui-compatibility.json
