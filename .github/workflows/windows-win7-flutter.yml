@@ -102,9 +102,13 @@ jobs:
           $ErrorActionPreference = 'Stop'
           "C:\Program Files\NASM" >> $env:GITHUB_PATH
           $env:Path = "C:\Program Files\NASM;$env:Path"
-          git clone https://github.com/microsoft/vcpkg $env:VCPKG_ROOT
-          if ($LASTEXITCODE -ne 0) { throw 'vcpkg checkout failed' }
-          git -C $env:VCPKG_ROOT checkout $env:VCPKG_COMMIT
+          git init $env:VCPKG_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg repository initialization failed' }
+          git -C $env:VCPKG_ROOT remote add origin https://github.com/microsoft/vcpkg
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg remote setup failed' }
+          git -C $env:VCPKG_ROOT fetch --depth 1 origin $env:VCPKG_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg revision fetch failed' }
+          git -C $env:VCPKG_ROOT checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg revision failed' }
           & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
