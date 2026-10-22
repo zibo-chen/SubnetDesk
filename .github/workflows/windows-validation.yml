@@ -117,6 +117,10 @@ jobs:
       with:
         path: C:/vcpkg/installed
         key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+    - name: Set up MSVC for native lifecycle tests
+      uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c
+      with:
+        arch: x64
     - name: Run Windows Flutter and portable package tests
       shell: pwsh
       run: |-
@@ -159,6 +163,11 @@ jobs:
     - name: Package portable directory ZIP
       run: |
         python3 scripts/package_portable.py --runtime ./rustdesk --launcher ./rustdesk/SubnetDeskLauncher.exe --output ./target/portable/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-portable
+    - name: Verify the packaged host keeps TCP 21118 listening after window startup
+      shell: pwsh
+      run: |-
+        python scripts/smoke_windows_host.py --executable ./rustdesk/SubnetDesk.exe --output target/portable/host-runtime-smoke.json
+        if ($LASTEXITCODE -ne 0) { throw 'Packaged host listener smoke check failed' }
     - name: Record validation package provenance
       shell: pwsh
       run: |-
@@ -173,7 +182,9 @@ jobs:
         name: subnetdesk-windows-x86_64-validation
         path: 'target/portable/*.zip
 
-          target/portable/build-provenance.json'
+          target/portable/build-provenance.json
+
+          target/portable/host-runtime-smoke.json'
         retention-days: 14
         if-no-files-found: error
     timeout-minutes: 90

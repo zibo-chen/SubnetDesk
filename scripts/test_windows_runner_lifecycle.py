@@ -16,7 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class WindowsRunnerLifecycleTests(unittest.TestCase):
     def test_startup_cleanup_preserves_host_and_live_teardown_stops_it_once(self):
-        compiler = shutil.which("clang++") or shutil.which("g++") or shutil.which("cl")
+        compiler = (shutil.which("cl") if os.name == "nt" else None)
+        compiler = compiler or shutil.which("clang++") or shutil.which("g++")
         if compiler is None:
             self.skipTest("A C++ compiler is required for the native lifecycle regression")
 
@@ -79,7 +80,8 @@ int main() {
                            f"/Fe:{executable}"]
             else:
                 command = [compiler, "-std=c++17", str(cpp), "-o", str(executable)]
-            subprocess.run(command, cwd=directory, check=True, capture_output=True, text=True)
+            result = subprocess.run(command, cwd=directory, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             subprocess.run([str(executable)], cwd=directory, check=True)
 
 
