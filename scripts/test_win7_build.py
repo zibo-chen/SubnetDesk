@@ -5,6 +5,7 @@ from pathlib import Path
 import unittest
 
 import audit_win7_pe
+import audit_dart_aot
 import build_win7
 import prepare_win7_flutter
 import json
@@ -37,7 +38,58 @@ def pe_fixture(bits, symbol="WaitOnAddress", delay=False):
     return data
 
 
+def aot_fixture():
+    data = bytearray(4096)
+    data[:7] = b"\x7fELF\x02\x01\x01"
+    struct.pack_into("<HHIQQQIHHHHHH", data, 16, 3, 62, 1, 0, 64, 512, 0, 64, 56, 2, 64, 3, 0)
+    struct.pack_into("<IIQQQQQQ", data, 64, 1, 5, 0, 0, 0, 4096, 4096, 4096)
+    struct.pack_into("<IIQQQQQQ", data, 120, 2, 6, 2048, 2048, 2048, 32, 32, 8)
+    names = bytearray(b"\0")
+    for index, symbol in enumerate(sorted(audit_dart_aot.SNAPSHOT_SYMBOLS), 1):
+        struct.pack_into("<IBBHQQ", data, 1536 + index * 24, len(names), 0x11, 0, 1, 0, 8)
+        names.extend(symbol.encode() + b"\0")
+    data[1024:1024 + len(names)] = names
+    struct.pack_into("<IIQQQQIIQQ", data, 576, 0, 3, 0, 0, 1024, len(names), 0, 0, 1, 0)
+    struct.pack_into("<IIQQQQIIQQ", data, 640, 0, 11, 0, 0, 1536, 120, 1, 0, 8, 24)
+    return data
+
+
 class Win7BuildTests(unittest.TestCase):
+    def aot_report(self, data):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app.so"
+            path.write_bytes(data)
+            return audit_dart_aot.inspect(path)
+
+    def test_dart_aot_is_elf_with_snapshot_exports_and_no_external_libraries(self):
+        report = self.aot_report(aot_fixture())
+        self.assertEqual("ELF64-Dart-AOT", report["format"])
+        self.assertEqual([], report["external_libraries"])
+        self.assertEqual(sorted(audit_dart_aot.SNAPSHOT_SYMBOLS), report["exports"])
+
+    def test_dart_aot_rejects_external_libraries_and_undefined_snapshot_symbols(self):
+        data = aot_fixture()
+        struct.pack_into("<qQ", data, 2048, 1, 1)
+        with self.assertRaisesRegex(ValueError, "external ELF libraries"):
+            self.aot_report(data)
+        data = aot_fixture()
+        struct.pack_into("<H", data, 1536 + 24 + 6, 0)
+        with self.assertRaisesRegex(ValueError, "Unresolved external"):
+            self.aot_report(data)
+
+    def test_dart_aot_rejects_wrong_architecture_missing_exports_and_truncation(self):
+        data = aot_fixture()
+        struct.pack_into("<H", data, 18, 183)
+        with self.assertRaises(ValueError):
+            self.aot_report(data)
+        data = aot_fixture()
+        struct.pack_into("<Q", data, 640 + 32, 24)
+        with self.assertRaisesRegex(ValueError, "missing snapshot exports"):
+            self.aot_report(data)
+        for data in (b"", b"MZ", aot_fixture()[:160]):
+            with self.assertRaises(ValueError):
+                self.aot_report(data)
+
     def test_flutter_library_uses_the_dedicated_win7_standard_library(self):
         command = build_win7.cargo_command("x64", "-p", "rustdesk", "--features",
                                           "flutter,software-update", "--lib")

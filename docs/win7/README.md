@@ -45,7 +45,8 @@ Flutter runner 和目录包启动器均声明 Win7 支持及旧系统 DPI 回退
 1. 锁定依赖及共享 UI 回归测试。
 2. 校验并替换 RustDesk 定制 Flutter 引擎。
 3. 构建 Win7 原生依赖、Rust Flutter 库、Flutter runner 和便携入口。
-4. 验证引擎身份，对包中每个 EXE、DLL 和 AOT PE 文件检查架构、子系统及已知不兼容导入。
+4. 验证引擎身份，对包中每个 EXE、DLL 检查架构、子系统及已知不兼容导入。
+   Dart `data/app.so` 是引擎自行加载的 ELF AOT 快照，单独检查 x64 格式、快照导出和无外部 ELF 依赖。
 5. 在 runner 执行实际包内程序的 `--version`，上传专用测试 ZIP 和校验/导入报告。
 
 本地 Windows 开发环境也可使用：
@@ -57,7 +58,7 @@ Flutter runner 和目录包启动器均声明 Win7 支持及旧系统 DPI 回退
 输出为 `target/win7-dist/subnetdesk-<版本>-win7-x64-flutter.zip`。
 解压整个目录后运行顶层 `SubnetDesk.exe`；`app/` 存放运行文件，`userdata/` 存放独立配置、
 身份和日志。测试 ZIP 不覆盖现有配置。配套 `*-provenance.json` 提供源码、引擎和包的哈希，
-`*-imports.json` 提供逐文件检查结果。
+`*-imports.json` 提供逐个 PE 文件的检查结果，`*-aot.json` 记录 Dart 快照检查。
 
 ## 验收边界
 

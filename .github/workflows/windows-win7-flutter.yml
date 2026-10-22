@@ -123,6 +123,14 @@ jobs:
         run: |
           python scripts/build_win7.py --arch x64 --flutter-sdk "${{ steps.flutter.outputs['CACHE-PATH'] }}"
           if ($LASTEXITCODE -ne 0) { throw 'Win7 Flutter build or PE compatibility checks failed' }
+      - name: Preserve compatibility reports after a failed package check
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: win7-flutter-compatibility-diagnostics
+          if-no-files-found: ignore
+          retention-days: 14
+          path: target/win7-dist/*.json
       - name: Smoke test the packaged Windows executable
         run: |
           $ErrorActionPreference = 'Stop'
@@ -149,6 +157,7 @@ jobs:
           path: |
             target/win7-dist/*.zip
             target/win7-dist/*-imports.json
+            target/win7-dist/*-aot.json
             target/win7-dist/*-provenance.json
             target/win7-dist/runner-smoke.json
             target/win7-flutter/build/ui-compatibility.json

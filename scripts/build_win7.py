@@ -13,6 +13,7 @@ import re
 import zipfile
 
 import audit_win7_pe
+import audit_dart_aot
 import prepare_win7_flutter
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -155,14 +156,22 @@ def main():
     }
     (runtime / "build-provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
     reports = []
+    snapshots = []
     for path in sorted(runtime.rglob("*")):
         if "sciter" in path.name.lower() or path.name.lower() == "service.exe":
             raise RuntimeError("Retired Sciter/service file found in the Flutter package: " + path.name)
-        if path.suffix.lower() in (".exe", ".dll", ".so"):
+        if path.suffix.lower() == ".so":
+            if path.relative_to(runtime).as_posix() != "data/app.so":
+                raise RuntimeError("Unexpected shared object in the Windows package: " + str(path))
+            snapshots.append(audit_dart_aot.inspect(path))
+        if path.suffix.lower() in (".exe", ".dll"):
             report = audit_win7_pe.inspect(path)
             report["errors"] = audit_win7_pe.violations(report, "x64")
             reports.append(report)
     (args.output / (name + "-imports.json")).write_text(json.dumps(reports, indent=2), encoding="utf-8")
+    if len(snapshots) != 1:
+        raise RuntimeError("Expected one Dart AOT snapshot in the Flutter runtime")
+    (args.output / (name + "-aot.json")).write_text(json.dumps(snapshots, indent=2), encoding="utf-8")
     if any(report["errors"] for report in reports):
         raise RuntimeError("Win7 PE import checks failed: " + json.dumps([
             {"file": row["file"], "errors": row["errors"]} for row in reports if row["errors"]]))
@@ -171,6 +180,7 @@ def main():
     provenance["package"] = archive.name
     provenance["sha256"] = hashlib.sha256(archive.read_bytes()).hexdigest()
     provenance["pe_files_checked"] = len(reports)
+    provenance["aot_files_checked"] = len(snapshots)
     (args.output / (name + "-provenance.json")).write_text(json.dumps(provenance, indent=2), encoding="utf-8")
     print(f"Win7 Flutter test package: {archive}; {len(reports)} PE files checked")
 
