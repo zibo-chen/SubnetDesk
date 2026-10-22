@@ -115,13 +115,15 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   if (tray_visible_) Shell_NotifyIconW(NIM_DELETE, &tray_);
   tray_visible_ = false;
-  auto module = GetModuleHandleW(L"librustdesk.dll");
-  if (module) {
-    auto shutdown = reinterpret_cast<void (*)()>(GetProcAddress(module, "subnetdesk_shutdown"));
-    if (shutdown) shutdown();
-  }
   host_channel_.reset();
   if (flutter_controller_) {
+    // CreateAndShow calls Destroy before creating the first window. Only a
+    // live Flutter controller owns a window whose teardown should stop the host.
+    auto module = GetModuleHandleW(L"librustdesk.dll");
+    if (module) {
+      auto shutdown = reinterpret_cast<void (*)()>(GetProcAddress(module, "subnetdesk_shutdown"));
+      if (shutdown) shutdown();
+    }
     flutter_controller_ = nullptr;
   }
 

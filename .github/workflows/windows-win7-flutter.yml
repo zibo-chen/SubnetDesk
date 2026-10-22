@@ -70,6 +70,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Win7 build boundary tests failed' }
           python scripts/test_package_portable.py
           if ($LASTEXITCODE -ne 0) { throw 'Portable package tests failed' }
+          python scripts/test_windows_runner_lifecycle.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows runner lifecycle tests failed' }
       - name: Prepare the shared Flutter UI for Win7
         run: |
           python scripts/prepare_win7_flutter.py --workspace target/win7-flutter/build
