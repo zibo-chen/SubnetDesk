@@ -136,6 +136,11 @@ jobs:
         if ($LASTEXITCODE -ne 0) { throw 'Windows Flutter tests failed' }
         Pop-Location
     - name: Build SubnetDesk
+      env:
+        # The MSVC developer shell also sets VCPKG_ROOT to Visual Studio's copy.
+        # Keep native builds on the dependency tree installed earlier in this job.
+        VCPKG_ROOT: C:\vcpkg
+        VCPKG_INSTALLED_ROOT: C:\vcpkg\installed
       run: |
         # Windows: build RustDesk
         # --hwcodec is shared by all Windows targets; per-target extras (e.g. --vram) come from the matrix
