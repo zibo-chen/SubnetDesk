@@ -129,6 +129,11 @@ jobs:
         run: |
           python scripts/build_win7.py --arch x64 --flutter-sdk "${{ steps.flutter.outputs['CACHE-PATH'] }}"
           if ($LASTEXITCODE -ne 0) { throw 'Win7 Flutter build or PE compatibility checks failed' }
+      - name: Verify the packaged host keeps TCP 21118 listening after window startup
+        run: |
+          $package = Get-ChildItem target/win7-dist/subnetdesk-*-win7-x64-flutter -Directory | Select-Object -First 1
+          python scripts/smoke_windows_host.py --executable "$($package.FullName)/app/SubnetDesk.exe" --output target/win7-dist/host-runtime-smoke.json
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged host listener smoke check failed' }
       - name: Preserve compatibility reports after a failed package check
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -166,4 +171,5 @@ jobs:
             target/win7-dist/*-aot.json
             target/win7-dist/*-provenance.json
             target/win7-dist/runner-smoke.json
+            target/win7-dist/host-runtime-smoke.json
             target/win7-flutter/build/ui-compatibility.json
