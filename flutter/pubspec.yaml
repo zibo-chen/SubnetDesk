@@ -101,7 +101,12 @@ dependencies:
   device_info_plus: 11.3.0
   qr_flutter: ^4.1.0
   extended_text: 15.0.2
-  xterm: 4.0.0
+  # Includes the Windows text-input viewId fix proposed upstream:
+  # https://github.com/TerminalStudio/xterm.dart/pull/231
+  xterm:
+    git:
+      url: https://github.com/LarryHsiao/xterm.dart.git
+      ref: 25bc19e49d9e948ba45bdb185d534c26bb3df9b2
   sqflite: ^2.4.3
   google_fonts: ^8.1.0
   vector_math: ^2.1.4

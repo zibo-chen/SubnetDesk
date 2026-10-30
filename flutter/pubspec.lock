@@ -1684,10 +1684,11 @@ packages:
   xterm:
     dependency: "direct main"
     description:
-      name: xterm
-      sha256: "168dfedca77cba33fdb6f52e2cd001e9fde216e398e89335c19b524bb22da3a2"
-      url: "https://pub.dev"
-    source: hosted
+      path: "."
+      ref: "25bc19e49d9e948ba45bdb185d534c26bb3df9b2"
+      resolved-ref: "25bc19e49d9e948ba45bdb185d534c26bb3df9b2"
+      url: "https://github.com/LarryHsiao/xterm.dart.git"
+    source: git
     version: "4.0.0"
   yaml:
     dependency: transitive
