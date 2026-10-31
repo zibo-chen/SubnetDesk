@@ -6,6 +6,10 @@ on:
       - "win7-test/**"
   workflow_dispatch:
   workflow_call:
+    inputs:
+      reuse-generated-bridge:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,10 +30,12 @@ env:
 
 jobs:
   generate-bridge:
+    if: ${{ !inputs.reuse-generated-bridge }}
     uses: ./.github/workflows/bridge.yml
 
   win7-flutter-x64:
     needs: generate-bridge
+    if: ${{ !cancelled() && !failure() }}
     runs-on: windows-2022
     timeout-minutes: 120
     steps:

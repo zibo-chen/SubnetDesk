@@ -39,6 +39,12 @@ Flutter runner 和目录包启动器均声明 Win7 支持及旧系统 DPI 回退
 
 ## GitHub runner 构建
 
+统一 CI、Nightly 和标签发布默认包含此 Win7 x64 构建。发布时将已验证的绿色 ZIP
+命名为 `subnetdesk-<版本>-x86_64-portable.zip`，安装版命名为
+`subnetdesk-<版本>-x86_64-setup.exe`，作为 Windows x64 推荐下载。现代 Windows
+绿色包另带 `-win10-portable.zip` 后缀；MSI 和自解压 EXE 标注为 Win10+。
+Windows ARM64 仍使用现代 Windows 构建，不属于 Win7 支持范围。
+
 `.github/workflows/windows-win7-flutter.yml` 可手动运行；推送 `win7-test/**` 分支也会触发。
 流程使用 Windows Server 2022 runner，执行：
 

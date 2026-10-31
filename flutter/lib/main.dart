@@ -180,6 +180,9 @@ void runMainApp(bool startService) async {
     minimumSize: bind.isIncomingOnly() ? null : kDesktopMainWindowMinimumSize,
   );
   windowManager.waitUntilReadyToShow(windowOptions, () async {
+    // Hidden title bars retain 8px native borders on the sides and bottom.
+    // Apply this after WindowOptions, which resets the plugin's frameless flag.
+    if (isWin7) await windowManager.setAsFrameless();
     // Restore the location of the main window before window hide or show.
     await restoreWindowPosition(WindowType.Main);
     if (kDebugMode) {
@@ -322,6 +325,7 @@ showCmWindow({bool isStartup = false}) async {
       alwaysOnTop: true,
     );
     await windowManager.waitUntilReadyToShow(windowOptions, null);
+    if (isWin7) await windowManager.setAsFrameless();
     bind.mainHideDock();
     await Future.wait([
       windowManager.show(),
@@ -355,6 +359,7 @@ hideCmWindow({bool isStartup = false}) async {
     );
     windowManager.setOpacity(0);
     await windowManager.waitUntilReadyToShow(windowOptions, null);
+    if (isWin7) await windowManager.setAsFrameless();
     bind.mainHideDock();
     await windowManager.minimize();
     await windowManager.hide();
@@ -414,6 +419,7 @@ void runInstallPage() async {
     center: true,
   );
   windowManager.waitUntilReadyToShow(windowOptions, () async {
+    if (isWin7) await windowManager.setAsFrameless();
     windowManager.show();
     windowManager.focus();
     windowManager.setOpacity(1);
