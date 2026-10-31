@@ -16,3 +16,9 @@ rustflags = [
 #]
 [net]
 git-fetch-with-cli = true
+
+# Win7 builds use their own std and avoid the optional WinRT error-information ABI.
+[target.x86_64-win7-windows-msvc]
+rustflags = ["-Ctarget-feature=+crt-static", "--cfg", "windows_slim_errors"]
+[target.i686-win7-windows-msvc]
+rustflags = ["-Ctarget-feature=+crt-static", "--cfg", "windows_slim_errors"]

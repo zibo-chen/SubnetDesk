@@ -251,7 +251,11 @@ impl UI {
         false
     }
 
-    fn forget_password(&self, _id: String) {
+    fn forget_password(&self, id: String) {
+        let recent = LocalConfig::get_recent_lan_endpoints().into_iter().find(|peer| peer.endpoint == id);
+        if let Some(recent) = recent {
+            crate::client::clear_remembered_lan_credential_for_fingerprint(&recent.fingerprint);
+        }
     }
 
     fn get_peer_option(&self, id: String, name: String) -> String {
@@ -263,7 +267,7 @@ impl UI {
     }
 
     fn using_public_server(&self) -> bool {
-        crate::using_public_server()
+        false
     }
 
     fn is_incoming_only(&self) -> bool {
@@ -431,13 +435,83 @@ impl UI {
         store_fav(tmp);
     }
 
-    fn get_recent_sessions(&mut self) -> Value {
-        // to-do: limit number of recent sessions, and remove old peer file
-        let peers: Vec<Value> = PeerConfig::peers(None)
-            .drain(..)
-            .map(|p| Self::get_peer_value(p.0, p.2))
+    fn get_recent_sessions(&self) -> String {
+        let discovered = hbb_common::config::LanPeers::load().peers;
+        let now = hbb_common::get_time();
+        let peers: Vec<_> = LocalConfig::get_recent_lan_endpoints()
+            .into_iter()
+            .map(|peer| crate::lan_ui::recent_lan_endpoint_to_map(peer, &discovered, now))
             .collect();
-        Value::from_iter(peers)
+        serde_json::json!(peers).to_string()
+    }
+
+    fn lan_identity_action(&self, request: String) -> String {
+        let request = zeroize::Zeroizing::new(request);
+        let mut value = match serde_json::from_str::<serde_json::Value>(&request) {
+            Ok(value) => value,
+            Err(err) => return serde_json::json!({"error": err.to_string()}).to_string(),
+        };
+        let text = |key: &str| value[key].as_str().unwrap_or_default();
+        let result = match text("action") {
+            "list" => return serde_json::json!({"identities": crate::lan_identity::list()}).to_string(),
+            "create" => crate::lan_identity::create(text("name"), text("username"), text("password"), value["make_default"].as_bool().unwrap_or(false)).map(|_| ()),
+            "update" => crate::lan_identity::update(text("id"), text("name"), text("username"), (!text("password").is_empty()).then_some(text("password")), value["make_default"].as_bool().unwrap_or(false)),
+            "delete" => crate::lan_identity::delete(text("id")),
+            "default" => crate::lan_identity::set_default(text("id")),
+            _ => Err(hbb_common::anyhow::anyhow!("Unsupported identity action")),
+        };
+        if let Some(serde_json::Value::String(password)) = value.get_mut("password") {
+            use zeroize::Zeroize;
+            password.zeroize();
+        }
+        serde_json::json!({"error": result.err().map(|err| err.to_string()).unwrap_or_default()}).to_string()
+    }
+
+    fn get_lan_server_info(&self) -> String {
+        crate::lan_ui::lan_server_info()
+    }
+
+    fn apply_lan_settings(&self, settings: String) -> String {
+        let settings = zeroize::Zeroizing::new(settings);
+        let mut settings = match serde_json::from_str::<serde_json::Value>(&settings) {
+            Ok(value) => value,
+            Err(err) => return format!("Invalid LAN settings: {err}"),
+        };
+        let text = |key: &str| settings[key].as_str().unwrap_or_default().to_owned();
+        let result = crate::lan_ui::apply_lan_settings(
+            text("username"), text("password"), text("listen_addresses"),
+            text("port"), text("allowed_networks"),
+            settings["discovery_enabled"].as_bool().unwrap_or(false),
+            settings["web_access_enabled"].as_bool().unwrap_or(false),
+            text("web_listen_port"), text("web_certificate_path"), text("web_private_key_path"),
+        );
+        if let Some(serde_json::Value::String(password)) = settings.get_mut("password") {
+            use zeroize::Zeroize;
+            password.zeroize();
+        }
+        result
+    }
+
+    fn set_device_name(&self, name: String) -> String {
+        let name = crate::lan::sanitize_lan_device_name(&name);
+        hbb_common::config::Config::set_option(crate::lan::LAN_DEVICE_NAME_OPTION.to_owned(), name);
+        crate::lan_server::LanServer::restart();
+        match crate::ipc::sync_current_config_to_server(2_000) {
+            Ok(()) => String::new(),
+            Err(err) => format!("Failed to update the background service: {err}"),
+        }
+    }
+
+    fn connect_lan(&self, endpoint: String, connection_type: String) -> String {
+        let endpoint = match hbb_common::lan::Endpoint::parse(&endpoint) {
+            Ok(endpoint) => endpoint.authority().to_owned(),
+            Err(err) => return err.to_string(),
+        };
+        if !matches!(connection_type.as_str(), "" | "--file-transfer" | "--port-forward" | "--rdp") {
+            return "Unsupported connection type".to_owned();
+        }
+        new_remote(endpoint, connection_type, false);
+        String::new()
     }
 
     fn get_icon(&mut self) -> String {
@@ -446,6 +520,7 @@ impl UI {
 
     fn remove_peer(&mut self, id: String) {
         PeerConfig::remove(&id);
+        LocalConfig::remove_recent_lan_endpoint(&id);
     }
 
     fn remove_discovered(&mut self, id: String) {
@@ -606,32 +681,6 @@ impl UI {
         support_remove_wallpaper()
     }
 
-    fn has_valid_2fa(&self) -> bool {
-        has_valid_2fa()
-    }
-
-    fn generate2fa(&self) -> String {
-        generate2fa()
-    }
-
-    pub fn verify2fa(&self, code: String) -> bool {
-        verify2fa(code)
-    }
-
-    fn verify_login(&self, raw: String, id: String) -> bool {
-        crate::verify_login(&raw, &id)
-    }
-
-    fn generate_2fa_img_src(&self, data: String) -> String {
-        let v = qrcode_generator::to_png_to_vec(data, qrcode_generator::QrCodeEcc::Low, 128)
-            .unwrap_or_default();
-        let s = hbb_common::sodiumoxide::base64::encode(
-            v,
-            hbb_common::sodiumoxide::base64::Variant::Original,
-        );
-        format!("data:image/png;base64,{s}")
-    }
-
     pub fn check_hwcodec(&self) {
         check_hwcodec()
     }
@@ -642,15 +691,6 @@ impl UI {
 
     fn get_builtin_option(&self, key: String) -> String {
         crate::ui_interface::get_builtin_option(&key)
-    }
-
-    fn is_remote_modify_enabled_by_control_permissions(&self) -> String {
-        match crate::ui_interface::is_remote_modify_enabled_by_control_permissions() {
-            Some(true) => "true",
-            Some(false) => "false",
-            None => "",
-        }
-        .to_string()
     }
 }
 
@@ -680,6 +720,11 @@ impl sciter::EventHandler for UI {
         fn get_mouse_time();
         fn check_mouse_time();
         fn get_recent_sessions();
+        fn get_lan_server_info();
+        fn lan_identity_action(String);
+        fn apply_lan_settings(String);
+        fn set_device_name(String);
+        fn connect_lan(String, String);
         fn get_peer(String);
         fn get_fav();
         fn store_fav(Value);
@@ -736,15 +781,9 @@ impl sciter::EventHandler for UI {
         fn video_save_directory(bool);
         fn get_login_device_info();
         fn support_remove_wallpaper();
-        fn has_valid_2fa();
-        fn generate2fa();
-        fn generate_2fa_img_src(String);
-        fn verify2fa(String);
         fn check_hwcodec();
-        fn verify_login(String, String);
         fn is_option_fixed(String);
         fn get_builtin_option(String);
-        fn is_remote_modify_enabled_by_control_permissions();
     }
 }
 

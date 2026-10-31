@@ -17,7 +17,7 @@ use flutter_rust_bridge::{StreamSink, SyncReturn};
 use hbb_common::allow_err;
 use base::fs;
 use hbb_common::{
-    config::{self, Config, LocalConfig, PeerConfig, RecentLanEndpoint},
+    config::{self, Config, LocalConfig, PeerConfig},
     lazy_static, log,
     rendezvous_proto::ConnType,
     ResultType,
@@ -36,43 +36,6 @@ pub type SessionID = uuid::Uuid;
 
 lazy_static::lazy_static! {
     static ref TEXTURE_RENDER_KEY: Arc<AtomicI32> = Arc::new(AtomicI32::new(0));
-}
-
-#[cfg(test)]
-mod lan_server_info_tests {
-    use super::{lan_server_running_for_ui, should_sync_lan_settings_to_background};
-
-    #[test]
-    fn reports_cached_background_listener_status() {
-        assert!(lan_server_running_for_ui(
-            crate::lan_server::RUNTIME_STATE_LISTENING
-        ));
-    }
-
-    #[test]
-    fn non_listening_background_status_is_not_ready() {
-        assert!(!lan_server_running_for_ui(
-            crate::lan_server::RUNTIME_STATE_STARTING
-        ));
-        assert!(!lan_server_running_for_ui(
-            crate::lan_server::RUNTIME_STATE_FAILED
-        ));
-        assert!(!lan_server_running_for_ui(
-            crate::lan_server::RUNTIME_STATE_STOPPED
-        ));
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn macos_lan_settings_are_synchronized_to_the_background_host() {
-        assert!(should_sync_lan_settings_to_background());
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_portable_lan_settings_are_synchronized_to_the_background_host() {
-        assert!(should_sync_lan_settings_to_background());
-    }
 }
 
 fn initialize(app_dir: &str, custom_client_config: &str) {
@@ -968,6 +931,10 @@ pub fn main_get_sound_inputs() -> Vec<String> {
 }
 
 pub fn main_get_option(key: String) -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == "desktop-runtime" {
+        return crate::desktop_runtime::state();
+    }
     get_option(key)
 }
 
@@ -1000,7 +967,6 @@ pub fn main_set_option(key: String, mut value: String) {
         "lan-listen-addresses"
             | "lan-listen-port"
             | "lan-allowed-networks"
-            | "lan-discovery-enabled"
             | "web-access-enabled"
             | "web-listen-port"
             | "web-certificate-path"
@@ -1288,6 +1254,8 @@ pub fn main_discover() {
 }
 
 pub fn main_get_local_option(key: String) -> SyncReturn<String> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if key == "desktop-runtime" { return SyncReturn(crate::desktop_runtime::state()); }
     SyncReturn(get_local_option(key))
 }
 
@@ -1329,6 +1297,12 @@ pub fn main_set_env(key: String, value: Option<String>) -> SyncReturn<()> {
 }
 
 pub fn main_set_local_option(key: String, value: String) {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    match key.as_str() {
+        "start-on-boot" => { crate::desktop_runtime::set_autostart(value == "Y"); return; },
+        "desktop-shutdown" => { crate::desktop_runtime::shutdown(); return; },
+        _ => {},
+    }
     let is_texture_render_key = key.eq(base::config::keys::OPTION_TEXTURE_RENDER);
     let is_d3d_render_key = key.eq(base::config::keys::OPTION_ALLOW_D3D_RENDER);
     set_local_option(key, value.clone());
@@ -1510,29 +1484,6 @@ pub fn main_peer_exists(id: String) -> bool {
     peer_exists(&id)
 }
 
-fn recent_lan_endpoint_to_map(
-    recent: RecentLanEndpoint,
-    discovered: &[config::DiscoveryPeer],
-    now: i64,
-) -> serde_json::Value {
-    let alias = PeerConfig::load(&recent.endpoint)
-        .options
-        .get("alias")
-        .cloned()
-        .unwrap_or_default();
-    let presence = crate::lan::find_discovered_peer(discovered, &recent.fingerprint, &recent.endpoint);
-    serde_json::json!({
-        "id": recent.endpoint,
-        "username": recent.username,
-        "hostname": recent.hostname,
-        "platform": recent.platform,
-        "alias": alias,
-        "fingerprint": recent.fingerprint,
-        "online": presence.and_then(|peer| peer.online_state(now)),
-        "last_seen": presence.map(|peer| peer.last_seen).unwrap_or_default(),
-        "last_checked": presence.map(|peer| peer.last_checked).unwrap_or_default(),
-    })
-}
 
 pub fn main_load_recent_peers() {
     let push_to_flutter = |peers| {
@@ -1548,7 +1499,7 @@ pub fn main_load_recent_peers() {
         let now = hbb_common::get_time();
         let peers: Vec<_> = LocalConfig::get_recent_lan_endpoints()
             .into_iter()
-            .map(|peer| recent_lan_endpoint_to_map(peer, &discovered, now))
+            .map(|peer| crate::lan_ui::recent_lan_endpoint_to_map(peer, &discovered, now))
             .collect();
         push_to_flutter(serde_json::ser::to_string(&peers).unwrap_or_else(|_| "[]".to_owned()));
     } else {
@@ -1568,10 +1519,13 @@ pub fn main_load_fav_peers() {
         let favs = get_fav();
         let discovered = config::LanPeers::load().peers;
         let now = hbb_common::get_time();
-        let peers: Vec<_> = LocalConfig::get_recent_lan_endpoints()
+        let peers: Vec<_> = crate::lan_ui::favorite_lan_endpoints(
+            favs,
+            LocalConfig::get_recent_lan_endpoints(),
+            &discovered,
+        )
             .into_iter()
-            .filter(|recent| favs.contains(&recent.endpoint))
-            .map(|peer| recent_lan_endpoint_to_map(peer, &discovered, now))
+            .map(|peer| crate::lan_ui::recent_lan_endpoint_to_map(peer, &discovered, now))
             .collect();
 
         push_to_flutter(serde_json::ser::to_string(&peers).unwrap_or_else(|_| "[]".to_owned()));
@@ -1790,129 +1744,23 @@ pub fn main_get_fingerprint() -> String {
 }
 
 pub fn main_get_lan_server_info() -> String {
-    lan_server_info()
+    crate::lan_ui::lan_server_info()
+}
+
+pub fn main_request_host_permissions() -> String {
+    crate::host_permissions::request()
+        .err()
+        .map(|err| err.to_string())
+        .unwrap_or_default()
 }
 
 pub fn main_get_lan_server_info_sync() -> SyncReturn<String> {
-    SyncReturn(lan_server_info())
-}
-
-fn lan_server_info() -> String {
-    let configured = Config::lan_credentials_configured();
-    #[cfg(target_os = "windows")]
-    let portable_service_running = crate::portable_service::client::running();
-    #[cfg(not(target_os = "windows"))]
-    let portable_service_running = false;
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let (runtime_state, runtime_error) = get_lan_server_runtime_status();
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    let (runtime_state, runtime_error) = {
-        let status = crate::lan_server::LanServer::runtime_status();
-        (status.state, status.last_error)
-    };
-    let running = lan_server_running_for_ui(&runtime_state);
-    #[cfg(not(target_os = "ios"))]
-    let configured_listen_addresses: std::collections::HashSet<String> =
-        Config::get_option("lan-listen-addresses")
-            .split(',')
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-            .collect();
-    #[cfg(not(target_os = "ios"))]
-    let addresses: Vec<String> = crate::lan::local_connectable_addresses()
-        .into_iter()
-        .filter(|address| {
-            if configured_listen_addresses.is_empty() {
-                crate::lan_server::source_allowed(*address)
-            } else {
-                configured_listen_addresses.contains(&address.to_string())
-            }
-        })
-        .map(|address| address.to_string())
-        .collect();
-    #[cfg(target_os = "ios")]
-    let addresses: Vec<String> = Vec::new();
-    let port = Config::get_option("lan-listen-port")
-        .parse::<u16>()
-        .ok()
-        .filter(|value| *value > 0)
-        .unwrap_or(hbb_common::lan::DEFAULT_PORT);
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let (web_listen_port, web_https_enabled, web_runtime, web_ca_certificate_path) = (
-        crate::web_gateway::configured_port(),
-        crate::web_gateway::is_https_enabled(),
-        serde_json::to_value(crate::web_gateway::runtime_status()).unwrap_or_default(),
-        crate::web_gateway::certificate_authority_path_for_ui(),
-    );
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    let (web_listen_port, web_https_enabled, web_runtime, web_ca_certificate_path) = (
-        18_123,
-        true,
-        serde_json::json!({
-            "state": "unsupported",
-            "endpoints": [],
-            "last_error": "",
-            "active_sessions": 0,
-        }),
-        String::new(),
-    );
-    let data = serde_json::json!({
-        "configured": configured,
-        "running": running,
-        "portable_service_running": portable_service_running,
-        "runtime_state": runtime_state,
-        "runtime_error": runtime_error,
-        "username": Config::get_lan_access_username(),
-        "credential_revision": Config::get_credential_revision(),
-        "device_name": crate::lan::device_display_name(),
-        "system_device_name": crate::hostname(),
-        "fingerprint": crate::lan_protocol::fingerprint(&Config::get_key_pair().1),
-        "addresses": addresses,
-        "port": port,
-        "listen_addresses": Config::get_option("lan-listen-addresses"),
-        "allowed_networks": Config::get_option("lan-allowed-networks"),
-        "discovery_enabled": Config::get_option("lan-discovery-enabled") != "N",
-        "web_access_enabled": Config::get_option("web-access-enabled") == "Y",
-        "web_listen_port": web_listen_port,
-        "web_https_enabled": web_https_enabled,
-        "web_certificate_path": Config::get_option("web-certificate-path"),
-        "web_private_key_path": Config::get_option("web-private-key-path"),
-        "web_listen_addresses": Config::get_option("web-listen-addresses"),
-        "web_allowed_networks": Config::get_option("web-allowed-networks"),
-        "web_allowed_hosts": Config::get_option("web-allowed-hosts"),
-        "web_permission_profile": Config::get_option("web-permission-profile"),
-        "web_ca_certificate_path": web_ca_certificate_path,
-        "web_runtime": web_runtime,
-    });
-    data.to_string()
-}
-
-fn lan_server_running_for_ui(runtime_state: &str) -> bool {
-    runtime_state == crate::lan_server::RUNTIME_STATE_LISTENING
-}
-
-fn should_sync_lan_settings_to_background() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        true
-    }
-    #[cfg(target_os = "windows")]
-    {
-        // Portable builds run the background host as a user process instead of
-        // an SCM service. It still owns an independent in-memory Config snapshot,
-        // so LAN credentials and listener options must always be synchronized.
-        true
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        false
-    }
+    SyncReturn(crate::lan_ui::lan_server_info())
 }
 
 pub fn main_apply_lan_settings(
     username: String,
-    mut password: String,
+    password: String,
     listen_addresses: String,
     listen_port: String,
     allowed_networks: String,
@@ -1922,88 +1770,7 @@ pub fn main_apply_lan_settings(
     web_certificate_path: String,
     web_private_key_path: String,
 ) -> String {
-    let result = (|| -> ResultType<()> {
-        let username = hbb_common::lan::validate_username(&username)?;
-        let port = listen_port
-            .parse::<u16>()
-            .map_err(|_| hbb_common::anyhow::anyhow!("Listen port must be between 1 and 65535"))?;
-        if port == 0 {
-            hbb_common::bail!("Listen port must be between 1 and 65535");
-        }
-        let web_port = web_listen_port
-            .parse::<u16>()
-            .map_err(|_| hbb_common::anyhow::anyhow!("Web port must be between 1 and 65535"))?;
-        if web_port == 0 {
-            hbb_common::bail!("Web port must be between 1 and 65535");
-        }
-        if web_access_enabled && web_port == port {
-            hbb_common::bail!("Web port must differ from the native LAN port");
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        let (web_certificate_path, web_private_key_path) =
-            match crate::web_gateway::validate_custom_certificate_files(
-                &web_certificate_path,
-                &web_private_key_path,
-            )? {
-                Some((certificate_path, private_key_path)) => (
-                    certificate_path.to_string_lossy().into_owned(),
-                    private_key_path.to_string_lossy().into_owned(),
-                ),
-                None => (String::new(), String::new()),
-            };
-        #[cfg(any(target_os = "android", target_os = "ios"))]
-        let (web_certificate_path, web_private_key_path) = {
-            if web_access_enabled {
-                hbb_common::bail!("Web access is not supported on this platform");
-            }
-            (String::new(), String::new())
-        };
-        let listen_addresses = crate::lan_server::normalize_listen_addresses(&listen_addresses)?;
-        let allowed_networks = crate::lan_server::normalize_allowed_networks(&allowed_networks)?;
-
-        let current_username = Config::get_lan_access_username();
-        if password.is_empty() {
-            if !Config::lan_credentials_configured() || username != current_username {
-                hbb_common::bail!(
-                    "A password is required when creating or renaming the LAN account"
-                );
-            }
-        } else {
-            Config::set_lan_credentials(&username, password.as_bytes())?;
-        }
-        Config::set_option("lan-listen-addresses".to_owned(), listen_addresses);
-        Config::set_option("lan-listen-port".to_owned(), port.to_string());
-        Config::set_option("lan-allowed-networks".to_owned(), allowed_networks);
-        Config::set_option(
-            "lan-discovery-enabled".to_owned(),
-            if discovery_enabled { "Y" } else { "N" }.to_owned(),
-        );
-        Config::set_option(
-            "web-access-enabled".to_owned(),
-            if web_access_enabled { "Y" } else { "N" }.to_owned(),
-        );
-        Config::set_option("web-listen-port".to_owned(), web_port.to_string());
-        Config::set_option("web-https-enabled".to_owned(), "Y".to_owned());
-        Config::set_option("web-certificate-path".to_owned(), web_certificate_path);
-        Config::set_option("web-private-key-path".to_owned(), web_private_key_path);
-        Config::set_option("stop-service".to_owned(), String::new());
-        crate::lan_server::LanServer::restart();
-        Ok(())
-    })();
-    password.zeroize();
-    if let Err(err) = result {
-        return err.to_string();
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    if should_sync_lan_settings_to_background() {
-        if let Err(err) = crate::ipc::sync_current_config_to_server(2_000) {
-            log::error!("Failed to synchronize LAN settings to the background service: {err}");
-            return "Failed to update the background service. Please retry.".to_owned();
-        }
-    }
-
-    String::new()
+    crate::lan_ui::apply_lan_settings(username, password, listen_addresses, listen_port, allowed_networks, discovery_enabled, web_access_enabled, web_listen_port, web_certificate_path, web_private_key_path)
 }
 
 pub fn cm_get_clients_state() -> String {
@@ -2451,7 +2218,9 @@ pub fn main_is_installed_lower_version() -> SyncReturn<bool> {
 }
 
 pub fn main_is_installed_daemon(prompt: bool) -> SyncReturn<bool> {
-    SyncReturn(is_installed_daemon(prompt))
+    let _ = prompt;
+    // Kept for bridge ABI compatibility; the application no longer installs a daemon.
+    SyncReturn(true)
 }
 
 pub fn main_is_process_trusted(prompt: bool) -> SyncReturn<bool> {
@@ -2532,9 +2301,7 @@ pub fn install_install_options() -> SyncReturn<String> {
 }
 
 pub fn main_on_main_window_close() {
-    // may called more than one times
-    #[cfg(windows)]
-    crate::portable_service::client::drop_portable_service_shared_memory();
+    // Closing a window leaves the resident runtime and secure desktop agent alive.
 }
 
 pub fn main_current_is_wayland() -> SyncReturn<bool> {

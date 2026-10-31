@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
+import 'package:flutter_hbb/common/widgets/subnet_ui.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -269,16 +269,130 @@ void enterUserLoginDialog(
 void enterLanLoginDialog(
   SessionID sessionId,
   OverlayDialogManager dialogManager,
-  String description,
-) async {
-  await _connectDialog(
-    sessionId,
-    dialogManager,
-    osUsernameController: TextEditingController(),
-    osPasswordController: TextEditingController(),
-    osAccountDescTip: description,
-    lanAccess: true,
-  );
+  String description, {
+  bool credentialsRejected = false,
+}) async {
+  if (!isDesktop) {
+    await _connectDialog(
+      sessionId,
+      dialogManager,
+      osUsernameController: TextEditingController(),
+      osPasswordController: TextEditingController(),
+      osAccountDescTip: description,
+      lanAccess: true,
+      credentialsRejected: credentialsRejected,
+    );
+    return;
+  }
+
+  var identities = loadLanIdentityProfiles();
+  var selectedId = preferredLanIdentityId(identities);
+  var bindIdentity = true;
+  var errorText = '';
+  var dialogOpen = true;
+  dialogManager.dismissAll();
+  await dialogManager.show((setState, close, context) {
+    void cancel() {
+      close();
+      closeConnection();
+    }
+
+    void submit() {
+      final identityId = selectedId;
+      if (identityId == null) return;
+      final error = bind.sessionLoginLanIdentity(
+        sessionId: sessionId,
+        identityId: identityId,
+        bindOnSuccess: bindIdentity,
+      );
+      if (error.isNotEmpty) {
+        setState(() => errorText = error);
+        return;
+      }
+      close();
+      dialogManager.showLoading(
+        translate('Logging in...'),
+        onCancel: closeConnection,
+      );
+    }
+
+    Future<void> editAccounts({bool add = false}) async {
+      String? createdId;
+      if (add) {
+        createdId = await showLanIdentityEditor(context);
+      } else {
+        await showLanIdentityManager(context);
+      }
+      // The session may have ended while the account editor was open.
+      if (!dialogOpen || !context.mounted) return;
+      identities = loadLanIdentityProfiles();
+      setState(() {
+        selectedId = preferredLanIdentityId(
+          identities,
+          selectedId: createdId ?? selectedId,
+        );
+        errorText = '';
+      });
+    }
+
+    return CustomAlertDialog(
+      title: Text(subnetText(context, '选择连接账号', 'Select connection account')),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            credentialsRejected
+                ? subnetText(
+                    context,
+                    '账号验证失败，请选择其他账号，或在“管理账号”中更新凭据。',
+                    'Authentication failed. Choose another account or update its credentials in Manage accounts.',
+                  )
+                : subnetText(
+                    context,
+                    '使用已保存的账号连接远程设备。',
+                    'Use a saved account to connect to the remote device.',
+                  ),
+          ),
+          const SizedBox(height: 16),
+          LanIdentitySelector(
+            identities: identities,
+            selectedId: selectedId,
+            errorText: errorText,
+            onChanged: (value) => setState(() {
+              selectedId = value;
+              errorText = '';
+            }),
+            onAdd: () => editAccounts(add: true),
+            onManage: editAccounts,
+          ),
+          if (selectedId != null)
+            CheckboxListTile(
+              value: bindIdentity,
+              onChanged: (value) =>
+                  setState(() => bindIdentity = value == true),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(
+                subnetText(
+                  context,
+                  '记住此设备使用的账号',
+                  'Remember this account for this device',
+                ),
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        dialogButton('Cancel', onPressed: cancel, isOutline: true),
+        dialogButton('Connect', onPressed: selectedId == null ? null : submit),
+      ],
+      onSubmit: selectedId == null ? null : submit,
+      onCancel: cancel,
+    );
+  });
+  dialogOpen = false;
 }
 
 void enterUserLoginAndPasswordDialog(
@@ -305,14 +419,13 @@ _connectDialog(
   TextEditingController? passwordController,
   String? osAccountDescTip,
   bool lanAccess = false,
+  bool credentialsRejected = false,
 }) async {
   final errUsername = ''.obs;
-  final errPassword = ''.obs;
+  final errPassword = (credentialsRejected
+      ? translate('Username or password is incorrect')
+      : '').obs;
   bool rememberPassword = false;
-  final List<LanIdentityProfile> lanIdentities = lanAccess && isDesktop
-      ? loadLanIdentityProfiles()
-      : const [];
-  var selectedIdentityId = lanIdentityManualValue;
   if (osUsernameController != null) {
     osUsernameController.addListener(() {
       if (errUsername.value.isNotEmpty) {
@@ -323,16 +436,13 @@ _connectDialog(
 
   dialogManager.dismissAll();
   dialogManager.show((setState, close, context) {
-    final usingLanIdentity =
-        lanAccess && selectedIdentityId != lanIdentityManualValue;
-
     cancel() {
       close();
       closeConnection();
     }
 
     submit() {
-      if (osUsernameController != null && !usingLanIdentity) {
+      if (osUsernameController != null) {
         if (osUsernameController.text.trim().isEmpty) {
           errUsername.value = translate('Empty Username');
           setState(() {});
@@ -343,34 +453,23 @@ _connectDialog(
       final osPassword = osPasswordController?.text ?? '';
       final password = passwordController?.text.trim() ?? '';
       if (lanAccess) {
-        if (usingLanIdentity) {
-          final error = bind.sessionLoginLanIdentity(
-            sessionId: sessionId,
-            identityId: selectedIdentityId,
-            bindOnSuccess: rememberPassword,
-          );
-          if (error.isNotEmpty) {
-            errPassword.value = error;
-          setState(() {});
-          return;
-        }
-        } else if (osPassword.isEmpty) {
+        if (osPassword.isEmpty) {
           errPassword.value = translate('Empty Password');
           setState(() {});
           return;
         } else {
-        final error = bind.sessionLoginLan(
-          sessionId: sessionId,
-          username: osUsername,
-          password: osPassword,
-          remember: rememberPassword,
-        );
-        osPasswordController?.clear();
-        if (error.isNotEmpty) {
-          errPassword.value = error;
-          setState(() {});
-          return;
-        }
+          final error = bind.sessionLoginLan(
+            sessionId: sessionId,
+            username: osUsername,
+            password: osPassword,
+            remember: rememberPassword,
+          );
+          osPasswordController?.clear();
+          if (error.isNotEmpty) {
+            errPassword.value = error;
+            setState(() {});
+            return;
+          }
         }
       } else {
         if (passwordController != null && password.isEmpty) return;
@@ -465,37 +564,7 @@ _connectDialog(
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (lanAccess && isDesktop && lanIdentities.isNotEmpty)
-            DropdownButtonFormField<String>(
-              key: ValueKey(selectedIdentityId),
-              initialValue: selectedIdentityId,
-              decoration: InputDecoration(
-                labelText: translate('Account'),
-                prefixIcon: const Icon(Icons.badge_outlined),
-              ),
-              items: [
-                DropdownMenuItem(
-                  value: lanIdentityManualValue,
-                  child: Text(
-                    '${translate('Username')} · ${translate('Password')}',
-                  ),
-                ),
-                ...lanIdentities.map(
-                  (identity) => DropdownMenuItem(
-                    value: identity.id,
-                    child: Text(
-                      identity.isDefault
-                          ? '${identity.name} (${translate('Default')})'
-                          : identity.name,
-                    ),
-                  ),
-                ),
-              ],
-              onChanged: (value) => setState(
-                () => selectedIdentityId = value ?? lanIdentityManualValue,
-              ),
-            ).paddingOnly(bottom: 12),
-          if (!usingLanIdentity) osAccountWidget(),
+          osAccountWidget(),
           osUsernameController == null || passwordController == null
               ? Offstage()
               : Container(height: 12),
@@ -508,11 +577,7 @@ _connectDialog(
               contentPadding: EdgeInsets.zero,
               dense: true,
               controlAffinity: ListTileControlAffinity.leading,
-              title: Text(
-                usingLanIdentity
-                    ? '${translate('Remember password')} · ${translate('Account')}'
-                    : translate('Remember password'),
-              ),
+              title: Text(translate('Remember password')),
             ),
         ],
       ),
@@ -1021,11 +1086,6 @@ customImageQualityDialog(SessionID sessionId, String id, FFI ffi) async {
   bool qualitySet = false;
   bool fpsSet = false;
 
-  bool? direct;
-  try {
-    direct =
-        ConnectionTypeState.find(id).direct.value == ConnectionType.strDirect;
-  } catch (_) {}
   bool hideFps = versionCmp(ffi.ffiModel.pi.version, '1.2.0') < 0;
   bool hideMoreQuality = versionCmp(ffi.ffiModel.pi.version, '1.2.2') < 0;
 

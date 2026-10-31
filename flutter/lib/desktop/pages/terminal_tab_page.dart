@@ -302,6 +302,9 @@ class _TerminalTabPageState extends State<TerminalTabPage> {
     rustDeskWinManager.setMethodHandler((call, fromWindowId) async {
       debugPrint(
           "[Remote Terminal] call ${call.method} from window $fromWindowId");
+      if (call.method == kWindowEventGetRemoteList) {
+        return tabController.state.value.tabs.map((tab) => tab.label).join(',');
+      }
       if (call.method == kWindowEventNewTerminal) {
         final args = jsonDecode(call.arguments);
         final id = args['id'];

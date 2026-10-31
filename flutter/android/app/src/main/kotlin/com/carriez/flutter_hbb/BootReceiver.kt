@@ -5,7 +5,6 @@ import android.Manifest.permission.SYSTEM_ALERT_WINDOW
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import com.hjq.permissions.XXPermissions
@@ -32,16 +31,13 @@ class BootReceiver : BroadcastReceiver() {
                 return
             }
 
-            val it = Intent(context, MainService::class.java).apply {
-                action = ACT_INIT_MEDIA_PROJECTION_AND_SERVICE
+            val it = Intent(context, PermissionRequestTransparentActivity::class.java).apply {
+                action = ACT_REQUEST_MEDIA_PROJECTION
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 putExtra(EXT_INIT_FROM_BOOT, true)
             }
             Toast.makeText(context, "SubnetDesk is open", Toast.LENGTH_LONG).show()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(it)
-            } else {
-                context.startService(it)
-            }
+            context.startActivity(it)
         }
     }
 }

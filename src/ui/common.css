@@ -1,15 +1,15 @@
 html {
     var(accent): #0071ff;
     var(button): #2C8CFF;
-    var(gray-bg): #eee;
+    var(gray-bg): #eeeff3;
     var(bg): white;
-    var(border): #ccc;
+    var(border): #e0e5ef;
     var(hover-border): #999;
     var(text): #222;
     var(placeholder): #aaa;
     var(lighter-text): #888;
     var(light-text): #666;
-    var(menu-hover): #D7E4F2;
+    var(menu-hover): #e9f3ff;
     var(dark-red): #A72145;
     var(dark-yellow): #FBC732;
     var(dark-blue): #2E2459;
@@ -30,8 +30,8 @@ html.darktheme {
 
     var(text): white;
     var(light-text): #999;
-    var(lighter-text): #777;
-    var(placeholder): #555;
+    var(lighter-text): #9ba5b6;
+    var(placeholder): #9ba5b6;
     var(gray-bg-osx): rgba(37, 37, 37, 0.75);
 }
 
@@ -490,3 +490,13 @@ div.user-session select {
   color: color(text);
   padding-left: 0.5em;
 }
+
+/* Shared connection and authentication dialogs follow the Flutter desktop surface. */
+.session-dialog { border: 1px solid color(border); border-radius: 16px; background: color(bg); box-shadow: 0 10px 30px #0004; overflow: hidden; }
+div#msgbox .session-dialog .caption { height: auto; line-height: normal; text-align: left; padding: 18px 24px 12px; font-size: 20px; font-weight: bold; background: none; }
+.session-dialog input, .session-dialog select { height: 36px; box-sizing: border-box; border: 1px solid color(border); border-radius: 8px; padding: 6px 10px; font-size: 14px; background: color(gray-bg); color: color(text); }
+.session-dialog .lan-login label { display: block; margin: 10px 0; }
+.session-dialog .lan-login label > input, .session-dialog .lan-login label > select { display: block; width: *; margin-top: 4px; }
+.session-dialog .button { border-radius: 8px; padding: 8px 16px; }
+
+.session-dialog #content { word-wrap: break-word; }

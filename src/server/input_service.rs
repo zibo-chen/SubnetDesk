@@ -1946,7 +1946,6 @@ fn record_pressed_key(record_key: KeysDown, down: bool) {
 fn is_function_key(ck: &EnumOrUnknown<ControlKey>) -> bool {
     let mut res = false;
     if ck.value() == ControlKey::CtrlAltDel.value() {
-        // have to spawn new thread because send_sas is tokio_main, the caller can not be tokio_main.
         #[cfg(windows)]
         std::thread::spawn(|| {
             allow_err!(send_sas());
@@ -2364,27 +2363,24 @@ async fn lock_screen_2() {
 }
 
 #[cfg(windows)]
-#[tokio::main(flavor = "current_thread")]
-async fn send_sas() -> ResultType<()> {
-    if crate::platform::is_physical_console_session().unwrap_or(true) {
-        let mut stream = crate::ipc::connect(1000, crate::POSTFIX_SERVICE).await?;
-        timeout(1000, stream.send(&crate::ipc::Data::SAS)).await??;
-    } else {
-        crate::platform::send_sas();
-    };
+fn send_sas() -> ResultType<()> {
+    if !crate::platform::is_root() {
+        hbb_common::bail!("The secure desktop agent is required to send Ctrl+Alt+Del");
+    }
+    crate::platform::send_sas();
     Ok(())
 }
 
 #[inline]
 #[cfg(target_os = "linux")]
 pub fn wayland_use_uinput() -> bool {
-    !crate::platform::is_x11() && crate::is_server()
+    !crate::platform::is_x11() && crate::is_server() && !crate::desktop_runtime::is_host()
 }
 
 #[inline]
 #[cfg(target_os = "linux")]
 pub fn wayland_use_rdp_input() -> bool {
-    !crate::platform::is_x11() && !crate::is_server()
+    !crate::platform::is_x11() && (!crate::is_server() || crate::desktop_runtime::is_host())
 }
 
 #[cfg(target_os = "linux")]

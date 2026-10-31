@@ -1894,9 +1894,11 @@ impl<T: InvokeUiSession> Interface for Session<T> {
             }
         }
         if credential.is_none() && !explicit_identity_requested {
-            let lc = self.lc.clone();
+            // The credential store can wait for OS authorization. Never retain
+            // the session lock while it does so, including after cancellation.
+            let fingerprint = self.lc.read().unwrap().lan_fingerprint.clone();
             let remembered = match tokio::task::spawn_blocking(move || {
-                lc.read().unwrap().load_remembered_lan_credential()
+                crate::client::load_remembered_lan_credential_for_fingerprint(&fingerprint)
             })
             .await
             {

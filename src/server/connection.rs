@@ -1299,14 +1299,8 @@ impl Connection {
         {
             pi.platform = "Android".into();
         }
-        #[cfg(all(target_os = "macos", not(feature = "unix-file-copy-paste")))]
         let mut platform_additions = serde_json::Map::new();
-        #[cfg(any(
-            target_os = "windows",
-            target_os = "linux",
-            all(target_os = "macos", feature = "unix-file-copy-paste")
-        ))]
-        let mut platform_additions = serde_json::Map::new();
+        platform_additions.insert("device_type".into(), json!(crate::device_type::local()));
         #[cfg(target_os = "linux")]
         {
             if crate::platform::current_is_wayland() {
@@ -1364,7 +1358,6 @@ impl Connection {
             platform_additions.insert("support_view_camera".into(), json!(true));
         }
 
-        #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
         if !platform_additions.is_empty() {
             pi.platform_additions = serde_json::to_string(&platform_additions).unwrap_or("".into());
         }
@@ -2086,12 +2079,7 @@ impl Connection {
                     }
                 }
             });
-            #[cfg(all(windows, feature = "flutter"))]
-            std::thread::spawn(move || {
-                if crate::is_server() && !crate::check_process("--tray", false) {
-                    crate::platform::run_as_user(vec!["--tray"]).ok();
-                }
-            });
+
         }
     }
 

@@ -2,6 +2,26 @@
 
 All notable SubnetDesk changes are documented in this file.
 
+## [2.0.0] - 2026-10-31
+
+### Added
+
+- Added the redesigned desktop and mobile LAN workspace, device artwork, local host controls, and remote session toolbar.
+- Added a shared Flutter UI package for Windows 7 x64 with a pinned custom engine, portable ZIP, installer, and package compatibility checks.
+
+### Changed
+
+- Unified Rust, Flutter, portable launcher, CI, and native package versions at 2.0.0, with Flutter build number 76.
+- Desktop sharing now runs in the signed-in user's application session, with native tray controls, login startup, and isolated portable user data.
+- Updated the shared protocol and integrated the recent master, Windows startup, and Win7 Flutter branches.
+- Paused the separate Linux DRM unattended package for 2.0.0 while the user-session runtime lacks its root service; regular Linux packages remain available.
+
+### Fixed
+
+- Removed false legacy-version restrictions on inherited screenshot, file clipboard, transfer resume, and remote input features by advertising the current 2.0.0 release in both connection directions.
+- Included the relative mouse compatibility fix, Windows terminal text input fix, and recent Wayland/DRM and connection robustness improvements.
+- Preserved the host runtime during initial Windows window cleanup and retained the pinned native dependencies during MSVC setup.
+
 ## [1.3.0] - 2026-08-27
 
 ### Added
@@ -22,4 +42,5 @@ All notable SubnetDesk changes are documented in this file.
 - Fixed known LAN peers being rejected before the user could confirm an unexpected device-identity fingerprint.
 - Hardened macOS update extraction with unique mount paths, symlink-safe cleanup, code-signature verification, and Gatekeeper validation.
 
+[2.0.0]: https://github.com/zibo-chen/SubnetDesk/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/zibo-chen/SubnetDesk/compare/v1.2.3...v1.3.0

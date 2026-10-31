@@ -62,6 +62,10 @@ That makes it a good fit for home labs, offices, classrooms, on-site support, an
 > [!IMPORTANT]
 > SubnetDesk does not provide Internet rendezvous or relay services. The two devices must be reachable through the same LAN, a routed private network, or a VPN.
 
+Version 2.0.0 ships the regular Linux packages. Publication of the separate DRM
+unattended/login-screen package is paused while its root service is adapted to
+the new user-session runtime.
+
 <a id="features"></a>
 
 ## ✨ Features

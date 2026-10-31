@@ -1,0 +1,66 @@
+{
+  "dependencies": {
+    "wakelock_plus": "1.2.1",
+    "package_info_plus": "4.2.0",
+    "desktop_drop": "0.4.4",
+    "file_picker": "5.5.0",
+    "app_links": "6.3.2",
+    "device_info_plus": "9.1.2",
+    "extended_text": "14.0.0",
+    "sqflite": "2.2.0",
+    "google_fonts": "6.2.1",
+    "win32": "5.10.1",
+    "dash_chat_2": {
+      "git": {
+        "path": ".",
+        "ref": "bd6b5b41254e57c5bcece202ebfb234de63e6487",
+        "url": "https://github.com/rustdesk-org/Dash-Chat-2"
+      }
+    },
+    "desktop_multi_window": {
+      "git": {
+        "path": ".",
+        "ref": "cddc2e64f8fefce4f80db87b20bcda2dd019bed6",
+        "url": "https://github.com/rustdesk-org/rustdesk_desktop_multi_window"
+      }
+    },
+    "dynamic_layouts": {
+      "git": {
+        "path": ".",
+        "ref": "24cb88413fa5181d949ddacbb30a65d5c459e7d9",
+        "url": "https://github.com/rustdesk-org/dynamic_layouts.git"
+      }
+    },
+    "flutter_gpu_texture_renderer": {
+      "git": {
+        "path": ".",
+        "ref": "208619e750a5fd904c689a9babd6ccf0f7c1ca88",
+        "url": "https://github.com/rustdesk-org/flutter_gpu_texture_renderer"
+      }
+    },
+    "texture_rgba_renderer": {
+      "git": {
+        "path": ".",
+        "ref": "883326ddd4fb2af1484bf873b4ea856a0ac440bc",
+        "url": "https://github.com/rustdesk-org/flutter_texture_rgba_renderer"
+      }
+    },
+    "window_manager": {
+      "git": {
+        "path": ".",
+        "ref": "cf4aef0512092fad9344a27ffe1c47ad83269dfc",
+        "url": "https://github.com/rustdesk-org/window_manager"
+      }
+    },
+    "window_size": {
+      "git": {
+        "path": "plugins/window_size",
+        "ref": "eb3964990cf19629c89ff8cb4a37640c7b3d5601",
+        "url": "https://github.com/google/flutter-desktop-embedding.git"
+      }
+    }
+  },
+  "dependency_overrides": {
+    "flutter_plugin_android_lifecycle": "2.0.17"
+  }
+}

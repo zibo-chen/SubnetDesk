@@ -44,7 +44,7 @@ env:
   # 2. Update the `VCPKG_COMMIT_ID` in `ci.yml` and `playground.yml`.
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836" # 2025.01.13, got "/opt/artifacts/vcpkg/vcpkg: No such file or directory" with latest version
-  VERSION: "1.3.0"
+  VERSION: "2.0.0"
   NDK_VERSION: "r28c"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
@@ -309,6 +309,12 @@ jobs:
         run: |
           BASE_URL=${{ env.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./SignOutput
 
+      - name: Package portable directory ZIP
+        if: env.UPLOAD_ARTIFACT == 'true'
+        run: |
+          python3 scripts/package_portable.py --runtime ./rustdesk --launcher ./rustdesk/SubnetDeskLauncher.exe --output ./target/portable/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-portable
+          Copy-Item ./target/portable/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-portable.zip ./SignOutput/
+
       - name: Upload Windows installers
         if: env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -316,6 +322,7 @@ jobs:
           name: subnetdesk-windows-${{ matrix.job.arch }}
           path: |
             ./SignOutput/subnetdesk-*.msi
+            ./SignOutput/subnetdesk-*.zip
             ./SignOutput/subnetdesk-*.exe
 
       - name: Publish Release
@@ -327,6 +334,7 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           files: |
             ./SignOutput/subnetdesk-*.msi
+            ./SignOutput/subnetdesk-*.zip
             ./SignOutput/subnetdesk-*.exe
 
   # The fallback for the flutter version, we use Sciter for 32bit Windows.
@@ -1524,9 +1532,9 @@ jobs:
             --volume "/opt/artifacts:/opt/artifacts"
           shell: /bin/bash
           install: |
-            apt-get update -y
+            apt-get -o Acquire::Retries=5 update -y
             echo -e "installing deps"
-            apt-get install -y \
+            apt-get -o Acquire::Retries=5 install -y \
                build-essential \
                clang \
                cmake \
@@ -1727,6 +1735,9 @@ jobs:
   # old for it. A separate job rather than a matrix entry of build-rustdesk-linux: appimage and
   # flatpak need that job, and a failure here must not skip them.
   build-rustdesk-linux-drm:
+    # Paused for 2.0.0: the user-session runtime has no root DRM service.
+    # Keep the binary capability checks intact until that backend is supported again.
+    if: ${{ false }}
     needs: [generate-bridge]
     name: build subnetdesk linux drm x86_64
     runs-on: ubuntu-22.04
@@ -1842,9 +1853,9 @@ jobs:
             --volume "/opt/artifacts:/opt/artifacts"
           shell: /bin/bash
           install: |
-            apt-get update -y
+            apt-get -o Acquire::Retries=5 update -y
             echo -e "installing deps"
-            apt-get install -y \
+            apt-get -o Acquire::Retries=5 install -y \
                build-essential \
                clang \
                cmake \

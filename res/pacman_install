@@ -5,12 +5,9 @@
 # arg 1:  the new package version
 post_install() {
 	# do something here
-	cp /usr/share/subnetdesk/files/subnetdesk.service /etc/systemd/system/subnetdesk.service
 	cp /usr/share/subnetdesk/files/subnetdesk.desktop /usr/share/applications/
 	cp /usr/share/subnetdesk/files/subnetdesk-link.desktop /usr/share/applications/
 	systemctl daemon-reload
-	systemctl enable subnetdesk
-	systemctl start subnetdesk
 	update-desktop-database
 }
 
@@ -23,12 +20,9 @@ pre_upgrade() {
 # arg 1:  the new package version
 # arg 2:  the old package version
 post_upgrade() {
-	cp /usr/share/subnetdesk/files/subnetdesk.service /etc/systemd/system/subnetdesk.service
 	cp /usr/share/subnetdesk/files/subnetdesk.desktop /usr/share/applications/
 	cp /usr/share/subnetdesk/files/subnetdesk-link.desktop /usr/share/applications/
 	systemctl daemon-reload
-	systemctl enable subnetdesk
-	systemctl start subnetdesk
 	update-desktop-database
 }
 

@@ -1,5 +1,5 @@
 pkgname=subnetdesk
-pkgver=1.3.0
+pkgver=2.0.0
 pkgrel=0
 epoch=
 pkgdesc=""
@@ -27,7 +27,6 @@ package() {
   fi
   mkdir -p "${pkgdir}/usr/bin"
   pushd ${pkgdir} && ln -s /usr/share/subnetdesk/subnetdesk usr/bin/subnetdesk && popd
-  install -Dm 644 $HBB/res/subnetdesk.service -t "${pkgdir}/usr/share/subnetdesk/files"
   install -Dm 644 $HBB/res/rustdesk.desktop "${pkgdir}/usr/share/subnetdesk/files/subnetdesk.desktop"
   install -Dm 644 $HBB/res/rustdesk-link.desktop "${pkgdir}/usr/share/subnetdesk/files/subnetdesk-link.desktop"
   install -Dm 644 $HBB/res/128x128@2x.png "${pkgdir}/usr/share/icons/hicolor/256x256/apps/subnetdesk.png"

@@ -162,6 +162,60 @@ private final class LocalNetworkPermissionProbe {
 
 class MainFlutterWindow: NSWindow {
     private var localNetworkPermissionProbe: LocalNetworkPermissionProbe?
+    private var desktopChannel: FlutterMethodChannel?
+    private var statusItem: NSStatusItem?
+
+    private func configureDesktopRuntime(_ options: [String: Any], channel: FlutterMethodChannel) {
+        desktopChannel = channel
+        if statusItem == nil {
+            guard let image = NSImage(named: NSImage.Name("mac-tray-light-x2")) else {
+                NSLog("[SubnetDesk] Missing tray icon resource")
+                return
+            }
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+            image.size = NSSize(width: 18, height: 18)
+            image.isTemplate = true
+            item.button?.image = image
+            item.button?.toolTip = "SubnetDesk"
+            item.button?.setAccessibilityLabel("SubnetDesk")
+            statusItem = item
+        }
+        let menu = NSMenu()
+        let status = NSMenuItem(title: options["status"] as? String ?? "SubnetDesk",
+                                action: nil, keyEquivalent: "")
+        menu.addItem(status)
+        menu.addItem(NSMenuItem.separator())
+        func add(_ key: String, _ fallback: String, _ action: String,
+                 checked: Bool? = nil, shortcut: String = "") {
+            let item = NSMenuItem(title: options[key] as? String ?? fallback,
+                                  action: #selector(desktopMenuAction(_:)), keyEquivalent: shortcut)
+            item.target = self
+            item.representedObject = action
+            if let checked = checked { item.state = checked ? .on : .off }
+            menu.addItem(item)
+        }
+        add("openLabel", "Open SubnetDesk", "open")
+        add("settingsLabel", "Settings…", "settings", shortcut: ",")
+        menu.addItem(NSMenuItem.separator())
+        add("sharingLabel", "Allow remote access", "sharing", checked: options["sharing"] as? Bool ?? false)
+        add("autostartLabel", "Start at login", "autostart", checked: options["autostart"] as? Bool ?? false)
+        menu.addItem(NSMenuItem.separator())
+        add("dataLabel", "Open data folder", "data")
+        menu.addItem(NSMenuItem.separator())
+        add("quitLabel", "Quit SubnetDesk", "quit", shortcut: "q")
+        statusItem?.menu = menu
+        statusItem?.button?.toolTip = options["status"] as? String ?? "SubnetDesk"
+    }
+
+    @objc private func desktopMenuAction(_ sender: NSMenuItem) {
+        guard let action = sender.representedObject as? String else { return }
+        desktopChannel?.invokeMethod("desktopAction", arguments: action)
+    }
+
+    func reopenMainWindow() {
+        desktopChannel?.invokeMethod("desktopAction", arguments: "open")
+    }
+
     private static let fullscreenWorkAreaSizes = NSMapTable<NSWindow, NSValue>(
         keyOptions: [.weakMemory, .objectPointerPersonality],
         valueOptions: .strongMemory
@@ -329,6 +383,17 @@ class MainFlutterWindow: NSWindow {
         channel.setMethodCallHandler({
             (call, result) -> Void in
                 switch call.method {
+                case "configureDesktopRuntime":
+                    guard let options = call.arguments as? [String: Any] else {
+                        result(FlutterError(code: "arguments", message: "Missing desktop options", details: nil))
+                        return
+                    }
+                    self.configureDesktopRuntime(options, channel: channel)
+                    if self.statusItem == nil {
+                        result(FlutterError(code: "tray-icon", message: "Missing SubnetDesk tray icon", details: nil))
+                    } else {
+                        result(true)
+                    }
                 case "setWindowTheme":
                     let arg = call.arguments as! [String: Any]
                     let themeName = arg["themeName"] as? String

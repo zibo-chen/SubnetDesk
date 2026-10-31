@@ -1,10 +1,6 @@
 use crate::{
     ipc::{self, new_listener, Connection, Data, DataPortableService, IPC_TOKEN_LEN},
-    platform::{
-        set_path_permission, set_path_permission_for_portable_service_shmem_dir,
-        set_path_permission_for_portable_service_shmem_file,
-        validate_path_for_portable_service_shmem_dir,
-    },
+    platform::set_path_permission,
 };
 use base::message_proto::{KeyEvent, MouseEvent};
 use core::slice;
@@ -19,11 +15,9 @@ use hbb_common::{
 #[cfg(feature = "vram")]
 use scrap::AdapterDevice;
 use scrap::{Capturer, Frame, TraitCapturer, TraitPixelBuffer};
-use shared_memory::*;
 use std::{
     mem::size_of,
-    ops::{Deref, DerefMut},
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
@@ -57,7 +51,6 @@ const MIN_RUNTIME_SHMEM_LEN: usize = ADDR_CAPTURE_FRAME + FRAME_ALIGN;
 const IPC_SUFFIX: &str = "_portable_service";
 pub const SHMEM_NAME: &str = "_portable_service";
 pub const SHMEM_ARG_PREFIX: &str = "--portable-service-shmem-name=";
-const SHMEM_PARENT_DIR: &str = "portable_service_shmem";
 const SHMEM_NAME_MAX_LEN: usize = 64;
 const MAX_NACK: usize = 3;
 const PORTABLE_SERVICE_STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
@@ -133,54 +126,6 @@ fn is_valid_capture_frame_length(shmem_len: usize, frame_len: usize) -> bool {
 }
 
 #[inline]
-fn shared_memory_flink_path_by_name(name: &str) -> ResultType<PathBuf> {
-    let mut dir = crate::platform::user_accessible_folder()?;
-    dir = dir.join(hbb_common::config::APP_NAME.read().unwrap().clone());
-    dir = dir.join(SHMEM_PARENT_DIR);
-    Ok(dir.join(format!("shared_memory{}", name)))
-}
-
-#[inline]
-fn remove_shared_memory_flink_once(name: &str, log_on_error: bool, log_context: &str) -> bool {
-    let flink = match shared_memory_flink_path_by_name(name) {
-        Ok(path) => path,
-        Err(err) => {
-            if log_on_error {
-                log::warn!(
-                    "{} failed to resolve portable service shared-memory flink path for '{}': {}",
-                    log_context,
-                    name,
-                    err
-                );
-            }
-            return false;
-        }
-    };
-    match std::fs::remove_file(&flink) {
-        Ok(()) => {
-            log::info!(
-                "{} removed portable service shared-memory flink artifact: {:?}",
-                log_context,
-                flink
-            );
-            true
-        }
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => true,
-        Err(err) => {
-            if log_on_error {
-                log::warn!(
-                    "{} failed to remove portable service shared-memory flink artifact {:?}: {}",
-                    log_context,
-                    flink,
-                    err
-                );
-            }
-            false
-        }
-    }
-}
-
-#[inline]
 fn write_ipc_token_to_shmem(shmem: &SharedMemory, token: &str) -> ResultType<()> {
     if !is_valid_portable_service_ipc_token(token) {
         bail!("Invalid portable service ipc token");
@@ -232,113 +177,78 @@ pub fn has_portable_service_shmem_arg() -> bool {
     std::env::args().any(|arg| arg.starts_with(SHMEM_ARG_PREFIX))
 }
 
+/// Pagefile-backed, session-local mapping. No link file or captured frame is written to disk.
 pub struct SharedMemory {
-    inner: Shmem,
+    handle: winapi::shared::ntdef::HANDLE,
+    ptr: *mut u8,
+    len: usize,
 }
 
 unsafe impl Send for SharedMemory {}
 unsafe impl Sync for SharedMemory {}
 
-impl Deref for SharedMemory {
-    type Target = Shmem;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl DerefMut for SharedMemory {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
+impl Drop for SharedMemory {
+    fn drop(&mut self) {
+        unsafe {
+            winapi::um::memoryapi::UnmapViewOfFile(self.ptr as _);
+            winapi::um::handleapi::CloseHandle(self.handle);
+        }
     }
 }
 
 impl SharedMemory {
+    fn mapping_name(name: &str) -> ResultType<Vec<u16>> {
+        if !is_valid_portable_service_shmem_name(name) { bail!("Invalid secure desktop mapping name"); }
+        Ok(crate::platform::wide_string(&format!("Local\\SubnetDesk-{name}")))
+    }
+
     pub fn create(name: &str, size: usize) -> ResultType<Self> {
-        let flink = Self::flink(name.to_string())?;
-        let shmem = match ShmemConf::new()
-            .size(size)
-            .flink(&flink)
-            .force_create_flink()
-            .create()
-        {
-            Ok(m) => m,
-            Err(ShmemError::LinkExists) => {
-                bail!(
-                    "Unable to force create shmem flink {}, which should not happen.",
-                    flink
-                )
-            }
-            Err(e) => {
-                bail!("Unable to create shmem flink {} : {}", flink, e);
-            }
-        };
-        log::info!("Create shared memory, size: {}, flink: {}", size, flink);
-        if let Err(err) = set_path_permission_for_portable_service_shmem_file(Path::new(&flink)) {
-            // Release shmem handle first so best-effort flink cleanup has a chance to succeed.
-            drop(shmem);
-            match std::fs::remove_file(&flink) {
-                Ok(()) => {
-                    log::info!(
-                        "Create cleanup removed portable service shared-memory flink artifact: {}",
-                        flink
-                    );
-                }
-                Err(remove_err) if remove_err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(remove_err) => {
-                    log::warn!(
-                        "Create cleanup failed to remove portable service shared-memory flink artifact {}: {}",
-                        flink,
-                        remove_err
-                    );
-                }
-            }
-            return Err(err);
+        use winapi::um::{handleapi::INVALID_HANDLE_VALUE, memoryapi::CreateFileMappingW, winnt::PAGE_READWRITE};
+        let name = Self::mapping_name(name)?;
+        // The elevated caller's default DACL grants this user and SYSTEM access.
+        let handle = unsafe { CreateFileMappingW(INVALID_HANDLE_VALUE, std::ptr::null_mut(), PAGE_READWRITE,
+            ((size as u64) >> 32) as u32, size as u32, name.as_ptr()) };
+        if handle.is_null() { return Err(std::io::Error::last_os_error().into()); }
+        if unsafe { winapi::um::errhandlingapi::GetLastError() } == winapi::shared::winerror::ERROR_ALREADY_EXISTS {
+            unsafe { winapi::um::handleapi::CloseHandle(handle); }
+            bail!("Secure desktop mapping already exists");
         }
-        Ok(SharedMemory { inner: shmem })
+        Self::map(handle, Some(size))
     }
 
     pub fn open_existing(name: &str) -> ResultType<Self> {
-        let flink = Self::flink(name.to_string())?;
-        let shmem = match ShmemConf::new().flink(&flink).allow_raw(true).open() {
-            Ok(m) => m,
-            Err(e) => {
-                bail!("Unable to open existing shmem flink {} : {}", flink, e);
-            }
-        };
-        log::info!("open existing shared memory, flink: {:?}", flink);
-        Ok(SharedMemory { inner: shmem })
+        let name = Self::mapping_name(name)?;
+        let handle = unsafe { winapi::um::memoryapi::OpenFileMappingW(winapi::um::memoryapi::FILE_MAP_ALL_ACCESS, FALSE, name.as_ptr()) };
+        if handle.is_null() { return Err(std::io::Error::last_os_error().into()); }
+        Self::map(handle, None)
     }
+
+    fn map(handle: winapi::shared::ntdef::HANDLE, size: Option<usize>) -> ResultType<Self> {
+        use winapi::um::{memoryapi::{MapViewOfFile, VirtualQuery, FILE_MAP_ALL_ACCESS}, winnt::MEMORY_BASIC_INFORMATION};
+        let ptr = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, 0) };
+        if ptr.is_null() {
+            let error = std::io::Error::last_os_error();
+            unsafe { winapi::um::handleapi::CloseHandle(handle); }
+            return Err(error.into());
+        }
+        let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+        if unsafe { VirtualQuery(ptr, &mut info, size_of::<MEMORY_BASIC_INFORMATION>()) } == 0 {
+            let error = std::io::Error::last_os_error();
+            unsafe {
+                winapi::um::memoryapi::UnmapViewOfFile(ptr);
+                winapi::um::handleapi::CloseHandle(handle);
+            }
+            return Err(error.into());
+        }
+        Ok(Self { handle, ptr: ptr as *mut u8, len: size.unwrap_or(info.RegionSize) })
+    }
+
+    pub fn as_ptr(&self) -> *mut u8 { self.ptr }
+    pub fn len(&self) -> usize { self.len }
 
     pub fn write(&self, addr: usize, data: &[u8]) {
-        unsafe {
-            debug_assert!(addr + data.len() <= self.inner.len());
-            let ptr = self.inner.as_ptr().add(addr);
-            let shared_mem_slice = slice::from_raw_parts_mut(ptr, data.len());
-            shared_mem_slice.copy_from_slice(data);
-        }
-    }
-
-    fn flink(name: String) -> ResultType<String> {
-        let mut dir = crate::platform::user_accessible_folder()?;
-        dir = dir.join(hbb_common::config::APP_NAME.read().unwrap().clone());
-        dir = dir.join(SHMEM_PARENT_DIR);
-        let parent_created = !dir.exists();
-        if parent_created {
-            std::fs::create_dir_all(&dir)?;
-        }
-        if parent_created || crate::platform::is_root() {
-            // Harden parent ACL on first provisioning and periodically on SYSTEM path.
-            set_path_permission_for_portable_service_shmem_dir(&dir)?;
-        } else {
-            // Existing parents still need type/reparse validation. Non-SYSTEM callers may lack
-            // WRITE_DAC on a valid parent, so avoid rebuilding the ACL here.
-            validate_path_for_portable_service_shmem_dir(&dir)?;
-        }
-        Ok(dir
-            .join(format!("shared_memory{}", name))
-            .to_string_lossy()
-            .to_string())
+        assert!(addr <= self.len && data.len() <= self.len - addr, "Shared memory write out of bounds");
+        unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), self.ptr.add(addr), data.len()); }
     }
 }
 
@@ -518,7 +428,6 @@ pub mod server {
             }
         }
         drop(shmem);
-        remove_shared_memory_flink_with_retry(&shmem_name);
     }
 
     fn run_exit_check() {
@@ -540,24 +449,6 @@ pub mod server {
             );
             std::process::exit(0);
         }
-    }
-
-    fn remove_shared_memory_flink_with_retry(name: &str) {
-        const MAX_RETRY: usize = 20;
-        const RETRY_INTERVAL: Duration = Duration::from_millis(200);
-        for attempt in 0..MAX_RETRY {
-            let is_last_attempt = attempt + 1 == MAX_RETRY;
-            if remove_shared_memory_flink_once(name, is_last_attempt, "SYSTEM cleanup") {
-                return;
-            }
-            if !is_last_attempt {
-                std::thread::sleep(RETRY_INTERVAL);
-            }
-        }
-        log::warn!(
-            "SYSTEM cleanup failed to remove portable service shared-memory flink artifact '{}' after retry",
-            name
-        );
     }
 
     fn run_get_cursor_info(shmem: Arc<SharedMemory>) {
@@ -774,13 +665,6 @@ pub mod server {
                                     Pong => {
                                         nack = 0;
                                     }
-                                    ConnCount(Some(n)) => {
-                                        if n == 0 {
-                                            log::info!("Connection count equals 0, exit");
-                                            stream.send(&Data::DataPortableService(WillClose)).await.ok();
-                                            break;
-                                        }
-                                    }
                                     Mouse((v, conn, username, argb, simulate, show_cursor)) => {
                                         if let Ok(evt) = MouseEvent::parse_from_bytes(&v) {
                                             crate::input_service::handle_mouse_(&evt, conn, username, argb, simulate, show_cursor);
@@ -808,7 +692,6 @@ pub mod server {
                                 break;
                             }
                             stream.send(&Data::DataPortableService(Ping)).await.ok();
-                            stream.send(&Data::DataPortableService(ConnCount(None))).await.ok();
                         }
                     }
                 }
@@ -868,24 +751,6 @@ pub mod client {
     }
 
     #[inline]
-    fn schedule_remove_runtime_shmem_flink_retry(name: String) {
-        std::thread::spawn(move || {
-            const MAX_RETRY: usize = 20;
-            const RETRY_INTERVAL: Duration = Duration::from_millis(200);
-            for _ in 0..MAX_RETRY {
-                std::thread::sleep(RETRY_INTERVAL);
-                if remove_shared_memory_flink_once(&name, false, "Client cleanup") {
-                    return;
-                }
-            }
-            log::warn!(
-                "Failed to remove portable service shared-memory flink artifact '{}' after retry",
-                name
-            );
-        });
-    }
-
-    #[inline]
     fn clear_runtime_shmem_state() {
         let mut runtime_token = IPC_RUNTIME_TOKEN.lock().unwrap();
         let mut shmem_lock = SHMEM.lock().unwrap();
@@ -893,15 +758,8 @@ pub mod client {
             clear_ipc_token_in_shmem(shmem);
         }
         *shmem_lock = None;
-        let runtime_name = SHMEM_RUNTIME_NAME.lock().unwrap().take();
+        *SHMEM_RUNTIME_NAME.lock().unwrap() = None;
         *runtime_token = None;
-        drop(runtime_token);
-        drop(shmem_lock);
-        if let Some(name) = runtime_name.as_deref() {
-            if !remove_shared_memory_flink_once(name, true, "Client cleanup") {
-                schedule_remove_runtime_shmem_flink_retry(name.to_owned());
-            }
-        }
     }
 
     #[inline]
@@ -1073,6 +931,9 @@ pub mod client {
                 "--portable-service {}",
                 crate::portable_service::portable_service_shmem_arg(&shmem_name)
             );
+            let portable_service_arg = if let Some(paths) = hbb_common::app_paths::get() {
+                format!("{} \"--data-dir={}\"", portable_service_arg, paths.root.display())
+            } else { portable_service_arg };
             {
                 let _sender = SENDER.lock().unwrap();
             }

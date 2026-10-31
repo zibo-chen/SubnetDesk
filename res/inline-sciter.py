@@ -5,32 +5,32 @@ import re
 
 def strip(s): return re.sub(r'\s+\n', '\n', re.sub(r'\n\s+', '\n', s))
 
-common_css = open('src/ui/common.css').read()
+common_css = open('src/ui/common.css', encoding='utf-8').read()
 common_tis = open('src/ui/common.tis', encoding='UTF8').read()
 
-index = open('src/ui/index.html').read() \
-    .replace('@import url(index.css);', open('src/ui/index.css').read()) \
-    .replace('include "index.tis";', open('src/ui/index.tis').read()) \
-    .replace('include "msgbox.tis";', open('src/ui/msgbox.tis').read()) \
-    .replace('include "ab.tis";', open('src/ui/ab.tis').read())
+index = open('src/ui/index.html', encoding='utf-8').read() \
+    .replace('@import url(index.css);', open('src/ui/index.css', encoding='utf-8').read()) \
+    .replace('include "index.tis";', open('src/ui/index.tis', encoding='utf-8').read().replace('include "icons.tis";', open('src/ui/icons.tis', encoding='utf-8').read())) \
+    .replace('include "msgbox.tis";', open('src/ui/msgbox.tis', encoding='utf-8').read()) \
+    .replace('include "ab.tis";', open('src/ui/ab.tis', encoding='utf-8').read())
 
-remote = open('src/ui/remote.html').read() \
-    .replace('@import url(remote.css);', open('src/ui/remote.css').read()) \
-    .replace('@import url(header.css);', open('src/ui/header.css').read()) \
-    .replace('@import url(file_transfer.css);', open('src/ui/file_transfer.css').read()) \
-    .replace('include "remote.tis";', open('src/ui/remote.tis').read()) \
-    .replace('include "msgbox.tis";', open('src/ui/msgbox.tis').read()) \
-    .replace('include "grid.tis";', open('src/ui/grid.tis').read()) \
-    .replace('include "header.tis";', open('src/ui/header.tis').read()) \
-    .replace('include "file_transfer.tis";', open('src/ui/file_transfer.tis').read()) \
-    .replace('include "port_forward.tis";', open('src/ui/port_forward.tis').read())
+remote = open('src/ui/remote.html', encoding='utf-8').read() \
+    .replace('@import url(remote.css);', open('src/ui/remote.css', encoding='utf-8').read()) \
+    .replace('@import url(header.css);', open('src/ui/header.css', encoding='utf-8').read()) \
+    .replace('@import url(file_transfer.css);', open('src/ui/file_transfer.css', encoding='utf-8').read()) \
+    .replace('include "remote.tis";', open('src/ui/remote.tis', encoding='utf-8').read()) \
+    .replace('include "msgbox.tis";', open('src/ui/msgbox.tis', encoding='utf-8').read()) \
+    .replace('include "grid.tis";', open('src/ui/grid.tis', encoding='utf-8').read()) \
+    .replace('include "header.tis";', open('src/ui/header.tis', encoding='utf-8').read()) \
+    .replace('include "file_transfer.tis";', open('src/ui/file_transfer.tis', encoding='utf-8').read()) \
+    .replace('include "port_forward.tis";', open('src/ui/port_forward.tis', encoding='utf-8').read())
 
-chatbox = open('src/ui/chatbox.html').read()
-install = open('src/ui/install.html').read().replace('include "install.tis";', open('src/ui/install.tis').read())
+chatbox = open('src/ui/chatbox.html', encoding='utf-8').read()
+install = open('src/ui/install.html', encoding='utf-8').read().replace('include "install.tis";', open('src/ui/install.tis', encoding='utf-8').read())
 
-cm = open('src/ui/cm.html').read() \
-    .replace('@import url(cm.css);', open('src/ui/cm.css').read()) \
-    .replace('include "cm.tis";', open('src/ui/cm.tis').read())
+cm = open('src/ui/cm.html', encoding='utf-8').read() \
+    .replace('@import url(cm.css);', open('src/ui/cm.css', encoding='utf-8').read()) \
+    .replace('include "cm.tis";', open('src/ui/cm.tis', encoding='utf-8').read())
 
 
 def compress(s):
@@ -40,7 +40,7 @@ def compress(s):
                                                                                   r'\"') + '"'
 
 
-with open('src/ui/inline.rs', 'wt') as fh:
+with open('src/ui/inline.rs', 'wt', encoding='utf-8') as fh:
     fh.write('const _COMMON_CSS: ' + compress(strip(common_css)) + ';\n')
     fh.write('const _COMMON_TIS: ' + compress(strip(common_tis)) + ';\n')
     fh.write('const _INDEX: ' + compress(strip(index)) + ';\n')

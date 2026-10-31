@@ -476,6 +476,7 @@ class ServerModel with ChangeNotifier {
   scrollToBottom() {
     if (isDesktop) return;
     Future.delayed(Duration(milliseconds: 200), () {
+      if (!controller.hasClients) return;
       controller.animateTo(controller.position.maxScrollExtent,
           duration: Duration(milliseconds: 200),
           curve: Curves.fastLinearToSlowEaseIn);

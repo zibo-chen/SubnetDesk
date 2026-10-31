@@ -3,6 +3,9 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
+#include <shellapi.h>
 
 #include <memory>
 
@@ -28,6 +31,13 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+  std::unique_ptr<flutter::MethodChannel<>> host_channel_;
+  flutter::EncodableMap tray_options_;
+  NOTIFYICONDATAW tray_{};
+  UINT taskbar_created_ = RegisterWindowMessageW(L"TaskbarCreated");
+  bool tray_visible_ = false;
+  bool ConfigureTray(const flutter::EncodableMap& options);
+  void HandleTrayMenu();
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

@@ -132,6 +132,9 @@ class FfiModel with ChangeNotifier {
   Timer? waitForImageTimer;
   RxBool waitForFirstImage = true.obs;
   bool isRefreshing = false;
+  bool _hasConnectionResponse = false;
+
+  bool get hasConnectionResponse => _hasConnectionResponse;
 
   Timer? timerScreenshot;
 
@@ -365,6 +368,7 @@ class FfiModel with ChangeNotifier {
 
   clear() {
     _pi = PeerInfo();
+    _hasConnectionResponse = false;
     lastUserDisplay = null;
     _cancelPendingMonitorRestore();
     _secure = null;
@@ -435,6 +439,7 @@ class FfiModel with ChangeNotifier {
   }
 
   handleCachedPeerData(CachedPeerData data, String peerId) async {
+    _hasConnectionResponse = true;
     handleMsgBox(
       {
         'type': 'success',
@@ -462,6 +467,9 @@ class FfiModel with ChangeNotifier {
   StreamEventHandler startEventListener(SessionID sessionId, String peerId) {
     return (evt) async {
       var name = evt['name'];
+      if (name == 'msgbox' || name == 'peer_info') {
+        _hasConnectionResponse = true;
+      }
       if (name == 'msgbox') {
         handleMsgBox(evt, sessionId, peerId);
       } else if (name == 'toast') {
@@ -949,6 +957,7 @@ class FfiModel with ChangeNotifier {
         sessionId,
         dialogManager,
         'Enter the access username and password configured on the remote device.',
+        credentialsRejected: title == 'Username or password is incorrect',
       );
     } else if (type == 're-input-password') {
       wrongPasswordDialog(sessionId, dialogManager, type, title, text);

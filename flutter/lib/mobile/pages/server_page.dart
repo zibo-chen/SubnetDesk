@@ -48,7 +48,6 @@ class _ServerPageState extends State<ServerPage> {
               mainAxisAlignment: MainAxisAlignment.start,
               children: [
                 const LanServerInfoPanel(),
-                if (!gFFI.serverModel.isStart) ServiceNotRunningNotification(),
                 const ConnectionManager(),
                 const PermissionChecker(),
                 SizedBox.fromSize(size: const Size(0, 15.0)),
@@ -547,8 +546,9 @@ class PaddingCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   title!,
-                  style: Theme.of(context).textTheme.titleLarge?.merge(
-                    TextStyle(fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -561,9 +561,9 @@ class PaddingCard extends StatelessWidget {
       width: double.maxFinite,
       child: Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-        margin: const EdgeInsets.fromLTRB(12.0, 10.0, 12.0, 0),
+        margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 15.0, horizontal: 20.0),
+          padding: const EdgeInsets.all(16),
           child: Column(children: children),
         ),
       ),

@@ -120,30 +120,43 @@ pub(crate) fn is_cjk_lang(lang_or_locale: &str) -> bool {
     matches!(lang.as_str(), "zh" | "ja" | "ko")
 }
 
-fn resolve_lang(saved_lang: &str, locale: &str, cjk_fallback: bool) -> String {
-    let locale = locale.to_lowercase();
-    let mut lang = saved_lang.to_lowercase();
-    if cjk_fallback && is_cjk_lang(&lang) {
-        return "en".to_owned();
+fn normalize_lang(value: &str) -> String {
+    let code = value.trim().to_lowercase().replace('_', "-");
+    match code.as_str() {
+        "" | "default" | "system" => return String::new(),
+        "cn" => return "zh-cn".to_owned(),
+        "tw" => return "zh-tw".to_owned(),
+        _ => {}
     }
-    if lang.is_empty() {
-        // zh_CN on Linux, zh-Hans-CN on mac, zh_CN_#Hans on Android
-        if locale.starts_with("zh") {
-            lang = (if locale.contains("tw") {
-                "zh-tw"
-            } else {
-                "zh-cn"
-            })
-            .to_owned();
+    let mut parts = code.split('-');
+    let language = parts.next().unwrap_or_default();
+    if language == "zh" {
+        let parts: Vec<_> = parts.collect();
+        return if parts.contains(&"hant") {
+            "zh-tw"
+        } else if parts.contains(&"hans") {
+            "zh-cn"
+        } else if parts.iter().any(|part| matches!(*part, "tw" | "hk" | "mo")) {
+            "zh-tw"
+        } else {
+            "zh-cn"
         }
+        .to_owned();
     }
+    match language {
+        "br" => "pt",
+        "vn" => "vi",
+        "kk" => "kz",
+        "ka" => "ge",
+        other => other,
+    }
+    .to_owned()
+}
+
+fn resolve_lang(saved_lang: &str, locale: &str, cjk_fallback: bool) -> String {
+    let mut lang = normalize_lang(saved_lang);
     if lang.is_empty() {
-        lang = locale
-            .split("-")
-            .next()
-            .map(|x| x.split("_").next().unwrap_or_default())
-            .unwrap_or_default()
-            .to_owned();
+        lang = normalize_lang(locale);
     }
     if cjk_fallback && is_cjk_lang(&lang) {
         "en".to_owned()
@@ -286,6 +299,32 @@ fn extract_placeholder(input: &str) -> (String, Option<String>) {
 }
 
 mod test {
+    #[test]
+    fn saved_and_system_languages_match_flutter() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(
+            "../flutter/test/fixtures/app_languages.json"
+        ))
+        .expect("valid language fixtures");
+        for case in cases.as_array().expect("language cases") {
+            let selected = case["selected"].as_str().expect("saved language");
+            let system = case["system"].as_str().expect("system locale");
+            let expected = case["expected"].as_str().expect("canonical language");
+            assert_eq!(
+                super::resolve_lang(selected, system, false), expected,
+                "selected={selected}, system={system}"
+            );
+            let fallback = if super::is_cjk_lang(expected) {
+                "en"
+            } else {
+                expected
+            };
+            assert_eq!(
+                super::resolve_lang(selected, system, true), fallback,
+                "CJK fallback: selected={selected}, system={system}"
+            );
+        }
+    }
+
     #[test]
     fn test_extract_placeholders() {
         use super::extract_placeholder as f;

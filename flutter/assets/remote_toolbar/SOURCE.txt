@@ -1,0 +1,4 @@
+Tabler Icons, outline set
+https://github.com/tabler/tabler-icons
+Commit: a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d
+SVG files copied without modification. MIT license in LICENSE.

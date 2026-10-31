@@ -43,6 +43,7 @@ class PermissionRequestTransparentActivity: Activity() {
         val serviceIntent = Intent(this, MainService::class.java)
         serviceIntent.action = ACT_INIT_MEDIA_PROJECTION_AND_SERVICE
         serviceIntent.putExtra(EXT_MEDIA_PROJECTION_RES_INTENT, mediaProjectionResultIntent)
+        serviceIntent.putExtra(EXT_INIT_FROM_BOOT, intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false))
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)

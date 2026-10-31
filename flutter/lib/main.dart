@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter_hbb/common/widgets/subnet_ui.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -26,6 +27,8 @@ import 'package:window_manager/window_manager.dart';
 
 import 'common.dart';
 import 'common/diagnostics.dart';
+import 'common/desktop_runtime.dart';
+import 'common/app_language.dart';
 import 'common/platform_font_fallback.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
@@ -153,6 +156,7 @@ Future<void> initEnv(String appType) async {
 void runMainApp(bool startService) async {
   // register uni links
   await initEnv(kAppTypeMain);
+  await initializeDesktopRuntime();
   // trigger connection status updater
   await bind.mainCheckConnectStatus();
   if (startService) {
@@ -172,14 +176,24 @@ void runMainApp(bool startService) async {
   WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
     isMainWindow: true,
     alwaysOnTop: alwaysOnTop,
+    size: bind.isIncomingOnly() ? null : await fitMainWindowToCurrentScreen(kDesktopMainWindowSize),
+    minimumSize: bind.isIncomingOnly() ? null : kDesktopMainWindowMinimumSize,
   );
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     // Restore the location of the main window before window hide or show.
     await restoreWindowPosition(WindowType.Main);
+    if (kDebugMode) {
+      // Optional developer viewport for reproducible DPI/design captures.
+      final width = double.tryParse(const String.fromEnvironment('SUBNET_UI_QA_WIDTH'));
+      final height = double.tryParse(const String.fromEnvironment('SUBNET_UI_QA_HEIGHT'));
+      if (width != null && height != null && width >= 320 && height >= 320) {
+        await windowManager.setSize(Size(width, height));
+      }
+    }
     // Check the startup argument, if we successfully handle the argument, we keep the main window hidden.
     final handledByUniLinks = await initUniLinks();
     debugPrint("handled by uni links: $handledByUniLinks");
-    if (handledByUniLinks || handleUriLink(cmdArgs: kBootArgs)) {
+    if ((kBootArgs.contains('--background') && desktopTrayAvailable) || handledByUniLinks || handleUriLink(cmdArgs: kBootArgs)) {
       windowManager.hide();
     } else {
       // Goes through windowOnTop() rather than raw show()/focus() calls so a
@@ -373,6 +387,7 @@ void _runApp(String title, Widget home, ThemeMode themeMode) {
           GlobalCupertinoLocalizations.delegate,
         ],
         supportedLocales: supportedLocales,
+        locale: currentAppLocale(),
         navigatorObservers: [
           // FirebaseAnalyticsObserver(analytics: analytics),
           BotToastNavigatorObserver(),
@@ -409,11 +424,13 @@ void runInstallPage() async {
 WindowOptions getHiddenTitleBarWindowOptions({
   bool isMainWindow = false,
   Size? size,
+  Size? minimumSize,
   bool center = false,
   bool? alwaysOnTop,
 }) {
   return WindowOptions(
     size: size,
+    minimumSize: minimumSize,
     center: center,
     backgroundColor: (isMacOS && isMainWindow) ? null : Colors.transparent,
     skipTaskbar: false,
@@ -517,18 +534,14 @@ class _AppState extends State<App> with WidgetsBindingObserver {
               GlobalCupertinoLocalizations.delegate,
             ],
             supportedLocales: supportedLocales,
+            locale: currentAppLocale(),
             navigatorObservers: [
               // FirebaseAnalyticsObserver(analytics: analytics),
               BotToastNavigatorObserver(),
             ],
             builder: isAndroid
                 ? (context, child) => AccessibilityListener(
-                    child: MediaQuery(
-                      data: MediaQuery.of(
-                        context,
-                      ).copyWith(textScaler: TextScaler.linear(1.0)),
-                      child: child ?? Container(),
-                    ),
+                    child: _keepScaleBuilder(context, child),
                   )
                 : (context, child) {
                     child = _keepScaleBuilder(context, child);
@@ -555,10 +568,28 @@ class _AppState extends State<App> with WidgetsBindingObserver {
 }
 
 Widget _keepScaleBuilder(BuildContext context, Widget? child) {
-  return MediaQuery(
-    data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(1.0)),
-    child: child ?? Container(),
+  // Preserve system text scaling and logical pixels. The remote canvas has
+  // independent per-session zoom and must not change local UI density.
+  return SubnetLanguage(
+    languageCode: bind.mainGetLocalOption(key: kCommConfKeyLang),
+    translate: translate,
+    child: child ?? const SizedBox.shrink(),
   );
+}
+
+Locale currentAppLocale() {
+  final language = resolveAppLanguage(
+    bind.mainGetLocalOption(key: kCommConfKeyLang),
+    localeName,
+  );
+  if (language == 'zh-cn') return const Locale('zh', 'CN');
+  if (language == 'zh-tw') return const Locale('zh', 'TW');
+  return Locale(switch (language) {
+    'kz' => 'kk',
+    'ge' => 'ka',
+    '' => 'en',
+    final code => code,
+  });
 }
 
 _registerEventHandler() {

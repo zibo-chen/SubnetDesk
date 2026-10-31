@@ -454,11 +454,10 @@ pub async fn start_server(is_server: bool, no_server: bool) {
         std::thread::spawn(move || {
             if let Err(err) = crate::ipc::start("") {
                 log::error!("Failed to start ipc: {}", err);
-                if crate::is_server() {
-                    log::error!("ipc is occupied by another process, try kill it");
-                    std::thread::spawn(stop_main_window_process).join().ok();
+                // A second instance must never kill the process that owns the listener.
+                if !crate::desktop_runtime::is_host() {
+                    std::process::exit(1);
                 }
-                std::process::exit(-1);
             }
         });
         // Warm the DRM availability cache before any client connects, so the first connection does
@@ -486,7 +485,9 @@ pub async fn start_server(is_server: bool, no_server: bool) {
             allow_err!(input_service::setup_uinput(0, 1920, 0, 1080).await);
         }
         #[cfg(any(target_os = "macos", target_os = "linux"))]
-        wait_initial_config_sync().await;
+        if !crate::desktop_runtime::is_host() {
+            wait_initial_config_sync().await;
+        }
         #[cfg(target_os = "windows")]
         crate::platform::try_kill_broker();
         #[cfg(feature = "hwcodec")]

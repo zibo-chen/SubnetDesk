@@ -18,6 +18,8 @@ struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
   FlMethodChannel* host_channel;
+  GtkStatusIcon* tray_icon;
+  FlValue* tray_options;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -28,6 +30,56 @@ GtkWidget *find_gl_area(GtkWidget *widget);
 void try_set_transparent(GtkWindow* window, GdkScreen* screen, FlView* view);
 
 extern bool gIsConnectionManager;
+
+// GTK3 notification-area integration shares the application's existing event loop.
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+static void tray_action(MyApplication* self, const char* action) {
+  if (!self->host_channel) return;
+  g_autoptr(FlValue) value = fl_value_new_string(action);
+  fl_method_channel_invoke_method(self->host_channel, "desktopAction", value, nullptr, nullptr, nullptr);
+}
+
+static void tray_item_activate(GtkMenuItem* item, gpointer user_data) {
+  tray_action(MY_APPLICATION(user_data), static_cast<const char*>(g_object_get_data(G_OBJECT(item), "desktop-action")));
+}
+
+static void tray_activate(GtkStatusIcon*, gpointer user_data) {
+  tray_action(MY_APPLICATION(user_data), "open");
+}
+
+static void tray_popup(GtkStatusIcon* icon, guint button, guint time, gpointer user_data) {
+  auto self = MY_APPLICATION(user_data);
+  GtkWidget* menu = gtk_menu_new();
+  const char* keys[] = {"openLabel", "sharingLabel", "autostartLabel", "dataLabel", "quitLabel"};
+  const char* labels[] = {"Open", "Allow remote connections", "Start at login", "Open data folder", "Quit"};
+  const char* actions[] = {"open", "sharing", "autostart", "data", "quit"};
+  for (int i = 0; i < 5; ++i) {
+    FlValue* value = self->tray_options ? fl_value_lookup_string(self->tray_options, keys[i]) : nullptr;
+    GtkWidget* item = gtk_menu_item_new_with_label(value && fl_value_get_type(value) == FL_VALUE_TYPE_STRING ? fl_value_get_string(value) : labels[i]);
+    g_object_set_data(G_OBJECT(item), "desktop-action", const_cast<char*>(actions[i]));
+    g_signal_connect(item, "activate", G_CALLBACK(tray_item_activate), self);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
+  }
+  g_signal_connect_swapped(menu, "selection-done", G_CALLBACK(gtk_widget_destroy), menu);
+  gtk_widget_show_all(menu);
+  gtk_menu_popup(GTK_MENU(menu), nullptr, nullptr, gtk_status_icon_position_menu, icon, button, time);
+}
+
+static bool configure_tray(MyApplication* self, FlValue* options) {
+  if (self->tray_options) fl_value_unref(self->tray_options);
+  self->tray_options = fl_value_ref(options);
+  if (!self->tray_icon) {
+    self->tray_icon = gtk_status_icon_new_from_icon_name("computer-symbolic");
+    gtk_status_icon_set_visible(self->tray_icon, TRUE);
+    g_signal_connect(self->tray_icon, "activate", G_CALLBACK(tray_activate), self);
+    g_signal_connect(self->tray_icon, "popup-menu", G_CALLBACK(tray_popup), self);
+  }
+  FlValue* status = fl_value_lookup_string(options, "status");
+  gtk_status_icon_set_tooltip_text(self->tray_icon,
+      status && fl_value_get_type(status) == FL_VALUE_TYPE_STRING ? fl_value_get_string(status) : "SubnetDesk");
+  return gtk_status_icon_is_embedded(self->tray_icon);
+}
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 // --- Side mouse button support (back/forward) ---
 // Flutter's Linux embedder doesn't deliver X11 button 8/9 events to Dart.
@@ -222,6 +274,8 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->host_channel);
+  g_clear_object(&self->tray_icon);
+  g_clear_pointer(&self->tray_options, fl_value_unref);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
@@ -242,7 +296,21 @@ MyApplication* my_application_new() {
 
 void host_channel_call_handler(FlMethodChannel* channel, FlMethodCall* method_call, gpointer user_data)
 {
-  if (strcmp(fl_method_call_get_name(method_call), "bumpMouse") == 0) {
+  if (strcmp(fl_method_call_get_name(method_call), "configureDesktopRuntime") == 0) {
+    FlValue* options = fl_method_call_get_args(method_call);
+    if (!options || fl_value_get_type(options) != FL_VALUE_TYPE_MAP) {
+      fl_method_call_respond_error(method_call, "arguments", "Missing desktop options", nullptr, nullptr);
+      return;
+    }
+    if (configure_tray(MY_APPLICATION(user_data), options)) {
+      fl_method_call_respond_success(method_call, nullptr, nullptr);
+    } else {
+      fl_method_call_respond_error(method_call, "tray-unavailable", "No desktop notification area is available", nullptr, nullptr);
+    }
+  } else if (strcmp(fl_method_call_get_name(method_call), "terminate") == 0) {
+    fl_method_call_respond_success(method_call, nullptr, nullptr);
+    g_application_quit(G_APPLICATION(user_data));
+  } else if (strcmp(fl_method_call_get_name(method_call), "bumpMouse") == 0) {
     FlValue *args = fl_method_call_get_args(method_call);
 
     FlValue *dxValue = nullptr;

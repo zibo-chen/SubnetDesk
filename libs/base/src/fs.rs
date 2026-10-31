@@ -1609,6 +1609,53 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn resumed_transfer_preserves_existing_bytes() {
+        for compressed in [false, true] {
+            let directory = TestTempDir::new("subnetdesk_resume");
+            std::fs::create_dir_all(&directory.path).unwrap();
+            let prefix = b"already received ";
+            let suffix = b"remaining file contents";
+            std::fs::write(directory.join("file.txt.download"), prefix).unwrap();
+            std::fs::write(directory.join("file.txt.digest"), b"{}").unwrap();
+            let mut job = new_write_job(302, directory.path.clone(), "file.txt").unwrap();
+            let mut confirmation = FileTransferSendConfirmRequest {
+                id: job.id(),
+                file_num: 0,
+                ..Default::default()
+            };
+            confirmation.set_offset_blk(prefix.len() as u32);
+            assert!(job.confirm(&confirmation).await);
+            job.write(FileTransferBlock {
+                id: job.id(),
+                file_num: 0,
+                compressed,
+                data: if compressed {
+                    compress(suffix)
+                } else {
+                    suffix.to_vec()
+                }
+                .into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+            assert_eq!(job.finished_size, (prefix.len() + suffix.len()) as u64);
+            match job.data_stream.as_ref().unwrap() {
+                DataStream::FileStream(file) => file.sync_all().await.unwrap(),
+                _ => panic!("expected a file transfer"),
+            }
+            job.data_stream.take();
+            job.modify_time();
+            assert_eq!(
+                std::fs::read(directory.join("file.txt")).unwrap(),
+                [prefix.as_slice(), suffix.as_slice()].concat()
+            );
+            assert!(!directory.join("file.txt.download").exists());
+            assert!(!directory.join("file.txt.digest").exists());
+        }
+    }
+
     #[test]
     fn path_traversal_e2e_write_rejects_relative_escape() {
         let tmp_root = TestTempDir::new("rustdesk_e2e_relative");
