@@ -287,7 +287,9 @@ jobs:
             CARGO_TEST_OPTIONS="--lib --bin ${PROJECT_NAME}"
             ;;
           *)
-            CARGO_TEST_OPTIONS="--workspace --no-fail-fast -- --skip test_get_cursor_pos --skip test_get_key_state"
+            # The vendored legacy adapter needs the Sciter SDK and its separate ABI/toolchain.
+            # This job tests the Flutter application and its shared workspace libraries.
+            CARGO_TEST_OPTIONS="--workspace --exclude sciter-rs --no-fail-fast -- --skip test_get_cursor_pos --skip test_get_key_state"
             ;;
         esac;
 

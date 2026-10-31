@@ -14,6 +14,7 @@ All notable SubnetDesk changes are documented in this file.
 - Unified Rust, Flutter, portable launcher, CI, and native package versions at 2.0.0, with Flutter build number 76.
 - Desktop sharing now runs in the signed-in user's application session, with native tray controls, login startup, and isolated portable user data.
 - Updated the shared protocol and integrated the recent master, Windows startup, and Win7 Flutter branches.
+- Paused the separate Linux DRM unattended package for 2.0.0 while the user-session runtime lacks its root service; regular Linux packages remain available.
 
 ### Fixed
 

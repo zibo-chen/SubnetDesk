@@ -1735,6 +1735,9 @@ jobs:
   # old for it. A separate job rather than a matrix entry of build-rustdesk-linux: appimage and
   # flatpak need that job, and a failure here must not skip them.
   build-rustdesk-linux-drm:
+    # Paused for 2.0.0: the user-session runtime has no root DRM service.
+    # Keep the binary capability checks intact until that backend is supported again.
+    if: ${{ false }}
     needs: [generate-bridge]
     name: build subnetdesk linux drm x86_64
     runs-on: ubuntu-22.04
