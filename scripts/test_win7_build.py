@@ -1,5 +1,6 @@
 """Regression tests for the Win7 artifact boundary and PE import reader."""
 import struct
+import re
 import tempfile
 from pathlib import Path
 import unittest
@@ -119,6 +120,19 @@ final label = Text('SubnetDesk', style: const TextStyle(fontSize: 16));'''
         self.assertIn("flutter:\n  assets:\n    - assets/", result)
         with self.assertRaises(ValueError):
             prepare_win7_flutter.yaml_section(source, "dependencies", {"missing": "1.0.0"})
+
+    def test_win7_terminal_dependency_keeps_the_shared_windows_input_fix(self):
+        root = Path(__file__).resolve().parents[1]
+        manifest = (root / "flutter/pubspec.yaml").read_text()
+        terminal = manifest.split("  xterm:\n", 1)[1].split("  sqflite:", 1)[0]
+        revision = re.search(r"ref: (\w+)", terminal).group(1)
+        url = re.search(r"url: (\S+)", terminal).group(1)
+        locked = (root / "res/win7/flutter-pubspec.lock").read_text()
+        terminal_lock = locked.split("  xterm:\n", 1)[1].split("  yaml:", 1)[0]
+        self.assertIn("source: git", terminal_lock)
+        self.assertIn(f'ref: "{revision}"', terminal_lock)
+        self.assertIn(f'resolved-ref: "{revision}"', terminal_lock)
+        self.assertIn(f'url: "{url}"', terminal_lock)
 
     def test_engine_rejects_wrong_sdk_and_corrupt_archive_before_installing(self):
         with tempfile.TemporaryDirectory() as directory:
