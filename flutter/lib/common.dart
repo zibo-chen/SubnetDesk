@@ -3041,6 +3041,9 @@ int getWindowsTargetBuildNumber() {
 
 bool get isWin10 => windowsBuildNumber.windowsVersion == WindowsTarget.w10;
 
+bool get isWin7 =>
+    isWindows && windowsBuildNumber >= 7600 && windowsBuildNumber < 9200;
+
 Widget dialogButton(
   String text, {
   required VoidCallback? onPressed,
@@ -3931,7 +3934,8 @@ disableWindowMovable(int? windowId) {
   }
 }
 
-List<ResizeEdge>? get windowManagerEnableResizeEdges => isWindows
+// Win7 uses a fully frameless main window, so Flutter must provide every edge.
+List<ResizeEdge>? get windowManagerEnableResizeEdges => isWindows && !isWin7
     ? [ResizeEdge.topLeft, ResizeEdge.top, ResizeEdge.topRight]
     : null;
 

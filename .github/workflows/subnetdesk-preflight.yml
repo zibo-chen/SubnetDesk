@@ -81,6 +81,9 @@ jobs:
       - name: Check release upload retry contract
         run: bash scripts/check_release_upload_retry.sh
 
+      - name: Test cross-platform release completeness checks
+        run: python3 -m unittest discover -s scripts -p test_check_release_assets.py
+
       - name: Test automatic update manifest generation
         run: python3 scripts/test_generate_update_manifest.py
 

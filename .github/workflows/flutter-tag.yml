@@ -9,14 +9,34 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - '[0-9]+.[0-9]+.[0-9]+'
-      - 'v[0-9]+.[0-9]+.[0-9]+-[0-9]+'
-      - '[0-9]+.[0-9]+.[0-9]+-[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+      - '[0-9]+.[0-9]+.[0-9]+-*'
 
 jobs:
+  validate-release-ref:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require an immutable release tag
+        run: test "$GITHUB_REF_TYPE" = tag
+
   run-flutter-tag-build:
+    needs: validate-release-ref
     uses: ./.github/workflows/flutter-build.yml
     secrets: inherit
     with:
       upload-artifact: true
       publish-release: true
       upload-tag: ${{ github.ref_name }}
+
+  verify-release:
+    needs: run-flutter-tag-build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Verify the requested platform downloads are complete
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" --json tagName,isPrerelease,assets > release-assets.json
+          python3 scripts/check_release_assets.py --release release-assets.json --tag "$RELEASE_TAG"
