@@ -1,0 +1,24 @@
+{
+  "status": "design-reference",
+  "colors": {
+    "canvas": "#F8F5F0",
+    "ink": "#332B3B",
+    "selectedSurface": "#DDD7EE",
+    "mutedInk": "#716B78",
+    "terminalCanvas": "#211E27"
+  },
+  "spacing": [4, 8, 16, 24, 32],
+  "mobile": {"body": 16, "horizontalMargin": 20, "minimumTouchTarget": 48},
+  "desktop": {"body": [14, 16], "primaryControlHeight": [38, 44], "remoteTabStripHeight": [36, 40]},
+  "icons": {"grid": 24, "strokeRange": [1.5, 2], "style": "rounded-outline"},
+  "remoteToolbar": {
+    "autoHide": true,
+    "suggestedIdleMs": 2000,
+    "suggestedHoverRevealMs": 150,
+    "pauseHideDuring": ["open-menu", "local-toolbar-keyboard-focus", "toolbar-drag"],
+    "overlayOnly": true,
+    "pinScope": "session-window",
+    "revealMethods": ["edge-handle-hover", "edge-handle-click-or-tap", "configurable-shortcut"]
+  },
+  "sessionWindows": {"multiTab": true, "detach": true, "merge": true, "preserveConnectionOnMove": true}
+}

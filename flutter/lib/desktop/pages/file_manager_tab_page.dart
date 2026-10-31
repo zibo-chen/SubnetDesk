@@ -66,6 +66,9 @@ class _FileManagerTabPageState extends State<FileManagerTabPage> {
       debugPrint(
           "[FileTransfer] call ${call.method} from window $fromWindowId to ${windowId()}");
       // for simplify, just replace connectionId
+      if (call.method == kWindowEventGetRemoteList) {
+        return tabController.state.value.tabs.map((tab) => tab.label).join(',');
+      }
       if (call.method == kWindowEventNewFileTransfer) {
         final args = jsonDecode(call.arguments);
         final id = args['id'];

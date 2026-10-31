@@ -1,0 +1,195 @@
+name: SubnetDesk Windows validation
+'on':
+  push:
+    branches:
+    - validation/windows-*
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: windows-validation-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  RUST_VERSION: 1.97.1
+  LLVM_VERSION: 15.0.6
+  FLUTTER_VERSION: 3.44.6
+  VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
+  VCPKG_COMMIT_ID: 120deac3062162151622ca4860575a33844ba10b
+  VERSION: 1.3.0
+  SUBNETDESK_UPDATE_PUBLIC_KEY: ${{ secrets.SUBNETDESK_UPDATE_PUBLIC_KEY }}
+jobs:
+  build-RustDeskTempTopMostWindow:
+    uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+        - target: windows-2022
+          platform: x64
+    with:
+      upload-artifact: true
+      target: ${{ matrix.job.target }}
+      configuration: Release
+      platform: ${{ matrix.job.platform }}
+      target_version: Windows10
+  windows-validation:
+    name: Windows x64 build and tests
+    needs:
+    - build-RustDeskTempTopMostWindow
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+        - target: x86_64-pc-windows-msvc
+          os: windows-2022
+          arch: x86_64
+          flutter-arch: x64
+          vcpkg-triplet: x64-windows-static
+          build-args: --vram
+    steps:
+    - name: Export GitHub Actions cache environment variables
+      uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410
+      with:
+        script: |
+          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+    - name: Checkout source code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      with:
+        submodules: recursive
+    - name: Install LLVM and Clang
+      uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0
+      with:
+        version: ${{ env.LLVM_VERSION }}
+    - name: Install flutter
+      id: flutter
+      uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225
+      with:
+        channel: stable
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        architecture: x64
+        cache: true
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+        targets: ${{ matrix.job.target }}
+        components: rustfmt
+    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+      with:
+        prefix-key: ${{ matrix.job.os }}
+        cache-on-failure: true
+    - name: Setup vcpkg with Github Actions binary cache
+      uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+      with:
+        vcpkgDirectory: C:\vcpkg
+        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+        doNotCache: false
+    - name: Restore compiled vcpkg dependencies
+      id: vcpkg-cache
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: C:/vcpkg/installed
+        key: windows-validation-vcpkg-v1-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json', 'res/vcpkg/**') }}
+    - name: Install vcpkg dependencies
+      env:
+        VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
+      run: |
+        if ! $VCPKG_ROOT/vcpkg \
+          install \
+          --triplet ${{ matrix.job.vcpkg-triplet }} \
+          --x-install-root="$VCPKG_ROOT/installed"; then
+          find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
+            echo "$_1:"
+            echo "======"
+            cat "$_1"
+            echo "======"
+            echo ""
+          done
+          exit 1
+        fi
+        head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
+      shell: bash
+    - name: Save compiled vcpkg dependencies
+      if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+      with:
+        path: C:/vcpkg/installed
+        key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+    - name: Set up MSVC for native lifecycle tests
+      uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c
+      with:
+        arch: x64
+    - name: Run Windows Flutter and portable package tests
+      shell: pwsh
+      run: |-
+        $ErrorActionPreference = 'Stop'
+        python scripts/test_package_portable.py
+        if ($LASTEXITCODE -ne 0) { throw 'Portable package tests failed' }
+        python scripts/test_windows_runner_lifecycle.py
+        if ($LASTEXITCODE -ne 0) { throw 'Windows runner lifecycle tests failed' }
+        Push-Location flutter
+        flutter pub get
+        if ($LASTEXITCODE -ne 0) { throw 'Flutter dependencies failed' }
+        flutter test --reporter expanded
+        if ($LASTEXITCODE -ne 0) { throw 'Windows Flutter tests failed' }
+        Pop-Location
+    - name: Build SubnetDesk
+      env:
+        # The MSVC developer shell also sets VCPKG_ROOT to Visual Studio's copy.
+        # Keep native builds on the dependency tree installed earlier in this job.
+        VCPKG_ROOT: C:\vcpkg
+        VCPKG_INSTALLED_ROOT: C:\vcpkg\installed
+      run: |
+        # Windows: build RustDesk
+        # --hwcodec is shared by all Windows targets; per-target extras (e.g. --vram) come from the matrix
+        python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec ${{ matrix.job.build-args }}
+        if ($LASTEXITCODE -ne 0) { throw "Native Windows build failed" }
+        mv ./flutter/build/windows/${{ matrix.job.flutter-arch }}/runner/Release ./rustdesk
+        Rename-Item ./rustdesk/rustdesk.exe SubnetDesk.exe
+
+        # Download usbmmidd_v2.zip and extract it to ./rustdesk
+        Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
+        Expand-Archive usbmmidd_v2.zip -DestinationPath .
+        Remove-Item -Path usbmmidd_v2\Win32 -Recurse
+        Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
+        mv -Force .\usbmmidd_v2 ./rustdesk
+    - name: Download RustDeskTempTopMostWindow artifacts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: ${{ matrix.job.arch == 'aarch64' && 'topmostwindow-artifacts-ARM64' || 'topmostwindow-artifacts-x64' }}
+        path: ./rustdesk
+    - name: Upload unsigned
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: subnetdesk-unsigned-windows-${{ matrix.job.arch }}
+        path: rustdesk
+    - name: Package portable directory ZIP
+      run: |
+        python3 scripts/package_portable.py --runtime ./rustdesk --launcher ./rustdesk/SubnetDeskLauncher.exe --output ./target/portable/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-portable
+    - name: Verify the packaged host keeps TCP 21118 listening after window startup
+      shell: pwsh
+      run: |-
+        python scripts/smoke_windows_host.py --executable ./rustdesk/SubnetDesk.exe --output target/portable/host-runtime-smoke.json
+        if ($LASTEXITCODE -ne 0) { throw 'Packaged host listener smoke check failed' }
+    - name: Record validation package provenance
+      shell: pwsh
+      run: |-
+        $ErrorActionPreference = 'Stop'
+        $archive = Get-ChildItem target/portable/*.zip | Select-Object -First 1
+        if (-not $archive) { throw 'Portable archive missing' }
+        @{ commit = '${{ github.sha }}'; run = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'; sha256 = (Get-FileHash $archive.FullName -Algorithm SHA256).Hash; package = $archive.Name; os = (Get-CimInstance Win32_OperatingSystem).Caption } | ConvertTo-Json | Set-Content target/portable/build-provenance.json
+        Get-Content target/portable/build-provenance.json
+    - name: Upload Windows validation package
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      with:
+        name: subnetdesk-windows-x86_64-validation
+        path: 'target/portable/*.zip
+
+          target/portable/build-provenance.json
+
+          target/portable/host-runtime-smoke.json'
+        retention-days: 14
+        if-no-files-found: error
+    timeout-minutes: 90

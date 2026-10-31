@@ -1,6 +1,8 @@
 param(
-    [ValidateSet('x64', 'x86', 'both')]
-    [string]$Arch = 'both',
+    [ValidateSet('x64')]
+    [string]$Arch = 'x64',
+    [Parameter(Mandatory=$true)]
+    [string]$FlutterSdk,
     [string]$CacheRoot = 'C:\SubnetDeskWin7',
     [string]$NasmDirectory = 'C:\scd-tools\nasm'
 )
@@ -47,7 +49,7 @@ Invoke-Checked { git -C $env:VCPKG_ROOT checkout 120deac3062162151622ca4860575a3
 Invoke-Checked { & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics }
 Invoke-Checked { & $python -m unittest discover -s scripts -p test_win7_build.py }
 
-$architectures = if ($Arch -eq 'both') { @('x64', 'x86') } else { @($Arch) }
+$architectures = @($Arch)
 foreach ($architecture in $architectures) {
     Write-Output "WIN7_STAGE=MSVC-$architecture"
     # A child developer shell supplies each target's SDK/linker paths without
@@ -77,7 +79,7 @@ set
     Invoke-Checked {
         & (Join-Path $env:VCPKG_ROOT 'vcpkg.exe') install --enforce-port-checks --triplet "$architecture-windows-static" "--x-manifest-root=$repoRoot/res/win7" "--overlay-triplets=$repoRoot/res/win7/triplets" "--overlay-ports=$repoRoot/res/win7/ports" "--overlay-ports=$repoRoot/res/vcpkg" "--x-install-root=$env:VCPKG_INSTALLED_ROOT"
     }
-    Write-Output "WIN7_STAGE=app-service-launcher-$architecture"
-    Invoke-Checked { & $python scripts/build_win7.py --arch $architecture }
+    Write-Output "WIN7_STAGE=flutter-runtime-$architecture"
+    Invoke-Checked { & $python scripts/build_win7.py --arch $architecture --flutter-sdk $FlutterSdk }
 }
 Write-Output 'WIN7_STAGE=completed'

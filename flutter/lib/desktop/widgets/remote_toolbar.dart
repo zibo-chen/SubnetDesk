@@ -25,6 +25,7 @@ import '../../models/platform_model.dart';
 import '../../common/shared_state.dart';
 import './popup_menu.dart';
 import './kb_layout_type_chooser.dart';
+import './remote_toolbar_style.dart';
 import 'package:flutter_hbb/utils/scale.dart';
 import 'package:flutter_hbb/common/widgets/custom_scale_base.dart';
 import 'package:flutter_hbb/common/widgets/safe_slider.dart';
@@ -165,7 +166,7 @@ Alignment _alignmentForEdge(_ToolbarEdge edge, double fraction) {
 // The drag handle hangs off the side of the toolbar facing away from the
 // docked edge, so the icons themselves sit flush against that edge.
 BorderRadius _collapseHandleBorderRadius(_ToolbarEdge edge) {
-  const r = Radius.circular(5);
+  const r = Radius.circular(10);
   switch (edge) {
     case _ToolbarEdge.top:
       return const BorderRadius.vertical(bottom: r);
@@ -190,16 +191,16 @@ int _monitorMenuQuarterTurns(_ToolbarEdge edge) {
   }
 }
 
-IconData _toolbarCollapseIcon(_ToolbarEdge edge, bool isCollapsed) {
+String _toolbarCollapseIcon(_ToolbarEdge edge, bool isCollapsed) {
   switch (edge) {
     case _ToolbarEdge.top:
-      return isCollapsed ? Icons.expand_more : Icons.expand_less;
+      return isCollapsed ? 'chevron-down' : 'chevron-up';
     case _ToolbarEdge.bottom:
-      return isCollapsed ? Icons.expand_less : Icons.expand_more;
+      return isCollapsed ? 'chevron-up' : 'chevron-down';
     case _ToolbarEdge.left:
-      return isCollapsed ? Icons.chevron_right : Icons.chevron_left;
+      return isCollapsed ? 'chevron-right' : 'chevron-left';
     case _ToolbarEdge.right:
-      return isCollapsed ? Icons.chevron_left : Icons.chevron_right;
+      return isCollapsed ? 'chevron-left' : 'chevron-right';
   }
 }
 
@@ -339,15 +340,13 @@ class _ToolbarTheme {
   static const double height = 20.0;
   static const double dividerHeight = 12.0;
 
-  static const double buttonSize = 32;
-  static const double buttonHMargin = 2;
-  static const double buttonVMargin = 6;
-  static const double iconRadius = 8;
-  static const double elevation = 3;
+  static const double buttonSize = RemoteToolbarStyle.buttonSize;
+  static const double buttonHMargin = RemoteToolbarStyle.buttonHMargin;
+  static const double buttonVMargin = RemoteToolbarStyle.buttonVMargin;
 
   static double dividerSpaceToAction = isWindows ? 8 : 14;
 
-  static double menuBorderRadius = isWindows ? 5.0 : 7.0;
+  static const double menuBorderRadius = 14;
   static EdgeInsets menuPadding = isWindows
       ? EdgeInsets.fromLTRB(4, 12, 4, 12)
       : EdgeInsets.fromLTRB(6, 14, 6, 14);
@@ -369,25 +368,6 @@ class _ToolbarTheme {
                 BorderRadius.circular(_ToolbarTheme.menuBorderRadius))),
         padding: MaterialStateProperty.all(_ToolbarTheme.menuPadding),
       );
-  static final defaultMenuButtonStyle = ButtonStyle(
-    backgroundColor: MaterialStatePropertyAll(Colors.transparent),
-    padding: MaterialStatePropertyAll(EdgeInsets.zero),
-    overlayColor: MaterialStatePropertyAll(Colors.transparent),
-  );
-
-  static Widget borderWrapper(
-      BuildContext context, Widget child, BorderRadius borderRadius) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(
-          color: borderColor(context),
-          width: 1,
-        ),
-        borderRadius: borderRadius,
-      ),
-      child: child,
-    );
-  }
 }
 
 typedef DismissFunc = void Function();
@@ -464,7 +444,10 @@ class RemoteToolbar extends StatefulWidget {
 
 class _RemoteToolbarState extends State<RemoteToolbar> {
   late Debouncer<int> _debouncerHide;
-  bool _isCursorOverImage = false;
+  bool _toolbarHovered = false;
+  bool _toolbarHasFocus = false;
+  int _openMenus = 0;
+  Timer? _revealTimer;
   final _fraction = 0.5.obs;
   final _edge = _ToolbarEdge.top.obs;
   final _dragging = false.obs;
@@ -501,7 +484,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   PeerInfo get pi => widget.ffi.ffiModel.pi;
   FfiModel get ffiModel => widget.ffi.ffiModel;
 
-  triggerAutoHide() => _debouncerHide.value = _debouncerHide.value + 1;
+  void triggerAutoHide() {
+    if (mounted) _debouncerHide.value = _debouncerHide.value + 1;
+  }
 
   void _minimize() async =>
       await WindowController.fromWindowId(windowId).minimize();
@@ -649,7 +634,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     });
 
     _debouncerHide = Debouncer<int>(
-      Duration(milliseconds: 5000),
+      Duration(milliseconds: 2000),
       onChanged: _debouncerHideProc,
       initialValue: 0,
     );
@@ -657,9 +642,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     widget.onEnterOrLeaveImageSetter(identityHashCode(this), (enter) {
       if (enter) {
         triggerAutoHide();
-        _isCursorOverImage = true;
-      } else {
-        _isCursorOverImage = false;
       }
     });
   }
@@ -673,7 +655,11 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   }
 
   _debouncerHideProc(int v) {
-    if (!pin && collapse.isFalse && _isCursorOverImage && _dragging.isFalse) {
+    if (!mounted) return;
+    if (!pin && collapse.isFalse &&
+        !_toolbarHovered &&
+        !_toolbarHasFocus &&
+        _openMenus == 0 && _dragging.isFalse) {
       collapse.value = true;
     }
   }
@@ -681,6 +667,8 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   @override
   dispose() {
     ++_dockingOptionSyncSerial;
+    _revealTimer?.cancel();
+    _debouncerHide.cancel();
     widget.onEnterOrLeaveImageCleaner(identityHashCode(this));
     super.dispose();
   }
@@ -758,7 +746,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         height: previewSize.height,
         decoration: BoxDecoration(
           color: color.withOpacity(0.10),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(RemoteToolbarStyle.radius),
           border: Border.all(color: color.withOpacity(0.55), width: 1.5),
         ),
       ),
@@ -766,18 +754,27 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   }
 
   Widget _buildDraggableCollapse(
-      BuildContext context, _ToolbarEdge edge, bool isHorizontal) {
+    BuildContext context,
+    _ToolbarEdge edge,
+    bool isHorizontal, {
+    List<Widget>? toolbarItems,
+  }) {
     return Obx(() {
       if (collapse.isFalse && _dragging.isFalse) {
         triggerAutoHide();
       }
-      final borderRadius = _collapseHandleBorderRadius(edge);
-      return Offstage(
-        offstage: _dragging.isTrue,
-        child: Material(
-          elevation: _ToolbarTheme.elevation,
-          shadowColor: MyTheme.color(context).shadow,
-          borderRadius: borderRadius,
+      return MouseRegion(
+        onEnter: (_) {
+          _revealTimer?.cancel();
+          if (collapse.isTrue && _dragging.isFalse) {
+            _revealTimer = Timer(const Duration(milliseconds: 150), () {
+              if (mounted) collapse.value = false;
+            });
+          }
+        },
+        onExit: (_) => _revealTimer?.cancel(),
+        child: Offstage(
+          offstage: _dragging.isTrue,
           child: _DraggableShowHide(
             id: widget.id,
             ffi: widget.ffi,
@@ -796,7 +793,8 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
             toolbarState: widget.state,
             setFullscreen: _setFullscreen,
             setMinimize: _minimize,
-            borderRadius: borderRadius,
+            borderRadius: _collapseHandleBorderRadius(edge),
+            toolbarItems: toolbarItems,
           ),
         ),
       );
@@ -804,47 +802,59 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   }
 
   Widget _buildToolbar(
-      BuildContext context, _ToolbarEdge edge, bool isHorizontal) {
+    BuildContext context,
+    _ToolbarEdge edge,
+    bool isHorizontal,
+  ) {
     final List<Widget> toolbarItems = [];
     toolbarItems.add(_PinMenu(state: widget.state));
-    toolbarItems.add(Obx(() {
-      final privacyModeState = PrivacyModeState.find(widget.id);
-      if ((privacyModeState.isEmpty ||
-              allowDisplaySwitchInPrivacyMode(pi, privacyModeState.value)) &&
-          pi.displaysCount.value > 1 &&
-          mainGetLocalBoolOptionSync(kOptionAllowMonitorSwitchMainToolbar)) {
-        return _MainMonitorSwitchButton(id: widget.id, ffi: widget.ffi);
-      } else {
-        return const Offstage();
-      }
-    }));
+    toolbarItems.add(RemoteToolbarSeparator(isHorizontal: isHorizontal));
+    toolbarItems.add(
+      Obx(() {
+        final privacyModeState = PrivacyModeState.find(widget.id);
+        if ((privacyModeState.isEmpty ||
+                allowDisplaySwitchInPrivacyMode(pi, privacyModeState.value)) &&
+            pi.displaysCount.value > 1 &&
+            mainGetLocalBoolOptionSync(kOptionAllowMonitorSwitchMainToolbar)) {
+          return _MainMonitorSwitchButton(id: widget.id, ffi: widget.ffi);
+        } else {
+          return const Offstage();
+        }
+      }),
+    );
     if (!isWebDesktop) {
       toolbarItems.add(_MobileActionMenu(ffi: widget.ffi));
     }
 
-    toolbarItems.add(Obx(() {
-      final privacyModeState = PrivacyModeState.find(widget.id);
-      if ((privacyModeState.isEmpty ||
-              allowDisplaySwitchInPrivacyMode(pi, privacyModeState.value)) &&
-          pi.displaysCount.value > 1) {
-        return _MonitorMenu(
+    toolbarItems.add(
+      Obx(() {
+        final privacyModeState = PrivacyModeState.find(widget.id);
+        if ((privacyModeState.isEmpty ||
+                allowDisplaySwitchInPrivacyMode(pi, privacyModeState.value)) &&
+            pi.displaysCount.value > 1) {
+          return _MonitorMenu(
             id: widget.id,
             ffi: widget.ffi,
             edge: edge,
-            setRemoteState: widget.setRemoteState);
-      } else {
-        return Offstage();
-      }
-    }));
+            setRemoteState: widget.setRemoteState,
+          );
+        } else {
+          return Offstage();
+        }
+      }),
+    );
 
-    toolbarItems
-        .add(_ControlMenu(id: widget.id, ffi: widget.ffi, state: widget.state));
-    toolbarItems.add(_DisplayMenu(
-      id: widget.id,
-      ffi: widget.ffi,
-      state: widget.state,
-      setFullscreen: _setFullscreen,
-    ));
+    toolbarItems.add(
+      _ControlMenu(id: widget.id, ffi: widget.ffi, state: widget.state),
+    );
+    toolbarItems.add(
+      _DisplayMenu(
+        id: widget.id,
+        ffi: widget.ffi,
+        state: widget.state,
+        setFullscreen: _setFullscreen,
+      ),
+    );
     // Do not show keyboard for camera connection type.
     if (widget.ffi.connType == ConnType.defaultConn) {
       toolbarItems.add(_KeyboardMenu(id: widget.id, ffi: widget.ffi));
@@ -854,55 +864,33 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       toolbarItems.add(_VoiceCallMenu(id: widget.id, ffi: widget.ffi));
     }
     if (!isWeb) toolbarItems.add(_RecordMenu());
-    toolbarItems.add(_CloseMenu(id: widget.id, ffi: widget.ffi));
-    final toolbarBorderRadius = BorderRadius.all(Radius.circular(4.0));
-    // innerAxis: how the toolbar icons themselves flow.
-    // outerAxis: how the toolbar block and the handle stack against each other
-    // (perpendicular to the dock edge, so the handle hangs off the interior face).
-    final innerAxis = isHorizontal ? Axis.horizontal : Axis.vertical;
-    final outerAxis = isHorizontal ? Axis.vertical : Axis.horizontal;
-    final spacer = isHorizontal
-        ? SizedBox(width: _ToolbarTheme.buttonHMargin * 2)
-        : SizedBox(height: _ToolbarTheme.buttonHMargin * 2);
-    final toolbarMaterial = Material(
-      elevation: _ToolbarTheme.elevation,
-      shadowColor: MyTheme.color(context).shadow,
-      borderRadius: toolbarBorderRadius,
-      color: Theme.of(context)
-          .menuBarTheme
-          .style
-          ?.backgroundColor
-          ?.resolve(MaterialState.values.toSet()),
-      child: SingleChildScrollView(
-        scrollDirection: innerAxis,
-        child: Theme(
-          data: themeData(),
-          child: _ToolbarTheme.borderWrapper(
+    return _ToolbarInteractionScope(
+      onMenuChanged: (open) {
+        _openMenus = (_openMenus + (open ? 1 : -1)).clamp(0, 100);
+        if (!open) triggerAutoHide();
+      },
+      child: Focus(
+        onFocusChange: (focused) {
+          _toolbarHasFocus = focused;
+          if (!focused) triggerAutoHide();
+        },
+        child: MouseRegion(
+          onEnter: (_) => _toolbarHovered = true,
+          onExit: (_) {
+            _toolbarHovered = false;
+            triggerAutoHide();
+          },
+          child: Theme(
+            data: themeData(),
+            child: _buildDraggableCollapse(
               context,
-              Flex(
-                direction: innerAxis,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  spacer,
-                  ...toolbarItems,
-                  spacer,
-                ],
-              ),
-              toolbarBorderRadius),
+              edge,
+              isHorizontal,
+              toolbarItems: toolbarItems,
+            ),
+          ),
         ),
       ),
-    );
-    final handle = _buildDraggableCollapse(context, edge, isHorizontal);
-    // The handle hangs off the interior face of the toolbar (away from the
-    // docked edge), centered along that face by the Flex's default cross-axis
-    // alignment, so the icons themselves sit flush against the docked edge.
-    final children = (edge == _ToolbarEdge.top || edge == _ToolbarEdge.left)
-        ? [toolbarMaterial, handle]
-        : [handle, toolbarMaterial];
-    return Flex(
-      direction: outerAxis,
-      mainAxisSize: MainAxisSize.min,
-      children: children,
     );
   }
 
@@ -943,7 +931,8 @@ class _PinMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return Obx(
       () => _IconMenuButton(
-        assetName: state.pin ? "assets/pinned.svg" : "assets/unpinned.svg",
+        icon: const RemoteToolbarIcon('pinned'),
+        selected: state.pin,
         tooltip: state.pin ? 'Unpin Toolbar' : 'Pin Toolbar',
         onPressed: state.switchPin,
         color:
@@ -964,7 +953,8 @@ class _MobileActionMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!ffi.ffiModel.isPeerAndroid) return Offstage();
     return Obx(() => _IconMenuButton(
-          assetName: 'assets/actions_mobile.svg',
+          icon: const RemoteToolbarIcon('hand-click'),
+          selected: ffi.dialogManager.mobileActionsOverlayVisible.isTrue,
           tooltip: 'Mobile Actions',
           onPressed: () => ffi.dialogManager.setMobileActionsOverlayVisible(
               !ffi.dialogManager.mobileActionsOverlayVisible.value),
@@ -1035,19 +1025,13 @@ class _MainMonitorSwitchButton extends StatelessWidget {
           child: Stack(
             alignment: const Alignment(0, -0.125),
             children: [
-              SvgPicture.asset(
-                'assets/display_switcher.svg',
-                colorFilter:
-                    const ColorFilter.mode(Colors.white, BlendMode.srcIn),
-                width: _ToolbarTheme.buttonSize,
-                height: _ToolbarTheme.buttonSize,
-              ),
+              const RemoteToolbarIcon('device-desktop', size: 30),
               Text(
                 label,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 11,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 10,
                   height: 1,
                   fontWeight: FontWeight.bold,
                 ),
@@ -1173,6 +1157,7 @@ class _MonitorMenu extends StatelessWidget {
             hMargin: isMulti ? null : 6,
             vMargin: isMulti ? null : 12,
             topLevel: false,
+            selected: i == display.value,
             color: i == display.value
                 ? _ToolbarTheme.blueColor
                 : _ToolbarTheme.inactiveColor,
@@ -1181,7 +1166,7 @@ class _MonitorMenu extends StatelessWidget {
                 : _ToolbarTheme.hoverInactiveColor,
             width: isAllMonitors ? width.value : null,
             icon: isAllMonitors
-                ? monitorsIcon
+                ? (monitorsIcon ?? const SizedBox.shrink())
                 : Container(
                     alignment: AlignmentDirectional.center,
                     constraints:
@@ -1314,7 +1299,7 @@ class _ControlMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return _IconSubmenuButton(
         tooltip: 'Control Actions',
-        svg: "assets/actions.svg",
+        icon: const RemoteToolbarIcon('bolt'),
         color: _ToolbarTheme.blueColor,
         hoverColor: _ToolbarTheme.hoverBlueColor,
         ffi: ffi,
@@ -1591,7 +1576,8 @@ class _DisplayMenuState extends State<_DisplayMenu> {
 
     return _IconSubmenuButton(
       tooltip: 'Display Settings',
-      svg: "assets/display.svg",
+      icon: const RemoteToolbarIcon('device-desktop'),
+      showChevron: true,
       ffi: widget.ffi,
       color: _ToolbarTheme.blueColor,
       hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -2339,7 +2325,8 @@ class _KeyboardMenu extends StatelessWidget {
 
     return _IconSubmenuButton(
         tooltip: 'Keyboard Settings',
-        svg: "assets/keyboard_mouse.svg",
+        icon: const RemoteToolbarIcon('keyboard'),
+        showChevron: true,
         ffi: ffi,
         color: _ToolbarTheme.blueColor,
         hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -2604,7 +2591,7 @@ class _ChatMenuState extends State<_ChatMenu> {
       return _IconSubmenuButton(
           tooltip: 'Chat',
           key: chatButtonKey,
-          svg: 'assets/chat.svg',
+          icon: const RemoteToolbarIcon('message'),
           ffi: widget.ffi,
           color: _ToolbarTheme.blueColor,
           hoverColor: _ToolbarTheme.hoverBlueColor,
@@ -2614,7 +2601,7 @@ class _ChatMenuState extends State<_ChatMenu> {
 
   buildTextChatButton() {
     return _IconMenuButton(
-      assetName: 'assets/message_24dp_5F6368.svg',
+      icon: const RemoteToolbarIcon('message'),
       tooltip: 'Text chat',
       key: chatButtonKey,
       onPressed: _textChatOnPressed,
@@ -2709,7 +2696,7 @@ class _VoiceCallMenu extends StatelessWidget {
           case VoiceCallStatus.connected:
             return _IconSubmenuButton(
               tooltip: 'Voice call',
-              svg: 'assets/voice_call.svg',
+              icon: const RemoteToolbarIcon('phone'),
               color: _ToolbarTheme.blueColor,
               hoverColor: _ToolbarTheme.hoverBlueColor,
               menuChildrenGetter: menuChildrenGetter,
@@ -2724,7 +2711,7 @@ class _VoiceCallMenu extends StatelessWidget {
 
   Widget buildCallWaiting(BuildContext context) {
     return _IconMenuButton(
-      assetName: "assets/call_wait.svg",
+      icon: const RemoteToolbarIcon('phone-call'),
       tooltip: "Waiting",
       onPressed: () => bind.sessionCloseVoiceCall(sessionId: ffi.sessionId),
       color: _ToolbarTheme.redColor,
@@ -2744,7 +2731,7 @@ class _RecordMenu extends StatelessWidget {
         (recordingModel.start || ffi.permissions['recording'] != false);
     if (!visible) return Offstage();
     return _IconMenuButton(
-      assetName: 'assets/rec.svg',
+      icon: RemoteToolbarIcon(recordingModel.start ? 'player-stop' : 'circle'),
       tooltip: recordingModel.start
           ? 'Stop session recording'
           : 'Start session recording',
@@ -2768,7 +2755,7 @@ class _CloseMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _IconMenuButton(
-      assetName: 'assets/close.svg',
+      icon: const RemoteToolbarIcon('x'),
       tooltip: 'Close',
       onPressed: () async {
         if (await showConnEndAuditDialogCloseCanceled(ffi: ffi)) {
@@ -2783,8 +2770,7 @@ class _CloseMenu extends StatelessWidget {
 }
 
 class _IconMenuButton extends StatefulWidget {
-  final String? assetName;
-  final Widget? icon;
+  final Widget icon;
   final String tooltip;
   final Color color;
   final Color hoverColor;
@@ -2793,10 +2779,10 @@ class _IconMenuButton extends StatefulWidget {
   final double? vMargin;
   final bool topLevel;
   final double? width;
+  final bool selected;
   const _IconMenuButton({
     Key? key,
-    this.assetName,
-    this.icon,
+    required this.icon,
     required this.tooltip,
     required this.color,
     required this.hoverColor,
@@ -2805,6 +2791,7 @@ class _IconMenuButton extends StatefulWidget {
     this.vMargin,
     this.topLevel = true,
     this.width,
+    this.selected = false,
   }) : super(key: key);
 
   @override
@@ -2812,49 +2799,30 @@ class _IconMenuButton extends StatefulWidget {
 }
 
 class _IconMenuButtonState extends State<_IconMenuButton> {
-  bool hover = false;
-
   @override
   Widget build(BuildContext context) {
-    assert(widget.assetName != null || widget.icon != null);
-    final icon = widget.icon ??
-        SvgPicture.asset(
-          widget.assetName!,
-          colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
-          width: _ToolbarTheme.buttonSize,
+    var button =
+        SizedBox(
+          width: widget.width ?? _ToolbarTheme.buttonSize,
           height: _ToolbarTheme.buttonSize,
+          child: MenuItemButton(
+            style: RemoteToolbarStyle.buttonStyle(
+              context,
+              selected: widget.selected,
+              danger: widget.color == _ToolbarTheme.redColor,
+            ),
+            onPressed: widget.onPressed,
+            child: SizedBox(
+              width: widget.width ?? _ToolbarTheme.buttonSize,
+              height: _ToolbarTheme.buttonSize,
+              child: Center(child: widget.icon),
+            ),
+          ),
+        ).marginSymmetric(
+          horizontal: widget.hMargin ?? _ToolbarTheme.buttonHMargin,
+          vertical: widget.vMargin ?? _ToolbarTheme.buttonVMargin,
         );
-    var button = SizedBox(
-      width: widget.width ?? _ToolbarTheme.buttonSize,
-      height: _ToolbarTheme.buttonSize,
-      child: MenuItemButton(
-          style: ButtonStyle(
-              backgroundColor: MaterialStatePropertyAll(Colors.transparent),
-              padding: MaterialStatePropertyAll(EdgeInsets.zero),
-              overlayColor: MaterialStatePropertyAll(Colors.transparent)),
-          onHover: (value) => setState(() {
-                hover = value;
-              }),
-          onPressed: widget.onPressed,
-          child: Tooltip(
-            message: translate(widget.tooltip),
-            child: Material(
-                type: MaterialType.transparency,
-                child: Ink(
-                    decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(_ToolbarTheme.iconRadius),
-                      color: hover ? widget.hoverColor : widget.color,
-                    ),
-                    child: icon)),
-          )),
-    ).marginSymmetric(
-        horizontal: widget.hMargin ?? _ToolbarTheme.buttonHMargin,
-        vertical: widget.vMargin ?? _ToolbarTheme.buttonVMargin);
-    button = Tooltip(
-      message: translate(widget.tooltip),
-      child: button,
-    );
+    button = Tooltip(message: translate(widget.tooltip), child: button);
     if (widget.topLevel) {
       return MenuBar(children: [button]);
     } else {
@@ -2865,19 +2833,18 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
 
 class _IconSubmenuButton extends StatefulWidget {
   final String tooltip;
-  final String? svg;
-  final Widget? icon;
+  final Widget icon;
   final Color color;
   final Color hoverColor;
   final List<Widget> Function(_IconSubmenuButtonState state) menuChildrenGetter;
   final MenuStyle? menuStyle;
   final FFI? ffi;
   final double? width;
+  final bool showChevron;
 
   _IconSubmenuButton({
     Key? key,
-    this.svg,
-    this.icon,
+    required this.icon,
     required this.tooltip,
     required this.color,
     required this.hoverColor,
@@ -2885,6 +2852,7 @@ class _IconSubmenuButton extends StatefulWidget {
     this.ffi,
     this.menuStyle,
     this.width,
+    this.showChevron = false,
   }) : super(key: key);
 
   @override
@@ -2892,7 +2860,7 @@ class _IconSubmenuButton extends StatefulWidget {
 }
 
 class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
-  bool hover = false;
+  bool _open = false;
 
   @override // discard @protected
   void setState(VoidCallback fn) {
@@ -2901,44 +2869,60 @@ class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
 
   @override
   Widget build(BuildContext context) {
-    assert(widget.svg != null || widget.icon != null);
-    final icon = widget.icon ??
-        SvgPicture.asset(
-          widget.svg!,
-          colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
-          width: _ToolbarTheme.buttonSize,
-          height: _ToolbarTheme.buttonSize,
-        );
     final button = SizedBox(
-        width: widget.width ?? _ToolbarTheme.buttonSize,
-        height: _ToolbarTheme.buttonSize,
-        child: SubmenuButton(
-            menuStyle:
-                widget.menuStyle ?? _ToolbarTheme.defaultMenuStyle(context),
-            style: _ToolbarTheme.defaultMenuButtonStyle,
-            onHover: (value) => setState(() {
-                  hover = value;
-                }),
-            child: Tooltip(
-                message: translate(widget.tooltip),
-                child: Material(
-                    type: MaterialType.transparency,
-                    child: Ink(
-                        decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(_ToolbarTheme.iconRadius),
-                          color: hover ? widget.hoverColor : widget.color,
-                        ),
-                        child: icon))),
-            menuChildren: widget
-                .menuChildrenGetter(this)
-                .map((e) => _buildPointerTrackWidget(e, widget.ffi))
-                .toList()));
-    return MenuBar(children: [
-      button.marginSymmetric(
+      width:
+          widget.width ?? (widget.showChevron ? 56 : _ToolbarTheme.buttonSize),
+      height: _ToolbarTheme.buttonSize,
+      child: SubmenuButton(
+        onOpen: () {
+          setState(() => _open = true);
+          _ToolbarInteractionScope.maybeOf(context)?.onMenuChanged(true);
+        },
+        onClose: () {
+          setState(() => _open = false);
+          _ToolbarInteractionScope.maybeOf(context)?.onMenuChanged(false);
+        },
+        menuStyle: widget.menuStyle ?? _ToolbarTheme.defaultMenuStyle(context),
+        style: RemoteToolbarStyle.buttonStyle(
+          context,
+          selected: _open,
+          danger: widget.color == _ToolbarTheme.redColor,
+        ),
+        child: Tooltip(
+          message: translate(widget.tooltip),
+          child: SizedBox(
+            width:
+                widget.width ??
+                (widget.showChevron ? 56 : _ToolbarTheme.buttonSize),
+            height: _ToolbarTheme.buttonSize,
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  widget.icon,
+                  if (widget.showChevron) ...[
+                    const SizedBox(width: 4),
+                    const RemoteToolbarIcon('chevron-down', size: 16),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+        menuChildren: widget
+            .menuChildrenGetter(this)
+            .map((e) => _buildPointerTrackWidget(e, widget.ffi))
+            .toList(),
+      ),
+    );
+    return MenuBar(
+      children: [
+        button.marginSymmetric(
           horizontal: _ToolbarTheme.buttonHMargin,
-          vertical: _ToolbarTheme.buttonVMargin)
-    ]);
+          vertical: _ToolbarTheme.buttonVMargin,
+        ),
+      ],
+    );
   }
 }
 
@@ -2956,6 +2940,10 @@ class _SubmenuButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SubmenuButton(
+      onOpen: () =>
+          _ToolbarInteractionScope.maybeOf(context)?.onMenuChanged(true),
+      onClose: () =>
+          _ToolbarInteractionScope.maybeOf(context)?.onMenuChanged(false),
       key: key,
       child: child,
       menuChildren:
@@ -3082,6 +3070,7 @@ class _DraggableShowHide extends StatefulWidget {
   final RxBool dragging;
   final ToolbarState toolbarState;
   final BorderRadius borderRadius;
+  final List<Widget>? toolbarItems;
 
   final Function(bool) setFullscreen;
   final Function() setMinimize;
@@ -3105,6 +3094,7 @@ class _DraggableShowHide extends StatefulWidget {
     required this.setFullscreen,
     required this.setMinimize,
     required this.borderRadius,
+    this.toolbarItems,
   }) : super(key: key);
 
   @override
@@ -3288,12 +3278,18 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
         // floats away from the top while dragging and the toolbar looks
         // unmoored. When multi-edge is on we need 2D drag for snap-to-edge.
         axis: widget.multiEdgeEnabled ? null : Axis.horizontal,
-        child: Icon(
-          widget.isHorizontal ? Icons.drag_indicator : Icons.drag_handle,
-          size: 20,
-          color: MyTheme.color(context).drag_indicator,
+        child: RemoteToolbarGrip(
+          isHorizontal: widget.isHorizontal,
+          compact: widget.toolbarItems == null,
         ),
-        feedback: widget,
+        // Keep keyed session menus in the live tree, not in drag feedback.
+        feedback: RemoteToolbarSurface(
+          isHorizontal: widget.isHorizontal,
+          compact: true,
+          children: [
+            RemoteToolbarGrip(isHorizontal: widget.isHorizontal, compact: true),
+          ],
+        ),
         onDragStarted: () {
           widget.markDragEpoch();
           final pointerDown = _lastPointerDown;
@@ -3316,126 +3312,73 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
 
   @override
   Widget build(BuildContext context) {
-    final ButtonStyle buttonStyle = ButtonStyle(
-      minimumSize: MaterialStateProperty.all(const Size(0, 0)),
-      padding: MaterialStateProperty.all(EdgeInsets.zero),
-    );
+    final compact = widget.toolbarItems == null;
     final isFullscreen = stateGlobal.fullscreen;
-    const double iconSize = 20;
 
-    buttonWrapper(VoidCallback? onPressed, Widget child,
-        {Color hoverColor = _ToolbarTheme.blueColor}) {
-      final bgColor = buttonStyle.backgroundColor?.resolve({});
-      return TextButton(
-        onPressed: onPressed,
-        child: child,
-        style: buttonStyle.copyWith(
-          backgroundColor: MaterialStateProperty.resolveWith((states) {
-            if (states.contains(MaterialState.hovered)) {
-              return (bgColor ?? hoverColor).withOpacity(0.15);
-            }
-            return bgColor;
-          }),
+    Widget button(String tooltip, String icon, VoidCallback onPressed) {
+      if (!compact) {
+        return _IconMenuButton(
+          icon: RemoteToolbarIcon(icon),
+          tooltip: tooltip,
+          onPressed: onPressed,
+          color: _ToolbarTheme.blueColor,
+          hoverColor: _ToolbarTheme.hoverBlueColor,
+        );
+      }
+      return Tooltip(
+        message: translate(tooltip),
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: TextButton(
+            style: RemoteToolbarStyle.buttonStyle(context).copyWith(
+              minimumSize: const WidgetStatePropertyAll(Size(32, 32)),
+              iconSize: const WidgetStatePropertyAll(18),
+            ),
+            onPressed: onPressed,
+            child: RemoteToolbarIcon(icon, size: 18),
+          ),
         ),
       );
     }
 
-    final axis = widget.isHorizontal ? Axis.horizontal : Axis.vertical;
-    final child = Flex(
-      direction: axis,
-      mainAxisSize: MainAxisSize.min,
+    return RemoteToolbarSurface(
+      isHorizontal: widget.isHorizontal,
+      compact: compact,
+      borderRadius: compact ? widget.borderRadius : null,
       children: [
         _buildDraggable(context),
-        Obx(() => collapse.isTrue
-            ? _MinimizedMonitorSwitchButton(id: widget.id, ffi: widget.ffi)
-            : const Offstage()),
-        Obx(() => buttonWrapper(
-              () {
-                widget.setFullscreen(!isFullscreen.value);
-              },
-              Tooltip(
-                message: translate(
-                    isFullscreen.isTrue ? 'Exit Fullscreen' : 'Fullscreen'),
-                child: Icon(
-                  isFullscreen.isTrue
-                      ? Icons.fullscreen_exit
-                      : Icons.fullscreen,
-                  size: iconSize,
-                ),
-              ),
-            )),
-        if (!isMacOS && !isWebDesktop)
-          Obx(() => Offstage(
-                offstage: isFullscreen.isFalse,
-                child: buttonWrapper(
-                  widget.setMinimize,
-                  Tooltip(
-                    message: translate('Minimize'),
-                    child: Icon(
-                      Icons.remove,
-                      size: iconSize,
-                    ),
-                  ),
-                ),
-              )),
-        buttonWrapper(
-          () => setState(() {
-            widget.toolbarState.switchCollapse(widget.sessionId);
-          }),
-          Obx((() => Tooltip(
-                message: translate(
-                    collapse.isFalse ? 'Hide Toolbar' : 'Show Toolbar'),
-                child: Icon(
-                  _toolbarCollapseIcon(widget.edge.value, collapse.isTrue),
-                  size: iconSize,
-                ),
-              ))),
-        ),
-        if (isWebDesktop)
-          Obx(() {
-            if (collapse.isFalse) {
-              return Offstage();
-            } else {
-              return buttonWrapper(
-                () => closeConnection(id: widget.id),
-                Tooltip(
-                  message: translate('Close'),
-                  child: Icon(
-                    Icons.close,
-                    size: iconSize,
-                    color: _ToolbarTheme.redColor,
-                  ),
-                ),
-                hoverColor: _ToolbarTheme.redColor,
-              ).paddingOnly(left: iconSize / 2);
-            }
-          })
-      ],
-    );
-    return TextButtonTheme(
-      data: TextButtonThemeData(style: buttonStyle),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context)
-              .menuBarTheme
-              .style
-              ?.backgroundColor
-              ?.resolve(MaterialState.values.toSet()),
-          border: Border.all(
-            color: _ToolbarTheme.borderColor(context),
-            width: 1,
+        if (compact)
+          _MinimizedMonitorSwitchButton(id: widget.id, ffi: widget.ffi),
+        ...?widget.toolbarItems,
+        if (!compact) RemoteToolbarSeparator(isHorizontal: widget.isHorizontal),
+        Obx(
+          () => button(
+            isFullscreen.isTrue ? 'Exit Fullscreen' : 'Fullscreen',
+            isFullscreen.isTrue ? 'minimize' : 'maximize',
+            () => widget.setFullscreen(!isFullscreen.value),
           ),
-          borderRadius: widget.borderRadius,
         ),
-        child: SizedBox(
-          height: widget.isHorizontal ? 20 : null,
-          width: widget.isHorizontal ? null : 20,
-          child: child,
+        if (!isMacOS && !isWebDesktop)
+          Obx(
+            () => isFullscreen.isTrue
+                ? button('Minimize', 'minus', widget.setMinimize)
+                : const Offstage(),
+          ),
+        Obx(
+          () => button(
+            collapse.isFalse ? 'Hide Toolbar' : 'Show Toolbar',
+            _toolbarCollapseIcon(widget.edge.value, collapse.isTrue),
+            () => widget.toolbarState.switchCollapse(widget.sessionId),
+          ),
         ),
-      ),
+        if (!compact || isWebDesktop)
+          _CloseMenu(id: widget.id, ffi: widget.ffi),
+      ],
     );
   }
 }
+
 
 class InputModeMenu {
   final String key;
@@ -3521,7 +3464,6 @@ class _MinimizedMonitorSwitchButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double iconSize = 20;
     final cycle = _MonitorCycle(id, ffi);
 
     return Obx(() {
@@ -3542,31 +3484,19 @@ class _MinimizedMonitorSwitchButton extends StatelessWidget {
         message: cycle.tooltip,
         child: TextButton(
           onPressed: cycle.next,
-          style: ButtonStyle(
-            minimumSize: MaterialStateProperty.all(const Size(0, 0)),
-            padding: MaterialStateProperty.all(EdgeInsets.zero),
-            backgroundColor: MaterialStateProperty.resolveWith((states) {
-              if (states.contains(MaterialState.hovered)) {
-                return _ToolbarTheme.blueColor.withOpacity(0.15);
-              }
-              return null;
-            }),
+          style: RemoteToolbarStyle.buttonStyle(context).copyWith(
+            minimumSize: const WidgetStatePropertyAll(Size(32, 32)),
+            fixedSize: const WidgetStatePropertyAll(Size(32, 32)),
           ),
           child: Stack(
             alignment: const Alignment(0, -0.125),
             children: [
-              SvgPicture.asset(
-                'assets/display_switcher.svg',
-                colorFilter:
-                    ColorFilter.mode(_ToolbarTheme.blueColor, BlendMode.srcIn),
-                width: iconSize,
-                height: iconSize,
-              ),
+              const RemoteToolbarIcon('device-desktop', size: 24),
               Text(
                 label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 9,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontSize: 8,
                   height: 1,
                   fontWeight: FontWeight.bold,
                 ),
@@ -3577,4 +3507,16 @@ class _MinimizedMonitorSwitchButton extends StatelessWidget {
       );
     });
   }
+}
+
+class _ToolbarInteractionScope extends InheritedWidget {
+  const _ToolbarInteractionScope({
+    required this.onMenuChanged,
+    required super.child,
+  });
+  final ValueChanged<bool> onMenuChanged;
+  static _ToolbarInteractionScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_ToolbarInteractionScope>();
+  @override
+  bool updateShouldNotify(_ToolbarInteractionScope oldWidget) => false;
 }

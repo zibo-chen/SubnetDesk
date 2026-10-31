@@ -719,8 +719,6 @@ def build_flutter_deb(version, features):
     system2(
         f'cp -r {flutter_build_dir}/* tmpdeb/usr/share/subnetdesk/')
     system2(
-        'cp ../res/subnetdesk.service tmpdeb/usr/share/subnetdesk/files/systemd/')
-    system2(
         'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/subnetdesk.png')
     system2(
         'cp ../res/scalable.svg tmpdeb/usr/share/icons/hicolor/scalable/apps/subnetdesk.svg')
@@ -833,8 +831,6 @@ def build_deb_from_folder(version, binary_folder, want_drm=False):
     system2(
         f'cp -r ../{binary_folder}/* tmpdeb/usr/share/subnetdesk/')
     system2(
-        'cp ../res/subnetdesk.service tmpdeb/usr/share/subnetdesk/files/systemd/')
-    system2(
         'cp ../res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/subnetdesk.png')
     system2(
         'cp ../res/scalable.svg tmpdeb/usr/share/icons/hicolor/scalable/apps/subnetdesk.svg')
@@ -907,7 +903,7 @@ def build_flutter_dmg(version, features):
     if not skip_cargo:
         # set minimum osx build target, now is 10.14, which is the same as the flutter xcode project
         system2(
-            f'MACOSX_DEPLOYMENT_TARGET=10.14 cargo build --locked --features {features} --release')
+            f'MACOSX_DEPLOYMENT_TARGET=10.15 cargo build --locked --lib --features {features} --release')
     # copy dylib
     system2(
         "cp target/release/liblibrustdesk.dylib target/release/librustdesk.dylib")
@@ -918,13 +914,7 @@ def build_flutter_dmg(version, features):
     mac_arch = 'arm64' if platform.machine().lower() in ('arm64', 'aarch64') else 'x86_64'
     system2(
         f'FLUTTER_XCODE_ARCHS={mac_arch} FLUTTER_XCODE_ONLY_ACTIVE_ARCH=YES flutter build macos --release')
-    system2('cp -rf ../target/release/service ./build/macos/Build/Products/Release/SubnetDesk.app/Contents/MacOS/')
-    # Flutter signs the app before the service binary is copied. Sign the new nested
-    # executable, refresh the outer ad-hoc signature, and fail before packaging if
-    # the resulting bundle seal is invalid. Release CI may replace this signature.
     app_path = './build/macos/Build/Products/Release/SubnetDesk.app'
-    service_path = f'{app_path}/Contents/MacOS/service'
-    system2(f'codesign --force --sign - --options runtime "{service_path}"')
     system2(
         f'codesign --force --sign - --options runtime '
         f'--entitlements macos/Runner/UnsignedRelease.entitlements "{app_path}"')
@@ -961,6 +951,17 @@ def build_flutter_windows(version, features, skip_portable_pack):
                  flutter_build_dir_2)
     if skip_portable_pack:
         return
+    # Publish a directory package with a stable entry point and an isolated profile.
+    portable_output = Path('target/portable') / f'subnetdesk-{version}-{win_arch}-portable'
+    if portable_output.exists():
+        if any((portable_output / 'userdata').rglob('*')):
+            raise RuntimeError('Portable build output contains user data; choose a clean output directory')
+        shutil.rmtree(portable_output)
+    system2(subprocess.list2cmdline([
+        sys.executable, 'scripts/package_portable.py', '--runtime', flutter_build_dir_2,
+        '--launcher', str(Path(flutter_build_dir_2) / 'SubnetDeskLauncher.exe'),
+        '--output', str(portable_output),
+    ]))
     os.chdir('libs/portable')
     system2('pip3 install -r requirements.txt')
     system2(
@@ -974,9 +975,9 @@ def build_flutter_windows(version, features, skip_portable_pack):
                   './rustdesk_portable.exe')
     print(
         f'output location: {os.path.abspath(os.curdir)}/rustdesk_portable.exe')
-    os.rename('./rustdesk_portable.exe', f'./subnetdesk-{version}-install.exe')
+    os.rename('./rustdesk_portable.exe', f'./subnetdesk-{version}-portable.exe')
     print(
-        f'output location: {os.path.abspath(os.curdir)}/subnetdesk-{version}-install.exe')
+        f'output location: {os.path.abspath(os.curdir)}/subnetdesk-{version}-portable.exe')
 
 
 def main():
@@ -1137,8 +1138,6 @@ def main():
                 system2('mkdir -p tmpdeb/usr/share/subnetdesk/files/systemd/')
                 system2('mkdir -p tmpdeb/usr/share/icons/hicolor/256x256/apps/')
                 system2('mkdir -p tmpdeb/usr/share/icons/hicolor/scalable/apps/')
-                system2(
-                    'cp res/subnetdesk.service tmpdeb/usr/share/subnetdesk/files/systemd/')
                 system2(
                     'cp res/128x128@2x.png tmpdeb/usr/share/icons/hicolor/256x256/apps/subnetdesk.png')
                 system2(

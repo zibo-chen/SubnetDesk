@@ -214,6 +214,7 @@ class MainService : Service() {
 
     // video
     private var mediaProjection: MediaProjection? = null
+    private var mediaProjectionCallback: MediaProjection.Callback? = null
     private var surface: Surface? = null
     private val sendVP9Thread = Executors.newSingleThreadExecutor()
     private var videoEncoder: MediaCodec? = null
@@ -244,13 +245,13 @@ class MainService : Service() {
         val prefs = applicationContext.getSharedPreferences(KEY_SHARED_PREFERENCES, FlutterActivity.MODE_PRIVATE)
         val configPath = prefs.getString(KEY_APP_DIR_CONFIG_PATH, "") ?: ""
         FFI.startServer(configPath, "")
-
-        createForegroundNotification()
     }
 
     override fun onDestroy() {
+        releaseMediaProjection()
         checkMediaPermission()
         stopService(Intent(this, FloatingWindowService::class.java))
+        serviceLooper?.quitSafely()
         super.onDestroy()
     }
 
@@ -327,20 +328,49 @@ class MainService : Service() {
         Log.d("whichService", "this service: ${Thread.currentThread()}")
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == ACT_INIT_MEDIA_PROJECTION_AND_SERVICE) {
-            createForegroundNotification()
-
-            if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
-                FFI.startService()
-            }
             Log.d(logTag, "service starting: ${startId}:${Thread.currentThread()}")
             val mediaProjectionManager =
                 getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
 
             intent.getParcelableExtra<Intent>(EXT_MEDIA_PROJECTION_RES_INTENT)?.let {
-                mediaProjection =
-                    mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, it)
-                checkMediaPermission()
+                // Android 14+ requires consent before promoting this service to mediaProjection.
+                createForegroundNotification()
+                releaseMediaProjection()
+                val projection = mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, it)
+                    ?: run {
+                        Log.w(logTag, "No media projection returned after consent")
+                        destroy()
+                        MainActivity.flutterMethodChannel?.invokeMethod("on_media_projection_canceled", null)
+                        return START_NOT_STICKY
+                    }
+                mediaProjection = projection
+                val callback = object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        if (mediaProjection !== projection) return
+                        Log.d(logTag, "Media projection stopped by the system")
+                        destroy()
+                        MainActivity.flutterMethodChannel?.invokeMethod("stop_service", null)
+                    }
+                }
+                mediaProjectionCallback = callback
+                projection.registerCallback(callback, Handler(Looper.getMainLooper()))
+                if (reuseVirtualDisplay) {
+                    // Initialize the single-use projection before its consent token expires.
+                    surface = createSurface()
+                    surface?.let { surface ->
+                        mediaProjection?.let { projection -> createOrSetVirtualDisplay(projection, surface) }
+                    }
+                    stopCapture()
+                    if (virtualDisplay == null) {
+                        checkMediaPermission()
+                        return START_NOT_STICKY
+                    }
+                }
                 _isReady = true
+                checkMediaPermission()
+                if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
+                    FFI.startService()
+                }
             } ?: let {
                 Log.d(logTag, "getParcelableExtra intent null, invoke requestMediaProjection")
                 requestMediaProjection()
@@ -419,7 +449,10 @@ class MainService : Service() {
         if (useVP9) {
             startVP9VideoRecorder(mediaProjection!!)
         } else {
-            startRawVideoRecorder(mediaProjection!!)
+            if (!startRawVideoRecorder(mediaProjection!!)) {
+                stopCapture()
+                return false
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -476,6 +509,14 @@ class MainService : Service() {
 
     fun destroy() {
         Log.d(logTag, "destroy service")
+        releaseMediaProjection()
+        checkMediaPermission()
+        stopForeground(true)
+        stopService(Intent(this, FloatingWindowService::class.java))
+        stopSelf()
+    }
+
+    private fun releaseMediaProjection() {
         _isReady = false
         _isAudioStart = false
 
@@ -486,11 +527,11 @@ class MainService : Service() {
             virtualDisplay = null
         }
 
+        val projection = mediaProjection
         mediaProjection = null
-        checkMediaPermission()
-        stopForeground(true)
-        stopService(Intent(this, FloatingWindowService::class.java))
-        stopSelf()
+        mediaProjectionCallback?.let { projection?.unregisterCallback(it) }
+        mediaProjectionCallback = null
+        projection?.stop()
     }
 
     fun checkMediaPermission(): Boolean {
@@ -509,13 +550,13 @@ class MainService : Service() {
         return isReady
     }
 
-    private fun startRawVideoRecorder(mp: MediaProjection) {
+    private fun startRawVideoRecorder(mp: MediaProjection): Boolean {
         Log.d(logTag, "startRawVideoRecorder,screen info:$SCREEN_INFO")
         if (surface == null) {
             Log.d(logTag, "startRawVideoRecorder failed,surface is null")
-            return
+            return false
         }
-        createOrSetVirtualDisplay(mp, surface!!)
+        return createOrSetVirtualDisplay(mp, surface!!)
     }
 
     private fun startVP9VideoRecorder(mp: MediaProjection) {
@@ -533,8 +574,8 @@ class MainService : Service() {
 
     // https://github.com/bk138/droidVNC-NG/blob/b79af62db5a1c08ed94e6a91464859ffed6f4e97/app/src/main/java/net/christianbeier/droidvnc_ng/MediaProjectionService.java#L250
     // Reuse virtualDisplay if it exists, to avoid media projection confirmation dialog every connection.
-    private fun createOrSetVirtualDisplay(mp: MediaProjection, s: Surface) {
-        try {
+    private fun createOrSetVirtualDisplay(mp: MediaProjection, s: Surface): Boolean {
+        return try {
             virtualDisplay?.let {
                 it.resize(SCREEN_INFO.width, SCREEN_INFO.height, SCREEN_INFO.dpi)
                 it.setSurface(s)
@@ -545,10 +586,12 @@ class MainService : Service() {
                     s, null, null
                 )
             }
+            true
         } catch (e: SecurityException) {
-            Log.w(logTag, "createOrSetVirtualDisplay: got SecurityException, re-requesting confirmation");
+            Log.w(logTag, "createOrSetVirtualDisplay: re-requesting confirmation", e)
             // This initiates a prompt dialog for the user to confirm screen projection.
             requestMediaProjection()
+            false
         }
     }
 

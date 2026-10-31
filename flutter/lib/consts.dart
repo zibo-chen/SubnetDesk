@@ -8,6 +8,8 @@ const int kMaxVirtualDisplayCount = 4;
 const int kAllVirtualDisplay = -1;
 
 const double kDesktopRemoteTabBarHeight = 28.0;
+const Size kDesktopMainWindowSize = Size(960, 640);
+const Size kDesktopMainWindowMinimumSize = Size(640, 480);
 const int kInvalidWindowId = -1;
 const int kMainWindowId = 0;
 
@@ -253,12 +255,12 @@ const int kMaxTrackpadSpeed = 1000;
 /// may cause performance issues during rapid window operations.
 const int kDefaultPointerLockCenterThrottleMs = 100;
 
-/// Minimum server version required for relative mouse mode (MOUSE_TYPE_MOVE_RELATIVE).
-/// Servers older than this version will ignore relative mouse events.
+/// SubnetDesk inherited relative mouse mode (MOUSE_TYPE_MOVE_RELATIVE) before
+/// its first 1.0.0 release; its versions are independent of RustDesk's 1.4.5 gate.
 ///
 /// IMPORTANT: This value must be kept in sync with the Rust constant
 /// `MIN_VERSION_RELATIVE_MOUSE_MODE` in `src/common.rs`.
-const String kMinVersionForRelativeMouseMode = '1.4.5';
+const String kMinVersionForRelativeMouseMode = '1.0.0';
 
 /// Maximum delta value for relative mouse movement.
 /// Large values could cause issues with i32 overflow on server side,

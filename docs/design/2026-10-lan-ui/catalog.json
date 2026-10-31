@@ -1,0 +1,311 @@
+{
+  "date": "2026-10-19",
+  "approvedHome": "references/approved-home.png",
+  "approvedLogo": "references/approved-logo.png",
+  "masterPrompt": "Create realistic, production-quality UI with precise hierarchy, typography, purposeful spacing. This is a USER-APPROVED design EXTENSION, NOT a new alternative. Generate exactly ONE native application PAGE per image, ONE viewport, no collage, no multiple screens, no artboard title, phone bezel, OS status bar, browser chrome, presentation background or external mockup shadow.\nREFERENCE 1 is the approved HOME UI. Preserve its warm porcelain #F8F5F0 canvas, deep aubergine #332B3B text/buttons, muted lilac #DDD7EE and gentle apricot accents, quiet friendly modern Chinese sans, subtle hairline separators, rounded matte controls. Elegant functional native app, never enterprise dashboard or marketing page. No neon, bright blue/green branding, glossy gradients, busy decoration. Artwork only when functionally useful; do not put huge illustrations on task forms.\nREFERENCE 2 is the SELECTED LOGO, option two: two diagonally offset broad rounded window-corner shapes framing one central square negative-space opening. Use that precise lilac+auberigine MARK paired with exact word “SubnetDesk” at small header scale. Do not copy other logo options, old monitor/cable symbol, generic S, invented avatar or old RustDesk branding. Consistent thin rounded line icons, 1.5–2px strokes, harmonious with logo; platform names written as text, no giant OS logos.\nChinese UI. Same synthetic devices across set: 书房 Mac mini / macOS / 192.168.31.20:21118, 工作站 / Windows / 192.168.31.32:21118, 实验室主机 / Linux / 192.168.31.50:21118, 客厅电脑 / 192.168.31.42:21118. Example local user “chen”, example client “设计笔记本” 192.168.31.70. Never use real secrets. Today anchor 2026-10-19, if dates needed use 10月19日 and earlier. No cloud account/login, public device ID, relay, subscription, AI, fake live previews, invented compatibility or network statistics.\nDESKTOP pages: target 1513 x 1040, shared small top brand logo+SubnetDesk left, horizontal “设备 / 会话 / 本机” near center with quiet selected dot, compact search/add/settings right. NO left navigation sidebar, navigation rail, permanent right inspector, traditional left/right master-detail split, or app dashboard. Specialized remote/file/terminal/media tool pages use a compact SESSION toolbar instead of irrelevant home navigation. A file manager's two file panes are functionally appropriate; never add a navigation sidebar. Main task content uses one full-width or centered continuous surface, generous but useful spacing; body 14–16px, headings 26–32px, buttons 38–44px.\nMOBILE portrait pages: target 390 x 844, app content ONLY, no OS clock/battery/status/home indicator/phone frame. Same palette and logo; main tabs have bottom nav icon+word “设备 / 会话 / 本机”. Detail/form/session pages use Back + concise task title, no bottom home nav if it distracts from task. Native single column, 20px margins, 16px body, controls at least 48px tall, bottom primary action reachable by thumb. Preserve content above action bar, avoid cramped multi-column desktop layouts and text clipping. Adapt image art gently; do not squeeze desktop header.\nUX RULES: one clear primary action. Routine device list status uses icon AND word “可达 / 未检查 / 暂不可达”; discovery and saved/trusted identity are distinct. First-use fingerprint requires deliberate verification; a changed fingerprint blocks connection. Address entry accepts IP or hostname and clear optional port, credentials appear only in context of chosen device. Only show real stage/probe data, no fabricated progress percentages. Local receiver permissions must not block outgoing connection. Every failure has clear next action. Forms have visible labels. No card-in-card, ornamental statistics, giant banners, extra feature inventory or unlabeled icon-only critical actions.\nNow render the SPECIFIC PAGE below; faithfully extend references while optimizing this particular user task. All text must be crisp, all content fit naturally. ONE PAGE ONLY.",
+  "pages": [
+    {
+      "id": "D01",
+      "platform": "desktop",
+      "slug": "01-home",
+      "title": "设备首页",
+      "ux": "保留已认可首页的居中继续连接、附近设备带与入口位置；仅统一新 Logo 和线性图标。"
+    },
+    {
+      "id": "D02",
+      "platform": "desktop",
+      "slug": "02-device-browser",
+      "title": "全部设备与搜索",
+      "ux": "发现完整列表与输入搜索，按名称和地址筛选；未知状态不当作离线。"
+    },
+    {
+      "id": "D03",
+      "platform": "desktop",
+      "slug": "03-favorites",
+      "title": "收藏与分组",
+      "ux": "收藏分组横向选择，分组管理可达，删除组不删除设备。"
+    },
+    {
+      "id": "D04",
+      "platform": "desktop",
+      "slug": "04-device-detail",
+      "title": "设备详情",
+      "ux": "查看多个地址、已保存身份与功能入口，连接为首要动作。"
+    },
+    {
+      "id": "D05",
+      "platform": "desktop",
+      "slug": "05-add-device",
+      "title": "添加设备",
+      "ux": "只收地址与可选备注；端口按需展开，下一步再验证与认证。"
+    },
+    {
+      "id": "D06",
+      "platform": "desktop",
+      "slug": "06-verify-identity",
+      "title": "首次验证设备",
+      "ux": "目标身份、完整指纹、核对说明与主动信任。"
+    },
+    {
+      "id": "D07",
+      "platform": "desktop",
+      "slug": "07-authentication",
+      "title": "连接认证",
+      "ux": "认证与目标设备绑定，凭据选择清楚，无云账号含义。"
+    },
+    {
+      "id": "D08",
+      "platform": "desktop",
+      "slug": "08-connection-failure",
+      "title": "连接失败与排查",
+      "ux": "不确定原因用检查建议表达，保留重试和编辑地址。"
+    },
+    {
+      "id": "D09",
+      "platform": "desktop",
+      "slug": "09-identity-changed",
+      "title": "设备身份变化",
+      "ux": "明确停止连接，展示旧新指纹，引导独立核对。"
+    },
+    {
+      "id": "D10",
+      "platform": "desktop",
+      "slug": "10-sessions",
+      "title": "会话与历史",
+      "ux": "活跃会话优先，历史结果与重新连接清楚。"
+    },
+    {
+      "id": "D11",
+      "platform": "desktop",
+      "slug": "11-remote-control",
+      "title": "远程控制",
+      "ux": "画面为主体，显示/输入/文件按需打开，结束连接独立。"
+    },
+    {
+      "id": "D12",
+      "platform": "desktop",
+      "slug": "12-file-transfer",
+      "title": "文件传输",
+      "ux": "本地和远端双文件面板，队列与覆盖风险明确。"
+    },
+    {
+      "id": "D13",
+      "platform": "desktop",
+      "slug": "13-terminal",
+      "title": "远程终端",
+      "ux": "连接身份、终端与结束动作清楚；终端保留自然暗色。"
+    },
+    {
+      "id": "D14",
+      "platform": "desktop",
+      "slug": "14-local-device",
+      "title": "本机与接入管理",
+      "ux": "本机状态、可用地址和活跃接入易于查看与停止。"
+    },
+    {
+      "id": "D15",
+      "platform": "desktop",
+      "slug": "15-access-settings",
+      "title": "本机访问设置",
+      "ux": "用户名密码与网络高级项分层，安全范围有明确含义。"
+    },
+    {
+      "id": "D16",
+      "platform": "desktop",
+      "slug": "16-permissions",
+      "title": "权限与准备",
+      "ux": "按功能解释缺项，一次修复一项，不阻断主动连接。"
+    },
+    {
+      "id": "D17",
+      "platform": "desktop",
+      "slug": "17-preferences",
+      "title": "偏好设置",
+      "ux": "顶部分类与单列设置，显示、输入和外观易于理解。"
+    },
+    {
+      "id": "D18",
+      "platform": "desktop",
+      "slug": "18-credentials",
+      "title": "连接凭据管理",
+      "ux": "与本机访问账号区分，关联设备可见，敏感值隐藏。"
+    },
+    {
+      "id": "D19",
+      "platform": "desktop",
+      "slug": "19-camera",
+      "title": "远端摄像头",
+      "ux": "查看设备上下文明确，开始/停止易找。"
+    },
+    {
+      "id": "D20",
+      "platform": "desktop",
+      "slug": "20-port-forward",
+      "title": "端口转发",
+      "ux": "目标与本地监听清楚，启动前显示范围，提供停止。"
+    },
+    {
+      "id": "D21",
+      "platform": "desktop",
+      "slug": "21-chat",
+      "title": "会话聊天",
+      "ux": "随远控会话出现，双方设备上下文与连接状态清楚。"
+    },
+    {
+      "id": "D22",
+      "platform": "desktop",
+      "slug": "22-help-about",
+      "title": "帮助与关于",
+      "ux": "围绕连接问题组织检查项，技术信息按需展开。"
+    },
+    {
+      "id": "D23",
+      "platform": "desktop",
+      "slug": "23-detach-tab",
+      "title": "会话标签拆分窗口",
+      "ux": "将标签拖出成为独立窗口，保持会话与传输，提供菜单替代。"
+    },
+    {
+      "id": "D24",
+      "platform": "desktop",
+      "slug": "24-merge-tabs",
+      "title": "会话窗口合并标签",
+      "ux": "拖入目标标签栏合并，预览落点，失败时恢复原窗口。"
+    },
+    {
+      "id": "D25",
+      "platform": "desktop",
+      "slug": "25-remote-autohide",
+      "title": "远控工具栏自动隐藏",
+      "ux": "隐藏时仅留唤出把手；菜单打开、工具栏有焦点或拖动时保持可见。"
+    },
+    {
+      "id": "M01",
+      "platform": "mobile",
+      "slug": "01-home",
+      "title": "移动设备首页",
+      "ux": "单手快速重连，附近设备和底部导航一致。"
+    },
+    {
+      "id": "M02",
+      "platform": "mobile",
+      "slug": "02-device-browser",
+      "title": "移动全部设备",
+      "ux": "单列搜索与发现列表，设备行可触达。"
+    },
+    {
+      "id": "M03",
+      "platform": "mobile",
+      "slug": "03-favorites",
+      "title": "移动收藏分组",
+      "ux": "收藏分组单层选择，更多菜单易于触达。"
+    },
+    {
+      "id": "M04",
+      "platform": "mobile",
+      "slug": "04-device-detail",
+      "title": "移动设备详情",
+      "ux": "固定底部连接，文件终端等功能从属呈现。"
+    },
+    {
+      "id": "M05",
+      "platform": "mobile",
+      "slug": "05-add-device",
+      "title": "移动添加设备",
+      "ux": "地址输入和清楚的下一步；键盘出现仍可操作。"
+    },
+    {
+      "id": "M06",
+      "platform": "mobile",
+      "slug": "06-verify-identity",
+      "title": "移动设备验证",
+      "ux": "完整指纹可读可复制，主动核对后继续。"
+    },
+    {
+      "id": "M07",
+      "platform": "mobile",
+      "slug": "07-authentication",
+      "title": "移动连接认证",
+      "ux": "目标上下文、用户名密码与错误定位清楚。"
+    },
+    {
+      "id": "M08",
+      "platform": "mobile",
+      "slug": "08-connection-failure",
+      "title": "移动连接失败",
+      "ux": "保留目标和恢复路径，最少必要排查项。"
+    },
+    {
+      "id": "M09",
+      "platform": "mobile",
+      "slug": "09-sessions",
+      "title": "移动会话中心",
+      "ux": "活跃会话优先，继续和结束操作明确。"
+    },
+    {
+      "id": "M10",
+      "platform": "mobile",
+      "slug": "10-remote-portrait",
+      "title": "移动远控竖屏",
+      "ux": "触控模式、键盘入口与画布空间平衡。"
+    },
+    {
+      "id": "M11",
+      "platform": "mobile",
+      "slug": "11-remote-landscape",
+      "title": "移动远控横屏",
+      "ux": "横屏充分利用画布，工具条不覆盖主要目标。"
+    },
+    {
+      "id": "M12",
+      "platform": "mobile",
+      "slug": "12-file-transfer",
+      "title": "移动文件传输",
+      "ux": "单栏本地远端切换，路径、选中与传输队列清楚。"
+    },
+    {
+      "id": "M13",
+      "platform": "mobile",
+      "slug": "13-terminal",
+      "title": "移动远程终端",
+      "ux": "单栏终端，按需辅助键，不默认占屏。"
+    },
+    {
+      "id": "M14",
+      "platform": "mobile",
+      "slug": "14-local-device",
+      "title": "Android 本机与接入",
+      "ux": "共享权限分步，已接入设备和立即停止可见。"
+    },
+    {
+      "id": "M15",
+      "platform": "mobile",
+      "slug": "15-access-settings",
+      "title": "移动访问设置",
+      "ux": "本机访问与出站凭据区分，网络高级项折叠。"
+    },
+    {
+      "id": "M16",
+      "platform": "mobile",
+      "slug": "16-settings",
+      "title": "移动设置",
+      "ux": "固定设置入口、单任务表单与适用能力。"
+    },
+    {
+      "id": "M17",
+      "platform": "mobile",
+      "slug": "17-camera",
+      "title": "移动远端摄像头",
+      "ux": "画面和连接上下文明确，停止易触达。"
+    },
+    {
+      "id": "M18",
+      "platform": "mobile",
+      "slug": "18-chat",
+      "title": "移动会话聊天",
+      "ux": "会话内沟通，设备对象清楚，无独立云账号。"
+    }
+  ],
+  "windowModel": "独立会话窗口；窗口内多标签；标签可拖出拆分、拖入合并；移动标签保持连接与传输；关闭标签仅结束当前会话。",
+  "remoteWindowRules": "薄会话标签栏；远端画面铺满其余空间；悬浮工具栏支持固定与自动隐藏；顶部把手/快捷键唤出；菜单、输入、拖动期间不隐藏。"
+}

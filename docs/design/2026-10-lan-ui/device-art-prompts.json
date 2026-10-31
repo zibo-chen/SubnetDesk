@@ -1,0 +1,26 @@
+{
+  "tool": "built-in image_gen",
+  "transparent_background": true,
+  "existing_assets": {
+    "laptop": "flutter/assets/subnetdesk-local-laptop.png",
+    "all-in-one": "flutter/assets/subnetdesk-device.png"
+  },
+  "generated_assets": [
+    {
+      "path": "flutter/assets/subnetdesk-phone.png",
+      "prompt": "Use case: product-mockup. Asset type: production transparent PNG illustration for SubnetDesk remote-device UI. Create ONE modern smartphone, upright portrait, front facing with a slight three-quarter view showing its thin satin silver edge. Entire phone including rounded corners fits comfortably within image, centered, phone takes about 82% of canvas height. Black slim bezel, tasteful lavender abstract folded-wave wallpaper with soft ivory and violet curves, no interface content. Refined softly lit realistic 3D product rendering, silver and warm white materials, muted lavender palette, soft ambient lighting, restrained small grounding shadow. This must visually match a family of silver laptop and all-in-one desktop product illustrations with pale purple wave wallpapers. Isolated on truly transparent background, no opaque backdrop. No circles or decorative rings. No labels, text, logos, brands, watermark, accessories, hands, people or additional devices. Square canvas."
+    },
+    {
+      "path": "flutter/assets/subnetdesk-tablet.png",
+      "prompt": "Use case: product-mockup. Asset type: production transparent PNG illustration for a remote-device UI. ONE modern tablet computer in landscape orientation, front facing with very slight three-quarter view, thin satin silver body, black slim uniform bezel, rounded screen corners. Entire tablet fully in frame, centered with comfortable margin, occupies 82% of image width. Screen has elegant abstract lavender folded-wave wallpaper made of soft ivory and muted violet smooth curves, no UI. Refined softly lit realistic 3D studio product illustration, matches silver computers and smartphone with purple wallpaper in one visual family. Subtle small grounding shadow. Actual transparent background, no opaque backdrop, no decorative rings. No text, labels, brands, logos, watermark, keyboard, pen, accessories or people. Square canvas."
+    },
+    {
+      "path": "flutter/assets/subnetdesk-desktop.png",
+      "prompt": "Use case: product-mockup. Asset type: transparent production device illustration for a polished remote-desktop app. ONE desktop PC setup: a refined thin silver monitor with black narrow bezel on a silver pedestal and one compact satin silver tower standing beside it on the right. Balanced centered three-quarter front view, entire setup fits within square canvas with comfortable margin; monitor is clearly separate from tower. Screen wallpaper: smooth soft lavender and ivory abstract folded waves, muted purple gradient, no UI or text. High quality realistic softly lit 3D product render matching a silver laptop / smartphone family, soft studio lighting, subtle grounded shadow. Real transparent background. No opaque floor, decorative rings, desk, keyboard, mouse, wires, people, text, labels, logos, brands, watermark, or extra devices."
+    },
+    {
+      "path": "flutter/assets/subnetdesk-server.png",
+      "prompt": "Use case: product-mockup. Asset type: production transparent illustration of a Linux server for a premium remote-device application. ONE compact freestanding server rack enclosure viewed from slightly above at a three-quarter front angle, satin silver sides and graphite front with three clean horizontal server bays, subtle ventilation grilles, tiny muted lavender status lights. Distinctly a server, no screen or monitor. Elegant minimal realistic 3D product rendering with soft studio illumination, silver warm gray and muted lavender palette, matching a visual family of silver laptop, smartphone and desktop illustrations. Centered complete object with generous clear margin in square canvas, soft restrained grounding shadow. Truly transparent background. No text, no digits, no labels, brands, logos, watermark, glowing neon, cables, people, desk, accessories or extra objects."
+    }
+  ]
+}

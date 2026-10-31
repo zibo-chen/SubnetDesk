@@ -10,7 +10,8 @@ import json
 from pathlib import Path
 import struct
 
-POST_WIN7_DLLS = {"shcore.dll", "bcryptprimitives.dll"}
+POST_WIN7_DLLS = {"shcore.dll", "bcryptprimitives.dll", "dcomp.dll",
+                 "api-ms-win-core-path-l1-1-0.dll"}
 POST_WIN7_APIS = {
     "waitonaddress", "wakebyaddresssingle", "wakebyaddressall",
     "getsystemtimepreciseasfiletime", "getoverlappedresultex", "createfile2",

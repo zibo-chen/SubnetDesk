@@ -1,0 +1,22 @@
+[
+  {"selected":"cn","system":"en_US","expected":"zh-cn"},
+  {"selected":"TW","system":"en_US","expected":"zh-tw"},
+  {"selected":" zh_CN ","system":"en_US","expected":"zh-cn"},
+  {"selected":"zh-TW","system":"en_US","expected":"zh-tw"},
+  {"selected":"zh-Hans-TW","system":"en_US","expected":"zh-cn"},
+  {"selected":"zh-Hant-CN","system":"en_US","expected":"zh-tw"},
+  {"selected":"en-US","system":"zh_CN","expected":"en"},
+  {"selected":"de-DE","system":"zh_CN","expected":"de"},
+  {"selected":"pt_BR","system":"en_US","expected":"pt"},
+  {"selected":"vn","system":"en_US","expected":"vi"},
+  {"selected":"kk-KZ","system":"en_US","expected":"kz"},
+  {"selected":"ka-GE","system":"en_US","expected":"ge"},
+  {"selected":"default","system":"zh-Hans-CN","expected":"zh-cn"},
+  {"selected":"system","system":"zh_Hant_HK","expected":"zh-tw"},
+  {"selected":"","system":"zh_CN_#Hans","expected":"zh-cn"},
+  {"selected":"","system":"zh_HK","expected":"zh-tw"},
+  {"selected":"","system":"zh_MO","expected":"zh-tw"},
+  {"selected":"","system":"fr_FR","expected":"fr"},
+  {"selected":"","system":"ja_JP","expected":"ja"},
+  {"selected":"","system":"ko-KR","expected":"ko"}
+]

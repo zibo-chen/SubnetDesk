@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'package:flutter_hbb/common/widgets/lan_workspace.dart';
+import 'package:flutter_hbb/common/widgets/subnet_ui.dart';
+import 'package:flutter_hbb/common/widgets/device_art.dart';
 import 'dart:io';
 import 'dart:convert';
 
@@ -23,6 +26,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:window_size/window_size.dart' as window_size;
 import '../widgets/button.dart';
+import '../widgets/local_host_view.dart';
 
 class DesktopHomePage extends StatefulWidget {
   const DesktopHomePage({Key? key}) : super(key: key);
@@ -42,9 +46,20 @@ const _loginWaylandHelpUrl =
 const _lanDeviceNameOption = 'lan-device-name';
 
 class LanServerInfoPanel extends StatefulWidget {
-  const LanServerInfoPanel({Key? key, this.compact = false}) : super(key: key);
+  const LanServerInfoPanel({
+    Key? key,
+    this.compact = false,
+    this.workspace = false,
+    this.setupIssues = const [],
+    this.setupRequirements = const [],
+    this.onAdvanced,
+  }) : super(key: key);
 
   final bool compact;
+  final bool workspace;
+  final List<SetupReadinessIssue> setupIssues;
+  final List<LocalAccessRequirement> setupRequirements;
+  final VoidCallback? onAdvanced;
 
   @override
   State<LanServerInfoPanel> createState() => _LanServerInfoPanelState();
@@ -55,6 +70,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
   bool _showAllAddresses = false;
   bool _refreshing = false;
   bool _activatingRemote = false;
+  bool _authorizingHost = false;
   Map<String, dynamic> _info = <String, dynamic>{};
 
   int _addressPriority(String address) {
@@ -194,8 +210,16 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
         : configuredWebEndpoints;
     final webEndpoints = webEndpointValues.join('\n');
     final fingerprint = info['fingerprint']?.toString() ?? '';
+    final localDeviceKind = resolveDeviceKind(
+      deviceType: info['device_type']?.toString() ?? '',
+      platform: isAndroid ? 'Android' : isIOS ? 'iOS' : '',
+      hostname: info['system_device_name']?.toString() ?? '',
+    );
+    final mobile = isAndroid || isIOS;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final muted = isDark ? Colors.white54 : const Color(0xFF7A8290);
+    final muted = mobile
+        ? Theme.of(context).hintColor
+        : isDark ? Colors.white54 : const Color(0xFF7A8290);
     final statusColor = switch (displayStatus) {
       LanServerDisplayStatus.ready => const Color(0xFF27B980),
       LanServerDisplayStatus.authenticationRequired => Theme.of(
@@ -206,6 +230,105 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
       ).colorScheme.error,
       _ => const Color(0xFFF59E0B),
     };
+    if (widget.workspace) {
+      String t(String zh, String en) => subnetText(context, zh, en);
+      final loading = info.isEmpty;
+      final permissionsReady = info['host_permissions_ready'] == true;
+      final ready = !loading && permissionsReady &&
+          !widget.setupIssues.contains(SetupReadinessIssue.systemError) &&
+          !widget.setupIssues.contains(SetupReadinessIssue.localNetwork) &&
+          displayStatus == LanServerDisplayStatus.ready;
+      String requirementStatus(bool complete) => loading
+          ? t('检查中', 'Checking')
+          : complete ? t('已就绪', 'Ready') : t('待配置', 'Needs setup');
+      final platform = isMacOS ? 'macOS' : isWindows ? 'Windows' : isLinux ? 'Linux' : Platform.operatingSystem;
+      return LocalHostView(
+        deviceName: info['device_name']?.toString() ?? t('正在读取设备信息', 'Reading device information'),
+        platform: platform,
+        deviceType: info['device_type']?.toString() ?? '',
+        systemDeviceName: info['system_device_name']?.toString() ?? '',
+        endpoint: primaryAddress == null ? '' : _formatEndpoint(primaryAddress, port),
+        status: loading
+            ? t('正在读取接入信息', 'Reading access status')
+            : ready
+            ? t('接入已就绪', 'Ready for access')
+            : runtimeError.isNotEmpty
+            ? t('接入服务异常', 'Access service error')
+            : t('接入尚未就绪', 'Access is not ready'),
+        ready: ready,
+        loading: loading,
+        onRename: loading ? null : () => _showDeviceNameDialog(context,
+            systemName: info['system_device_name']?.toString() ?? ''),
+        onCopyAddress: primaryAddress == null ? null : () {
+          Clipboard.setData(ClipboardData(text: _formatEndpoint(primaryAddress, port)));
+          showToast(translate('Copied'));
+        },
+        onOtherAddresses: hiddenAddressCount > 0
+            ? () => _showAddressList(context, addresses, port) : null,
+        onIdentity: loading ? null : () => _showWorkspaceIdentity(info, fingerprint),
+        onAdvanced: widget.onAdvanced,
+        notice: runtimeError,
+        requirements: [
+          ...widget.setupRequirements,
+          LocalAccessRequirement(
+            id: 'password',
+            icon: Icons.lock_outline_rounded,
+            label: t('访问密码', 'Access password'),
+            description: t('连接本机时用于验证身份', 'Used to authenticate connections to this device'),
+            actionLabel: configured ? t('修改密码', 'Change password') : t('设置密码', 'Set password'),
+            status: loading ? t('检查中', 'Checking') : configured
+                ? t('已设置', 'Configured') : t('未设置', 'Not set'),
+            complete: !loading && configured,
+            onPressed: loading ? null : _openLanSettings,
+          ),
+          if (isWindows || (isLinux && bind.mainCurrentIsWayland()))
+            LocalAccessRequirement(
+              id: 'host-permissions',
+              icon: isWindows ? Icons.admin_panel_settings_outlined : Icons.screen_share_outlined,
+              actionLabel: permissionsReady ? '' : t('授权', 'Allow'),
+              label: isWindows ? t('管理员权限', 'Administrator access')
+                  : t('录屏与输入控制', 'Screen sharing and input control'),
+              status: _authorizingHost ? t('等待授权', 'Waiting for permission')
+                  : requirementStatus(permissionsReady),
+              complete: !loading && permissionsReady,
+              onPressed: loading || _authorizingHost ? null : _requestHostPermissions,
+            ),
+          if (!isMacOS)
+            LocalAccessRequirement(
+              id: 'service',
+              icon: Icons.settings_ethernet_rounded,
+              actionLabel: t('设置', 'Settings'),
+              label: t('接入服务', 'Access service'),
+              status: loading ? t('检查中', 'Checking') : statusLabel,
+              complete: ready,
+              onPressed: loading ? null : _openLanSettings,
+            ),
+        ],
+        additionalActions: offerRemoteActivation || offerPortableInstall || webAccessEnabled
+            ? Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                children: [
+                  if (offerRemoteActivation || offerPortableInstall)
+                    _buildRemoteActions(
+                      windowsPortable: windowsPortable,
+                      offerRemoteActivation: offerRemoteActivation,
+                      offerPortableInstall: offerPortableInstall,
+                    ),
+                  if (webAccessEnabled)
+                    TextButton.icon(
+                      onPressed: () => _showWorkspaceWebAccess(
+                        webEndpoints, webRuntimeState, webRuntimeError,
+                        runtimeEndpoints, webCaCertificatePath,
+                      ),
+                      icon: const Icon(Icons.language_rounded, size: 16),
+                      label: Text(t('浏览器接入', 'Browser access')),
+                    ),
+                ],
+              )
+            : null,
+      );
+    }
     if (widget.compact) {
       return Card(
         color: isDark ? const Color(0xFF24262D) : Colors.white,
@@ -230,8 +353,8 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                       color: const Color(0xFFEAF3FF),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(
-                      Icons.laptop_mac_rounded,
+                    child: Icon(
+                      localDeviceKind.icon,
                       size: 18,
                       color: Color(0xFF1677FF),
                     ),
@@ -402,7 +525,11 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     }
     return Card(
       elevation: 0,
-      margin: widget.compact ? EdgeInsets.zero : const EdgeInsets.all(12),
+      margin: widget.compact
+          ? EdgeInsets.zero
+          : mobile
+          ? const EdgeInsets.symmetric(horizontal: 16, vertical: 8)
+          : const EdgeInsets.all(12),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
@@ -410,7 +537,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
         ),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: EdgeInsets.all(mobile ? 16 : 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -418,30 +545,67 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
               children: [
                 Expanded(
                   child: Text(
-                    translate('Your Desktop'),
+                    mobile
+                        ? subnetText(
+                            context,
+                            '接收远程连接',
+                            'Receive remote connections',
+                          )
+                        : translate('Your Desktop'),
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: statusColor,
+                if (mobile)
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      heightFactor: 1,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: statusColor,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              statusLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else ...[
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: statusColor,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    statusLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      statusLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   ),
-                ),
+                ],
                 if (widget.compact)
                   IconButton(
                     tooltip: 'LAN · ${translate('Settings')}',
@@ -470,33 +634,97 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
             ],
             if (offerRemoteActivation || offerPortableInstall) ...[
               const SizedBox(height: 10),
-              _buildRemoteActions(
-                windowsPortable: windowsPortable,
-                offerRemoteActivation: offerRemoteActivation,
-                offerPortableInstall: offerPortableInstall,
-              ),
+              if (mobile)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(48, 48),
+                    ),
+                    onPressed: _activatingRemote ? null : _enableRemote,
+                    icon: const Icon(
+                      Icons.power_settings_new_rounded,
+                      size: 20,
+                    ),
+                    label: Text(
+                      subnetText(
+                        context,
+                        '允许连接此手机',
+                        'Allow connections to this phone',
+                      ),
+                    ),
+                  ),
+                )
+              else
+                _buildRemoteActions(
+                  windowsPortable: windowsPortable,
+                  offerRemoteActivation: offerRemoteActivation,
+                  offerPortableInstall: offerPortableInstall,
+                ),
             ],
             const SizedBox(height: 14),
-            Text(
-              translate('Name'),
-              style: TextStyle(fontSize: 12, color: muted),
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: SelectableText(info['device_name']?.toString() ?? '-'),
+            if (mobile) ...[
+              Text(
+                subnetText(
+                  context,
+                  '开启后，其他设备可请求连接此手机。',
+                  'Other devices can request a connection to this phone when enabled.',
                 ),
-                IconButton(
-                  tooltip: translate('Change'),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => _showDeviceNameDialog(
-                    context,
-                    systemName: info['system_device_name']?.toString() ?? '',
+                style: TextStyle(fontSize: 12, color: muted),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  DeviceArt(
+                    kind: localDeviceKind,
+                    key: const ValueKey('mobile-local-device-art'),
+                    width: 64,
+                    height: 72,
                   ),
-                  icon: const Icon(Icons.edit_outlined, size: 17),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SelectableText(
+                      info['device_name']?.toString() ?? '-',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: translate('Change'),
+                    onPressed: () => _showDeviceNameDialog(
+                      context,
+                      systemName: info['system_device_name']?.toString() ?? '',
+                    ),
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                  ),
+                ],
+              ),
+            ] else ...[
+              Text(
+                translate('Name'),
+                style: TextStyle(fontSize: 12, color: muted),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      info['device_name']?.toString() ?? '-',
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: translate('Change'),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _showDeviceNameDialog(
+                      context,
+                      systemName: info['system_device_name']?.toString() ?? '',
+                    ),
+                    icon: const Icon(Icons.edit_outlined, size: 17),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 11),
             Text(
               translate('Username'),
@@ -540,7 +768,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
                   children: [
                     TextButton.icon(
                       onPressed: () => launchUrl(
-                          Uri.parse(runtimeEndpoints.first),
+                        Uri.parse(runtimeEndpoints.first),
                         mode: LaunchMode.externalApplication,
                       ),
                       icon: const Icon(Icons.open_in_browser_rounded, size: 16),
@@ -587,46 +815,81 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
               ),
             if (!widget.compact) ...[
               const SizedBox(height: 8),
-              Text(
-                translate('Fingerprint'),
-                style: const TextStyle(fontWeight: FontWeight.w600),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      translate('Fingerprint'),
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (mobile && fingerprint.isNotEmpty)
+                    IconButton(
+                      tooltip: translate('Copy Fingerprint'),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: fingerprint));
+                        showToast(translate('Copied'));
+                      },
+                      icon: const Icon(Icons.copy_outlined, size: 20),
+                    ),
+                ],
               ),
-              SelectableText(fingerprint),
+              SelectableText(
+                fingerprint,
+                style: mobile ? TextStyle(fontSize: 12, color: muted) : null,
+              ),
             ],
             if (!widget.compact) ...[
               const SizedBox(height: 10),
-              Row(
-                children: [
-                  ElevatedButton.icon(
+              if (mobile)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(48, 48),
+                    ),
                     onPressed: () => showLanSettingsDialog(
                       context,
                       onSaved: () {
                         if (mounted) setState(() {});
                       },
                     ),
-                    icon: const Icon(Icons.settings_ethernet),
+                    icon: const Icon(Icons.settings_ethernet, size: 20),
                     label: Text('LAN · ${translate('Settings')}'),
                   ),
-                  if (fingerprint.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    IconButton(
-                      tooltip: translate('Copy fingerprint'),
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: fingerprint));
-                        showToast(translate('Copied'));
-                      },
-                      icon: const Icon(Icons.copy_outlined),
+                )
+              else
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => showLanSettingsDialog(
+                        context,
+                        onSaved: () {
+                          if (mounted) setState(() {});
+                        },
+                      ),
+                      icon: const Icon(Icons.settings_ethernet),
+                      label: Text('LAN · ${translate('Settings')}'),
                     ),
+                    if (fingerprint.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      IconButton(
+                        tooltip: translate('Copy Fingerprint'),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: fingerprint));
+                          showToast(translate('Copied'));
+                        },
+                        icon: const Icon(Icons.copy_outlined),
+                      ),
+                    ],
                   ],
-                ],
-              ),
+                ),
             ],
           ],
         ),
       ),
     );
   }
-
   Widget _buildRemoteActions({
     required bool windowsPortable,
     required bool offerRemoteActivation,
@@ -666,6 +929,91 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     await showLanSettingsDialog(
       context,
       onSaved: () => unawaited(_refreshInfo()),
+    );
+  }
+
+  Future<void> _showWorkspaceIdentity(Map<String, dynamic> info, String fingerprint) {
+    String t(String zh, String en) => subnetText(context, zh, en);
+    final username = info['username']?.toString() ?? '';
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: Text(t('设备身份', 'Device identity')),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(t('用户名', 'Username'), style: TextStyle(color: Theme.of(context).hintColor)),
+              const SizedBox(height: 6),
+              SelectableText(username.isEmpty ? t('未设置', 'Not set') : username),
+              const SizedBox(height: 20),
+              Text(t('设备指纹', 'Device fingerprint'), style: TextStyle(color: Theme.of(context).hintColor)),
+              const SizedBox(height: 6),
+              SelectableText(fingerprint.isEmpty ? t('暂不可用', 'Unavailable') : fingerprint,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+              if (fingerprint.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: fingerprint));
+                    showToast(translate('Copied'));
+                  },
+                  icon: const Icon(Icons.copy_outlined, size: 16),
+                  label: Text(t('复制完整指纹', 'Copy full fingerprint')),
+                ),
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(translate('Close')))],
+      ),
+    );
+  }
+
+  Future<void> _showWorkspaceWebAccess(String endpoints, String state, String error,
+      List<String> runtimeEndpoints, String caPath) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: Text(subnetText(context, '浏览器接入', 'Browser access')),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SelectableText(endpoints.isEmpty ? '-' : endpoints),
+              const SizedBox(height: 12),
+              SelectableText(error.isEmpty ? state.toUpperCase() : error),
+              if (state == 'listening' && runtimeEndpoints.isNotEmpty)
+                Wrap(children: [
+                  TextButton.icon(
+                    onPressed: () => launchUrl(Uri.parse(runtimeEndpoints.first), mode: LaunchMode.externalApplication),
+                    icon: const Icon(Icons.open_in_browser_rounded, size: 16),
+                    label: Text(translate('Open')),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: runtimeEndpoints.first));
+                      showToast(translate('Copied'));
+                    },
+                    icon: const Icon(Icons.copy_outlined, size: 16),
+                    label: Text(translate('Copy')),
+                  ),
+                ]),
+              if (caPath.isNotEmpty)
+                TextButton.icon(
+                  onPressed: () => launchUrl(Uri.file(caPath), mode: LaunchMode.externalApplication),
+                  icon: const Icon(Icons.verified_user_outlined, size: 16),
+                  label: const Text('Install local CA'),
+                ),
+            ],
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: Text(translate('Close')))],
+      ),
     );
   }
 
@@ -778,11 +1126,33 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     if (_activatingRemote) return;
     setState(() => _activatingRemote = true);
     try {
-      await start_service(true);
+      if (isAndroid) {
+        await gFFI.serverModel.toggleService();
+      } else {
+        await start_service(true);
+      }
       await Future<void>.delayed(const Duration(milliseconds: 500));
       await _refreshInfo();
     } finally {
       if (mounted) setState(() => _activatingRemote = false);
+    }
+  }
+
+  Future<void> _requestHostPermissions() async {
+    if (_authorizingHost) return;
+    setState(() => _authorizingHost = true);
+    try {
+      final error = await bind.mainRequestHostPermissions();
+      if (error.isNotEmpty && mounted) showToast(error);
+      await _refreshInfo();
+    } catch (error) {
+      debugPrint('Requesting host permissions failed: $error');
+      if (mounted) {
+        showToast(subnetText(context, '授权未完成，请重试',
+            'Permission setup did not complete. Try again.'));
+      }
+    } finally {
+      if (mounted) setState(() => _authorizingHost = false);
     }
   }
 
@@ -843,7 +1213,7 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
     final controller = TextEditingController(text: storedName);
     var errorText = validateLanDeviceName(storedName);
 
-    await showDialog<void>(
+    final route = DialogRoute<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
@@ -931,6 +1301,9 @@ class _LanServerInfoPanelState extends State<LanServerInfoPanel> {
         ),
       ),
     );
+    await Navigator.of(context, rootNavigator: true).push(route);
+    // The pop future finishes before the dialog's closing animation.
+    await route.completed;
     controller.dispose();
   }
 
@@ -1039,7 +1412,7 @@ Future<void> showLanSettingsDialog(
   var error = '';
   var saving = false;
 
-  await showDialog<void>(
+  final route = DialogRoute<void>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setDialogState) {
@@ -1604,6 +1977,9 @@ Future<void> showLanSettingsDialog(
       },
     ),
   );
+  await Navigator.of(context, rootNavigator: true).push(route);
+  // Keep controllers alive until the route and its input decorators unmount.
+  await route.completed;
   password.clear();
   username.dispose();
   password.dispose();
@@ -1651,19 +2027,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final isIncomingOnly = bind.isIncomingOnly();
     if (!isIncomingOnly) {
       return _buildBlock(
-        child: Row(
-          children: [
-            _buildNavigationSidebar(context),
-            const VerticalDivider(width: 1, thickness: 1),
-            Expanded(
-              child: ConnectionPage(
-                selectedPeerTab: _selectedPeerTab,
-                favoriteGroupId: _selectedPeerTab == PeerTabIndex.fav
-                    ? _selectedFavoriteGroupId
-                    : null,
-              ),
-            ),
-          ],
+        child: LanWorkspacePage(
+          onSettings: () => DesktopSettingPage.switch2page(DesktopSettingPage.tabKeys.first),
+          localPane: bind.isOutgoingOnly() ? null : LanServerInfoPanel(
+            workspace: true,
+            setupIssues: _setupReadinessIssues,
+            setupRequirements: _localSetupRequirements,
+            onAdvanced: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => const LocalHostPreferencesPage(),
+            )),
+          ),
         ),
       );
     }
@@ -1674,147 +2047,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           buildLeftPane(context),
           if (!isIncomingOnly) const VerticalDivider(width: 1),
           if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNavigationSidebar(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final muted = isDark ? Colors.white60 : const Color(0xFF6F7786);
-    final panelColor = isDark
-        ? const Color(0xFF1E2026)
-        : const Color(0xFFFBFCFE);
-    final setupIssues = _setupReadinessIssues;
-    return Container(
-      width: 280,
-      color: panelColor,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 20, 18, 18),
-            child: Row(
-              children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF2684FF), Color(0xFF1266E3)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(13),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF1677FF).withOpacity(0.22),
-                        blurRadius: 12,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.desktop_windows_rounded,
-                    color: Colors.white,
-                    size: 26,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'SubnetDesk',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        'LAN · ${translate('Discovered')}',
-                        style: TextStyle(fontSize: 11, color: muted),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Divider(
-            height: 1,
-            indent: 18,
-            endIndent: 18,
-            color: isDark ? Colors.white10 : const Color(0xFFF0F2F6),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  const SizedBox(height: 8),
-                  _buildSidebarItem(
-                    context,
-                    icon: Icons.devices_outlined,
-                    label: translate('Discovered'),
-                    tab: PeerTabIndex.lan,
-                  ),
-                  _buildSidebarItem(
-                    context,
-                    icon: Icons.history_rounded,
-                    label: translate('Recent sessions'),
-                    tab: PeerTabIndex.recent,
-                  ),
-                  _buildSidebarItem(
-                    context,
-                    icon: Icons.star_border_rounded,
-                    label: translate('Favorites'),
-                    tab: PeerTabIndex.fav,
-                  ),
-                  if (_selectedPeerTab == PeerTabIndex.fav)
-                    _buildFavoriteGroupSidebar(context),
-                  _buildSidebarItem(
-                    context,
-                    icon: Icons.settings_outlined,
-                    label: translate('Settings'),
-                    onTap: () => DesktopSettingPage.switch2page(
-                      DesktopSettingPage.tabKeys.first,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  if (setupIssues.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-                      child: _buildSetupReadinessCard(context, setupIssues),
-                    ),
-                  if (!bind.isOutgoingOnly())
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 14),
-                      child: LanServerInfoPanel(compact: true),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 10, 20, 18),
-            child: Row(
-              children: [
-                Icon(Icons.help_outline_rounded, size: 19, color: muted),
-                const SizedBox(width: 9),
-                Text(
-                  translate('Help'),
-                  style: TextStyle(fontSize: 13, color: muted),
-                ),
-                const Spacer(),
-                Text(
-                  version.isEmpty ? '' : 'v$version',
-                  style: TextStyle(fontSize: 11, color: muted),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -1840,7 +2072,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         systemError: systemError,
         outgoingOnly: bind.isOutgoingOnly(),
         serviceStopped: svcStopped.value,
-        installationDisabled: isWin && bind.isDisableInstallation(),
+        installationDisabled: true,
         appInstalled: appInstalled,
         canScreenRecord: !isMac || bind.mainIsCanScreenRecording(prompt: false),
         processTrusted: !isMac || bind.mainIsProcessTrusted(prompt: false),
@@ -1848,7 +2080,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         localNetworkDenied:
             isMac &&
             _localNetworkPermission == LocalNetworkPermissionStatus.denied,
-        daemonInstalled: !isMac || bind.mainIsInstalledDaemon(prompt: false),
+        daemonInstalled: true,
         selinuxEnforcing: isLinuxPlatform && bind.isSelinuxEnforcing(),
         showSelinuxWarning:
             !isLinuxPlatform ||
@@ -1859,6 +2091,40 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     );
   }
 
+  List<LocalAccessRequirement> get _localSetupRequirements {
+    String t(String zh, String en) => subnetText(context, zh, en);
+    final issues = _setupReadinessIssues;
+    final displayed = <SetupReadinessIssue>[
+      if (isMacOS) ...[
+        SetupReadinessIssue.screenRecording,
+        SetupReadinessIssue.accessibility,
+      ],
+      // Input monitoring is for outgoing keyboard capture, not incoming access.
+      ...issues.where((issue) =>
+          issue != SetupReadinessIssue.inputMonitoring &&
+          (!isMacOS ||
+              (issue != SetupReadinessIssue.screenRecording &&
+                  issue != SetupReadinessIssue.accessibility))),
+    ];
+    return [
+      for (final issue in displayed)
+        LocalAccessRequirement(
+          id: issue.name,
+          icon: _setupIssueIcon(issue),
+          label: _setupIssueTitle(issue),
+          description: _setupIssueDescription(issue),
+          status: issues.contains(issue) ? t('待配置', 'Needs setup') : t('已就绪', 'Ready'),
+          complete: !issues.contains(issue),
+          actionLabel: issues.contains(issue) && _setupIssueHasAction(issue)
+              ? _setupIssueActionLabel(issue) : '',
+          onPressed: issues.contains(issue) && _setupIssueHasAction(issue)
+              ? () => _performSetupIssueAction(issue) : null,
+          onDismiss: issue == SetupReadinessIssue.selinux
+              ? () => _dismissSetupIssue(issue) : null,
+        ),
+    ];
+  }
+
   String _setupIssueTitle(SetupReadinessIssue issue) {
     switch (issue) {
       case SetupReadinessIssue.systemError:
@@ -1866,10 +2132,13 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       case SetupReadinessIssue.applicationInstall:
         return translate('Installation');
       case SetupReadinessIssue.screenRecording:
+        return subnetText(context, '屏幕录制', 'Screen recording');
       case SetupReadinessIssue.accessibility:
+        return subnetText(context, '辅助功能', 'Accessibility');
       case SetupReadinessIssue.inputMonitoring:
+        return subnetText(context, '输入监控', 'Input monitoring');
       case SetupReadinessIssue.localNetwork:
-        return translate('Permissions');
+        return subnetText(context, '本地网络', 'Local network');
       case SetupReadinessIssue.daemon:
         return translate('Service');
       case SetupReadinessIssue.selinux:
@@ -2026,625 +2295,6 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         break;
     }
     if (mounted) setState(() {});
-  }
-
-  Widget _buildSetupReadinessCard(
-    BuildContext context,
-    List<SetupReadinessIssue> issues,
-  ) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final firstIssue = issues.first;
-    final warningColor = firstIssue == SetupReadinessIssue.systemError
-        ? Theme.of(context).colorScheme.error
-        : const Color(0xFFF59E0B);
-    final description = _setupIssueDescription(firstIssue);
-
-    return Material(
-      color: warningColor.withOpacity(isDark ? 0.13 : 0.07),
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () => _showSetupReadinessDialog(issues),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(13, 12, 11, 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: warningColor.withOpacity(0.28)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: warningColor.withOpacity(0.13),
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                    child: Icon(
-                      _setupIssueIcon(firstIssue),
-                      color: warningColor,
-                      size: 18,
-                    ),
-                  ),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      translate('Status'),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: warningColor.withOpacity(0.13),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '${issues.length}',
-                      style: TextStyle(
-                        color: warningColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: warningColor,
-                    size: 19,
-                  ),
-                ],
-              ),
-              if (description.isNotEmpty) ...[
-                const SizedBox(height: 9),
-                Text(
-                  description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Theme.of(
-                      context,
-                    ).textTheme.bodyMedium?.color?.withOpacity(0.72),
-                    fontSize: 11,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-              if (_setupIssueHasAction(firstIssue)) ...[
-                const SizedBox(height: 9),
-                SizedBox(
-                  width: double.infinity,
-                  height: 32,
-                  child: OutlinedButton(
-                    onPressed: () => _performSetupIssueAction(firstIssue),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: warningColor,
-                      side: BorderSide(color: warningColor.withOpacity(0.42)),
-                      padding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: Text(
-                      _setupIssueActionLabel(firstIssue),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showSetupReadinessDialog(
-    List<SetupReadinessIssue> issues,
-  ) async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-          ),
-          titlePadding: const EdgeInsets.fromLTRB(22, 20, 14, 8),
-          contentPadding: const EdgeInsets.fromLTRB(22, 8, 22, 10),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-          title: Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF4DD),
-                  borderRadius: BorderRadius.circular(11),
-                ),
-                child: const Icon(
-                  Icons.fact_check_outlined,
-                  color: Color(0xFFF59E0B),
-                  size: 21,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  translate('Status'),
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              IconButton(
-                tooltip: translate('Close'),
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                icon: const Icon(Icons.close_rounded),
-              ),
-            ],
-          ),
-          content: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 540),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (var index = 0; index < issues.length; index++) ...[
-                    _buildSetupIssueDialogRow(dialogContext, issues[index]),
-                    if (index != issues.length - 1)
-                      Divider(
-                        height: 1,
-                        color: isDark
-                            ? Colors.white10
-                            : const Color(0xFFE8ECF2),
-                      ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(translate('Close')),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildSetupIssueDialogRow(
-    BuildContext dialogContext,
-    SetupReadinessIssue issue,
-  ) {
-    final isDark = Theme.of(dialogContext).brightness == Brightness.dark;
-    final hasAction = _setupIssueHasAction(issue);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 13),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF59E0B).withOpacity(isDark ? 0.16 : 0.10),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              _setupIssueIcon(issue),
-              size: 18,
-              color: const Color(0xFFF59E0B),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _setupIssueTitle(issue),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _setupIssueDescription(issue),
-                  style: TextStyle(
-                    color: Theme.of(
-                      dialogContext,
-                    ).textTheme.bodyMedium?.color?.withOpacity(0.65),
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (hasAction) ...[
-            const SizedBox(width: 14),
-            OutlinedButton(
-              onPressed: () async {
-                Navigator.of(dialogContext).pop();
-                await _performSetupIssueAction(issue);
-              },
-              child: Text(_setupIssueActionLabel(issue)),
-            ),
-          ],
-          if (issue == SetupReadinessIssue.selinux)
-            IconButton(
-              tooltip: translate('Close'),
-              onPressed: () async {
-                Navigator.of(dialogContext).pop();
-                await _dismissSetupIssue(issue);
-              },
-              icon: const Icon(Icons.close_rounded, size: 18),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSidebarItem(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-    PeerTabIndex? tab,
-    VoidCallback? onTap,
-  }) {
-    final selected = tab != null && _selectedPeerTab == tab;
-    final primary = Theme.of(context).colorScheme.primary;
-    final foreground = selected
-        ? primary
-        : Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.68);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 3),
-      child: Material(
-        color: selected
-            ? primary.withOpacity(
-                Theme.of(context).brightness == Brightness.dark ? 0.16 : 0.08,
-              )
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap:
-              onTap ??
-              () {
-                if (tab != null) {
-                  setState(() => _selectedPeerTab = tab);
-                  gFFI.peerTabModel.setCurrentTab(tab.index);
-                }
-              },
-          child: Container(
-            height: 46,
-            decoration: selected
-                ? BoxDecoration(
-                    border: Border(left: BorderSide(color: primary, width: 3)),
-                  )
-                : null,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(
-              children: [
-                Icon(icon, size: 21, color: foreground),
-                const SizedBox(width: 13),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: foreground,
-                    fontSize: 14,
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFavoriteGroupSidebar(BuildContext context) {
-    return AnimatedBuilder(
-      animation: favoriteGroupModel,
-      builder: (context, _) => AnimatedBuilder(
-        animation: gFFI.favoritePeersModel,
-        builder: (context, _) {
-          final favoriteIds = gFFI.favoritePeersModel.peers
-              .map((peer) => peer.id)
-              .toList();
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(42, 2, 18, 8),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        translate('Group'),
-                        style: TextStyle(
-                          color: Theme.of(context).hintColor,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.4,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '${translate('Add')} ${translate('Group')}',
-                      visualDensity: VisualDensity.compact,
-                      constraints: const BoxConstraints.tightFor(
-                        width: 28,
-                        height: 28,
-                      ),
-                      padding: EdgeInsets.zero,
-                      icon: const Icon(Icons.add_rounded, size: 17),
-                      onPressed: () => _createFavoriteGroup(context),
-                    ),
-                  ],
-                ),
-                _buildFavoriteGroupItem(
-                  context,
-                  id: null,
-                  label: translate('Select All'),
-                  count: favoriteIds.length,
-                ),
-                ...favoriteGroupModel.groups.map(
-                  (group) => _buildFavoriteGroupItem(
-                    context,
-                    id: group.id,
-                    label: group.name,
-                    count: favoriteGroupModel.countForGroup(
-                      favoriteIds,
-                      group.id,
-                    ),
-                    group: group,
-                  ),
-                ),
-                _buildFavoriteGroupItem(
-                  context,
-                  id: favoriteUngroupedId,
-                  label: translate('Other'),
-                  count: favoriteGroupModel.countForGroup(
-                    favoriteIds,
-                    favoriteUngroupedId,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildFavoriteGroupItem(
-    BuildContext context, {
-    required String? id,
-    required String label,
-    required int count,
-    FavoriteGroup? group,
-  }) {
-    final selected = _selectedFavoriteGroupId == id;
-    final primary = Theme.of(context).colorScheme.primary;
-    final foreground = selected
-        ? primary
-        : Theme.of(
-            context,
-          ).textTheme.bodyMedium?.color?.withValues(alpha: 0.68);
-    return Padding(
-      padding: const EdgeInsets.only(top: 2),
-      child: Material(
-        color: selected ? primary.withValues(alpha: 0.08) : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            setState(() {
-              _selectedPeerTab = PeerTabIndex.fav;
-              _selectedFavoriteGroupId = id;
-            });
-          },
-          child: SizedBox(
-            height: 34,
-            child: Row(
-              children: [
-                const SizedBox(width: 10),
-                Icon(
-                  id == null
-                      ? Icons.all_inbox_outlined
-                      : id == favoriteUngroupedId
-                          ? Icons.folder_off_outlined
-                          : Icons.folder_outlined,
-                  size: 16,
-                  color: foreground,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: foreground,
-                      fontSize: 12,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                    ),
-                  ),
-                ),
-                Text(
-                  '$count',
-                  style: TextStyle(
-                    color: Theme.of(context).hintColor,
-                    fontSize: 11,
-                  ),
-                ),
-                if (group != null)
-                  PopupMenuButton<String>(
-                    tooltip: translate('More'),
-                    padding: EdgeInsets.zero,
-                    iconSize: 16,
-                    onSelected: (action) {
-                      if (action == 'rename') {
-                        _renameFavoriteGroup(context, group);
-                      } else if (action == 'delete') {
-                        _deleteFavoriteGroup(context, group);
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      PopupMenuItem(
-                        value: 'rename',
-                        child: Text(translate('Rename')),
-                      ),
-                      PopupMenuItem(
-                        value: 'delete',
-                        child: Text(translate('Delete')),
-                      ),
-                    ],
-                  )
-                else
-                  const SizedBox(width: 10),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Future<String?> _showFavoriteGroupNameDialog(
-    BuildContext context, {
-    String initialValue = '',
-    String? editingGroupId,
-  }) async {
-    final formKey = GlobalKey<FormState>();
-    var currentValue = initialValue;
-    return showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(
-          initialValue.isEmpty
-              ? '${translate('Add')} ${translate('Group')}'
-              : '${translate('Rename')} ${translate('Group')}',
-        ),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            initialValue: initialValue,
-            autofocus: true,
-            maxLength: 32,
-            decoration: InputDecoration(
-              labelText: '${translate('Group')} ${translate('Name')}',
-            ),
-            onChanged: (value) => currentValue = value,
-            validator: (value) {
-              final name = normalizeFavoriteGroupName(value ?? '');
-              if (name.isEmpty) {
-                return '${translate('Name')} · ${translate('Empty')}';
-              }
-              final duplicate = favoriteGroupModel.groups.any(
-                (group) =>
-                    group.id != editingGroupId &&
-                    group.name.toLowerCase() == name.toLowerCase(),
-              );
-              if (duplicate) {
-                return '${translate('Group')} ${translate('Already exists')}';
-              }
-              return null;
-            },
-            onFieldSubmitted: (value) {
-              if (formKey.currentState?.validate() == true) {
-                Navigator.of(dialogContext).pop(value);
-              }
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(translate('Cancel')),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() == true) {
-                Navigator.of(dialogContext).pop(currentValue);
-              }
-            },
-            child: Text(translate('OK')),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _createFavoriteGroup(BuildContext context) async {
-    final name = await _showFavoriteGroupNameDialog(context);
-    if (name == null) return;
-    if (!favoriteGroupModel.createGroup(name)) {
-      showToast(translate('Already exists'));
-    }
-  }
-
-  Future<void> _renameFavoriteGroup(
-    BuildContext context,
-    FavoriteGroup group,
-  ) async {
-    final name = await _showFavoriteGroupNameDialog(
-      context,
-      initialValue: group.name,
-      editingGroupId: group.id,
-    );
-    if (name == null) return;
-    if (!favoriteGroupModel.renameGroup(group.id, name)) {
-      showToast(translate('Already exists'));
-    }
-  }
-
-  Future<void> _deleteFavoriteGroup(
-    BuildContext context,
-    FavoriteGroup group,
-  ) async {
-    final shouldDelete = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('${translate('Delete')} ${translate('Group')}?'),
-        content: Text(group.name),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(translate('Cancel')),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(translate('Delete')),
-          ),
-        ],
-      ),
-    );
-    if (shouldDelete != true) return;
-
-    favoriteGroupModel.deleteGroup(group.id);
-    if (_selectedFavoriteGroupId == group.id && mounted) {
-      setState(() => _selectedFavoriteGroupId = favoriteUngroupedId);
-    }
-    await bind.mainLoadFavPeers();
   }
 
   Widget _buildBlock({required Widget child}) {
@@ -2843,7 +2493,8 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             watchIsProcessTrust = true;
           },
         );
-      } else if (!bind.mainIsCanInputMonitoring(prompt: false)) {
+      } else if (!bind.isIncomingOnly() &&
+          !bind.mainIsCanInputMonitoring(prompt: false)) {
         return buildInstallCard(
           "Permissions",
           "config_input",
@@ -3288,6 +2939,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
+      setState(() {});
       shouldBeBlocked(_block, canBeBlocked);
       if (isMacOS) {
         _checkLocalNetworkPermission();

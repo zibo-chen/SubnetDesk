@@ -381,7 +381,7 @@ void showLanguageSettings(OverlayDialogManager dialogManager) async {
           if (language == value) return;
           setState(() => language = value);
           await bind.mainSetLocalOption(key: kCommConfKeyLang, value: value);
-          HomePage.homeKey.currentState?.refreshPages();
+          reloadCurrentWindow();
           Future.delayed(const Duration(milliseconds: 200), close);
         }
 

@@ -26,6 +26,7 @@
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
 		7ED2B35F2BB007420099885C /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 7ED2B35E2BB007420099885C /* AppIcon.icns */; };
+		B21C7A002EE6A00100000002 /* mac-tray-light-x2.png in Resources */ = {isa = PBXBuildFile; fileRef = B21C7A002EE6A00100000001 /* mac-tray-light-x2.png */; };
 		84010BA8292CF66600152837 /* liblibrustdesk.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 84010BA7292CF66600152837 /* liblibrustdesk.dylib */; settings = {ATTRIBUTES = (Weak, ); }; };
 		84010BA9292CF68300152837 /* liblibrustdesk.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = 84010BA7292CF66600152837 /* liblibrustdesk.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		C5E54335B73C89F72DB1B606 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 26C84465887F29AE938039CB /* Pods_Runner.framework */; };
@@ -75,7 +76,8 @@
 		7436B85D94E8F7B5A9324869 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		7ED2B35E2BB007420099885C /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; name = AppIcon.icns; path = Runner/AppIcon.icns; sourceTree = "<group>"; };
-		84010BA7292CF66600152837 /* liblibrustdesk.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblibrustdesk.dylib; path = ../../target/release/liblibrustdesk.dylib; sourceTree = "<group>"; };
+		B21C7A002EE6A00100000001 /* mac-tray-light-x2.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "mac-tray-light-x2.png"; path = "../../res/mac-tray-light-x2.png"; sourceTree = "<group>"; };
+		84010BA7292CF66600152837 /* liblibrustdesk.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblibrustdesk.dylib; path = "../../target/$(RUST_PROFILE)/liblibrustdesk.dylib"; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		C3BB669FF6190AE1B11BCAEA /* Pods-Runner.profile.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.profile.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"; sourceTree = "<group>"; };
 		CCB6FE9A2848A6B800E58D48 /* bridge_generated.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = bridge_generated.h; path = Runner/bridge_generated.h; sourceTree = "<group>"; };
@@ -131,6 +133,7 @@
 			isa = PBXGroup;
 			children = (
 				7ED2B35E2BB007420099885C /* AppIcon.icns */,
+				B21C7A002EE6A00100000001 /* mac-tray-light-x2.png */,
 				33CC10F42044A3C60003C045 /* MainMenu.xib */,
 				33CC10F72044A3C60003C045 /* Info.plist */,
 			);
@@ -265,6 +268,7 @@
 			files = (
 				33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */,
 				7ED2B35F2BB007420099885C /* AppIcon.icns in Resources */,
+				B21C7A002EE6A00100000002 /* mac-tray-light-x2.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -437,6 +441,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 33E5194F232828860026EE4D /* AppInfo.xcconfig */;
 			buildSettings = {
+				RUST_PROFILE = release;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
@@ -583,6 +588,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 33E5194F232828860026EE4D /* AppInfo.xcconfig */;
 			buildSettings = {
+				RUST_PROFILE = debug;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
@@ -603,7 +609,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.zibochen.subnetdesk;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
-				"SWIFT_OBJC_BRIDGING_HEADER[arch=*]" = Runner/bridge_generated.h;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 			};
@@ -613,6 +618,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 33E5194F232828860026EE4D /* AppInfo.xcconfig */;
 			buildSettings = {
+				RUST_PROFILE = release;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Release.entitlements;
@@ -640,7 +646,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.zibochen.subnetdesk;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
-				"SWIFT_OBJC_BRIDGING_HEADER[arch=*]" = Runner/bridge_generated.h;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;

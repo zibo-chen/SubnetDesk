@@ -26,7 +26,6 @@ The best open-source remote desktop client software, written in Rust.
 
 mkdir -p "%{buildroot}/usr/share/subnetdesk" && cp -r ${HBB}/flutter/build/linux/x64/release/bundle/* -t "%{buildroot}/usr/share/subnetdesk"
 mkdir -p "%{buildroot}/usr/bin"
-install -Dm 644 $HBB/res/subnetdesk.service -t "%{buildroot}/usr/share/subnetdesk/files"
 install -Dm 644 $HBB/res/rustdesk.desktop "%{buildroot}/usr/share/subnetdesk/files/subnetdesk.desktop"
 install -Dm 644 $HBB/res/rustdesk-link.desktop "%{buildroot}/usr/share/subnetdesk/files/subnetdesk-link.desktop"
 install -Dm 644 $HBB/res/128x128@2x.png "%{buildroot}/usr/share/icons/hicolor/256x256/apps/subnetdesk.png"
@@ -34,7 +33,6 @@ install -Dm 644 $HBB/res/scalable.svg "%{buildroot}/usr/share/icons/hicolor/scal
 
 %files
 /usr/share/subnetdesk/*
-/usr/share/subnetdesk/files/subnetdesk.service
 /usr/share/icons/hicolor/256x256/apps/subnetdesk.png
 /usr/share/icons/hicolor/scalable/apps/subnetdesk.svg
 /usr/share/subnetdesk/files/subnetdesk.desktop
@@ -56,13 +54,10 @@ case "$1" in
 esac
 
 %post
-cp /usr/share/subnetdesk/files/subnetdesk.service /etc/systemd/system/subnetdesk.service
 cp /usr/share/subnetdesk/files/subnetdesk.desktop /usr/share/applications/
 cp /usr/share/subnetdesk/files/subnetdesk-link.desktop /usr/share/applications/
 ln -sf /usr/share/subnetdesk/subnetdesk /usr/bin/subnetdesk
 systemctl daemon-reload
-systemctl enable subnetdesk
-systemctl start subnetdesk
 update-desktop-database
 
 %preun

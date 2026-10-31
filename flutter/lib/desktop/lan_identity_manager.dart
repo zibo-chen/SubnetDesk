@@ -3,9 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../common.dart';
+import '../common/widgets/subnet_ui.dart';
 import '../models/platform_model.dart';
-
-const String lanIdentityManualValue = '__manual__';
 
 class LanIdentityProfile {
   final String id;
@@ -52,6 +51,97 @@ String? defaultLanIdentityId(List<LanIdentityProfile> identities) {
   return null;
 }
 
+String? preferredLanIdentityId(
+  List<LanIdentityProfile> identities, {
+  String? selectedId,
+}) {
+  if (identities.any((identity) => identity.id == selectedId)) {
+    return selectedId;
+  }
+  return defaultLanIdentityId(identities) ?? identities.firstOrNull?.id;
+}
+
+class LanIdentitySelector extends StatelessWidget {
+  const LanIdentitySelector({
+    super.key,
+    required this.identities,
+    required this.selectedId,
+    required this.onChanged,
+    required this.onAdd,
+    required this.onManage,
+    this.errorText,
+  });
+
+  final List<LanIdentityProfile> identities;
+  final String? selectedId;
+  final ValueChanged<String?> onChanged;
+  final VoidCallback onAdd;
+  final VoidCallback onManage;
+  final String? errorText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (identities.isEmpty)
+          Text(
+            subnetText(
+              context,
+              '还没有保存账号，请先添加用于连接远程设备的账号。',
+              'No saved accounts. Add an account to connect to the remote device.',
+            ),
+          )
+        else
+          DropdownButtonFormField<String>(
+            key: ValueKey(selectedId),
+            initialValue: selectedId,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: subnetText(context, '账号', 'Account'),
+              prefixIcon: const Icon(Icons.person_outline),
+            ),
+            items: identities
+                .map(
+                  (identity) => DropdownMenuItem(
+                    value: identity.id,
+                    child: Text(
+                      '${identity.name} · ${identity.username}'
+                      '${identity.isDefault ? ' (${subnetText(context, '默认', 'Default')})' : ''}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: onChanged,
+          ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            TextButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.person_add_alt_1_outlined),
+              label: Text(subnetText(context, '添加账号', 'Add account')),
+            ),
+            TextButton.icon(
+              onPressed: onManage,
+              icon: const Icon(Icons.manage_accounts_outlined),
+              label: Text(subnetText(context, '管理账号', 'Manage accounts')),
+            ),
+          ],
+        ),
+        if (errorText != null && errorText!.isNotEmpty)
+          Text(
+            errorText!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+      ],
+    );
+  }
+}
+
 String buildLanIdentityPayload(String identityId, {bool bindIdentity = false}) {
   return jsonEncode({
     'lan_version': 1,
@@ -73,7 +163,7 @@ Future<String?> showLanIdentityEditor(
   var saving = false;
   var errorText = '';
 
-  final result = await showDialog<String>(
+  final route = DialogRoute<String>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setState) {
@@ -217,6 +307,9 @@ Future<String?> showLanIdentityEditor(
     ),
   );
 
+  final result = await Navigator.of(context, rootNavigator: true).push(route);
+  // Popping completes before the closing animation stops using the controllers.
+  await route.completed;
   nameController.dispose();
   usernameController.dispose();
   passwordController.dispose();
@@ -417,7 +510,7 @@ Future<String?> showImportLegacyLanCredentialDialog(
   final nameController = TextEditingController(text: suggestedName);
   var makeDefault = false;
   var errorText = '';
-  final identityId = await showDialog<String>(
+  final route = DialogRoute<String>(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(
@@ -480,6 +573,8 @@ Future<String?> showImportLegacyLanCredentialDialog(
       ),
     ),
   );
+  final identityId = await Navigator.of(context, rootNavigator: true).push(route);
+  await route.completed;
   nameController.dispose();
   return identityId;
 }

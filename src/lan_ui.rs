@@ -77,12 +77,15 @@ pub(crate) fn lan_server_info() -> String {
         "credential_revision": Config::get_credential_revision(),
         "device_name": crate::lan::device_display_name(),
         "system_device_name": crate::hostname(),
+        "device_type": crate::device_type::local(),
         "fingerprint": crate::lan_protocol::fingerprint(&Config::get_key_pair().1),
         "addresses": addresses,
         "port": port,
         "listen_addresses": Config::get_option("lan-listen-addresses"),
         "allowed_networks": Config::get_option("lan-allowed-networks"),
         "discovery_enabled": Config::get_option("lan-discovery-enabled") != "N",
+        "service_stopped": Config::get_option("stop-service") == "Y",
+        "host_permissions_ready": crate::host_permissions::ready(),
         "web_access_enabled": Config::get_option("web-access-enabled") == "Y",
         "web_listen_port": web_listen_port,
         "web_https_enabled": web_https_enabled,
@@ -103,6 +106,8 @@ pub(crate) fn lan_server_running_for_ui(runtime_state: &str) -> bool {
 }
 
 pub(crate) fn should_sync_lan_settings_to_background() -> bool {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if crate::desktop_runtime::is_host() { return false; }
     #[cfg(target_os = "macos")]
     {
         true
@@ -216,6 +221,33 @@ pub(crate) fn apply_lan_settings(
     String::new()
 }
 
+pub(crate) fn favorite_lan_endpoints(
+    favorites: Vec<String>,
+    recent: Vec<RecentLanEndpoint>,
+    discovered: &[config::DiscoveryPeer],
+) -> Vec<RecentLanEndpoint> {
+    let mut recent: std::collections::HashMap<_, _> = recent
+        .into_iter()
+        .map(|peer| (peer.endpoint.clone(), peer))
+        .collect();
+    favorites
+        .into_iter()
+        .map(|endpoint| {
+            recent.remove(&endpoint).unwrap_or_else(|| {
+                let peer = crate::lan::find_discovered_peer(discovered, "", &endpoint);
+                RecentLanEndpoint {
+                    hostname: peer.map(|p| p.hostname.clone()).unwrap_or_default(),
+                    platform: peer.map(|p| p.platform.clone()).unwrap_or_default(),
+                    device_type: peer.map(|p| p.device_type.clone()).unwrap_or_default(),
+                    fingerprint: peer.map(|p| p.fingerprint.clone()).unwrap_or_default(),
+                    endpoint,
+                    ..Default::default()
+                }
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn recent_lan_endpoint_to_map(
     recent: RecentLanEndpoint,
     discovered: &[config::DiscoveryPeer],
@@ -233,6 +265,8 @@ pub(crate) fn recent_lan_endpoint_to_map(
         "username": recent.username,
         "hostname": recent.hostname,
         "platform": recent.platform,
+        "device_type": presence.map(|peer| peer.device_type.as_str())
+            .filter(|value| !value.is_empty()).unwrap_or(&recent.device_type),
         "alias": alias,
         "fingerprint": recent.fingerprint,
         "online": presence.and_then(|peer| peer.online_state(now)),
@@ -243,7 +277,50 @@ pub(crate) fn recent_lan_endpoint_to_map(
 
 #[cfg(test)]
 mod lan_server_info_tests {
-    use super::{lan_server_running_for_ui, should_sync_lan_settings_to_background};
+    use super::{favorite_lan_endpoints, lan_server_running_for_ui, should_sync_lan_settings_to_background};
+    use hbb_common::config::{DiscoveryPeer, RecentLanEndpoint};
+
+    #[test]
+    fn favorites_include_discovered_devices_before_the_first_connection() {
+        let endpoint = "192.168.1.20:21118";
+        let peers = favorite_lan_endpoints(
+            vec![endpoint.to_owned()],
+            vec![],
+            &[DiscoveryPeer {
+                id: endpoint.to_owned(),
+                endpoint: endpoint.to_owned(),
+                hostname: "QA workstation".to_owned(),
+                platform: "Mac OS".to_owned(),
+                fingerprint: "fingerprint".to_owned(),
+                ..Default::default()
+            }],
+        );
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].endpoint, endpoint);
+        assert_eq!(peers[0].hostname, "QA workstation");
+        assert_eq!(peers[0].platform, "Mac OS");
+        assert_eq!(peers[0].fingerprint, "fingerprint");
+    }
+
+    #[test]
+    fn favorites_keep_offline_entries_and_existing_connection_metadata() {
+        let recent = RecentLanEndpoint {
+            endpoint: "saved.local:21118".to_owned(),
+            username: "operator".to_owned(),
+            hostname: "Saved workstation".to_owned(),
+            last_connected_at: 123,
+            ..Default::default()
+        };
+        let peers = favorite_lan_endpoints(
+            vec!["offline.local:22000".to_owned(), recent.endpoint.clone()],
+            vec![recent.clone(), RecentLanEndpoint::default()],
+            &[],
+        );
+        assert_eq!(peers.len(), 2);
+        assert_eq!(peers[0].endpoint, "offline.local:22000");
+        assert_eq!(peers[1], recent);
+        assert!(favorite_lan_endpoints(vec![], peers, &[]).is_empty());
+    }
 
     #[test]
     fn reports_cached_background_listener_status() {

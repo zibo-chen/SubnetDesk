@@ -133,7 +133,12 @@ class _RemotePageState extends State<RemotePage>
       displays: widget.displays,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _ffi.closed) return;
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
+      // A fast connection can deliver a login dialog, an error, or an image
+      // before this frame. Do not cover that state with a stale loading dialog.
+      if (_ffi.ffiModel.hasConnectionResponse ||
+          _ffi.ffiModel.waitForFirstImage.isFalse) return;
       _ffi.dialogManager
           .showLoading(translate('Connecting...'), onCancel: closeConnection);
     });

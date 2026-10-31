@@ -1374,7 +1374,7 @@ List<TToggleMenu> toolbarKeyboardToggles(FFI ffi) {
   }
 
   // Relative mouse mode (gaming mode).
-  // Only show when server supports MOUSE_TYPE_MOVE_RELATIVE (version >= 1.4.5)
+  // Only show when SubnetDesk supports MOUSE_TYPE_MOVE_RELATIVE (version >= 1.0.0).
   // Note: This feature is only available in Flutter client. Sciter client does not support this.
   // Web client is not supported yet due to Pointer Lock API integration complexity with Flutter's input system.
   // Wayland is not supported due to cursor warping limitations.

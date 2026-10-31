@@ -157,6 +157,7 @@ pub(super) fn start_listening() -> ResultType<()> {
                                             .filter(|port| *port > 0)
                                             .unwrap_or(hbb_common::lan::DEFAULT_PORT),
                                         "fingerprint": fingerprint,
+                                        "device_type": crate::device_type::local(),
                                     })
                                     .to_string(),
                                     ..Default::default()
@@ -509,6 +510,9 @@ fn wait_response(
                                     username: p.username.clone(),
                                     hostname: p.hostname.clone(),
                                     platform: p.platform.clone(),
+                                    device_type: crate::device_type::normalize(
+                                        misc.get("device_type").and_then(|value| value.as_str()).unwrap_or_default()
+                                    ).to_owned(),
                                     online: true,
                                     ..Default::default()
                                 }));
@@ -551,6 +555,9 @@ async fn handle_received_peers(mut rx: UnboundedReceiver<config::DiscoveryPeer>)
                     seen.insert(discovery_key(&peer));
                     if let Some(pos) = peers.iter().position(|x| x.is_same_peer(&peer) ) {
                         let peer1 = peers.remove(pos);
+                        if peer.device_type.is_empty() {
+                            peer.device_type = peer1.device_type;
+                        }
                         if let Ok(endpoint) = hbb_common::lan::Endpoint::parse(&peer1.endpoint) {
                             if endpoint.host().parse::<IpAddr>().is_ok() {
                                 peer.ip_mac

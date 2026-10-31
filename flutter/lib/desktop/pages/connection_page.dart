@@ -16,6 +16,7 @@ import 'package:window_manager/window_manager.dart';
 import '../../common.dart';
 import '../../common/formatter/id_formatter.dart';
 import '../../common/widgets/peer_tab_page.dart';
+import '../../common/widgets/subnet_ui.dart';
 import '../../models/favorite_group_model.dart';
 import '../../models/platform_model.dart';
 import '../lan_identity_manager.dart';
@@ -167,9 +168,6 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
 
   final FocusNode _idFocusNode = FocusNode();
   final TextEditingController _idEditingController = TextEditingController();
-  final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  bool _rememberPassword = false;
   List<LanIdentityProfile> _lanIdentities = const [];
   Timer? _lanDiscoveryTimer;
 
@@ -255,8 +253,6 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
     _idFocusNode.removeListener(onFocusChanged);
     _idFocusNode.dispose();
     _idEditingController.dispose();
-    _usernameController.dispose();
-    _passwordController.dispose();
     if (Get.isRegistered<IDTextEditingController>()) {
       Get.delete<IDTextEditingController>();
     }
@@ -568,152 +564,70 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
 
   Future<void> _showAddDeviceDialog(BuildContext context) async {
     _reloadLanIdentities();
-    var selectedIdentityId =
-        defaultLanIdentityId(_lanIdentities) ?? lanIdentityManualValue;
+    var selectedIdentityId = preferredLanIdentityId(_lanIdentities);
     var bindIdentity = true;
 
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final usingIdentity = selectedIdentityId != lanIdentityManualValue;
-
           Future<void> connectNow() async {
+            if (selectedIdentityId == null) return;
             final connected = await onConnect(
-              identityId: usingIdentity ? selectedIdentityId : null,
-              bindIdentity: usingIdentity && bindIdentity,
+              identityId: selectedIdentityId,
+              bindIdentity: bindIdentity,
             );
             if (connected && dialogContext.mounted) {
               Navigator.of(dialogContext).pop();
             }
           }
 
-          Future<void> manageIdentities() async {
-            await showLanIdentityManager(context);
+          Future<void> editAccounts({bool add = false}) async {
+            String? createdId;
+            if (add) {
+              createdId = await showLanIdentityEditor(context);
+            } else {
+              await showLanIdentityManager(context);
+            }
+            if (!dialogContext.mounted) return;
             _reloadLanIdentities();
-            if (!_lanIdentities.any(
-              (identity) => identity.id == selectedIdentityId,
-            )) {
-              selectedIdentityId =
-                  defaultLanIdentityId(_lanIdentities) ??
-                  lanIdentityManualValue;
-            }
-            if (dialogContext.mounted) {
-              setDialogState(() {});
-            }
-          }
-
-          Future<void> createIdentity() async {
-            final identityId = await showLanIdentityEditor(context);
-            if (identityId == null) return;
-            _reloadLanIdentities();
-            selectedIdentityId = identityId;
-            if (dialogContext.mounted) {
-              setDialogState(() {});
-            }
+            setDialogState(() {
+              selectedIdentityId = preferredLanIdentityId(
+                _lanIdentities,
+                selectedId: createdId ?? selectedIdentityId,
+              );
+            });
           }
 
           return AlertDialog(
-          title: Text(translate('Add')),
-          content: SizedBox(
-            width: 440,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: _idEditingController,
-                  focusNode: _idFocusNode,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: InputDecoration(
-                    labelText: '${translate('Local Address')} (IP / DNS)',
-                    prefixIcon: const Icon(Icons.desktop_windows_outlined),
-                  ),
-                  onChanged: (value) => _idController.id = value,
+            title: Text(translate('Add')),
+            content: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: _idEditingController,
+                    focusNode: _idFocusNode,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: InputDecoration(
+                      labelText: '${translate('Local Address')} (IP / DNS)',
+                      prefixIcon: const Icon(Icons.desktop_windows_outlined),
+                    ),
+                    onChanged: (value) => _idController.id = value,
                     onSubmitted: (_) => connectNow(),
-                ),
-                const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          key: ValueKey(selectedIdentityId),
-                          initialValue: selectedIdentityId,
-                          decoration: InputDecoration(
-                            labelText: translate('Account'),
-                            prefixIcon: const Icon(Icons.badge_outlined),
-                          ),
-                          items: [
-                            DropdownMenuItem(
-                              value: lanIdentityManualValue,
-                              child: Text(
-                                '${translate('Username')} · ${translate('Password')}',
-                              ),
-                            ),
-                            ..._lanIdentities.map(
-                              (identity) => DropdownMenuItem(
-                                value: identity.id,
-                                child: Text(
-                                  identity.isDefault
-                                      ? '${identity.name} (${translate('Default')})'
-                                      : identity.name,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                          ],
-                          onChanged: (value) => setDialogState(
-                            () => selectedIdentityId =
-                                value ?? lanIdentityManualValue,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: translate('Add'),
-                        onPressed: createIdentity,
-                        icon: const Icon(Icons.person_add_alt_1_outlined),
-                      ),
-                      IconButton(
-                        tooltip: translate('Settings'),
-                        onPressed: manageIdentities,
-                        icon: const Icon(Icons.settings_outlined),
-                      ),
-                    ],
                   ),
                   const SizedBox(height: 12),
-                  if (!usingIdentity) ...[
-                TextField(
-                  controller: _usernameController,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: InputDecoration(
-                    labelText: translate('Username'),
-                    prefixIcon: const Icon(Icons.person_outline),
+                  LanIdentitySelector(
+                    identities: _lanIdentities,
+                    selectedId: selectedIdentityId,
+                    onChanged: (value) =>
+                        setDialogState(() => selectedIdentityId = value),
+                    onAdd: () => editAccounts(add: true),
+                    onManage: editAccounts,
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: InputDecoration(
-                    labelText: translate('Password'),
-                    prefixIcon: const Icon(Icons.lock_outline),
-                  ),
-                      onSubmitted: (_) => connectNow(),
-                ),
-                CheckboxListTile(
-                  value: _rememberPassword,
-                  onChanged: (value) => setDialogState(
-                    () => _rememberPassword = value == true,
-                  ),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  title: Text(translate('Remember password')),
-                ),
-                  ] else
+                  if (selectedIdentityId != null)
                     CheckboxListTile(
                       value: bindIdentity,
                       onChanged: (value) =>
@@ -722,22 +636,26 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
                       dense: true,
                       controlAffinity: ListTileControlAffinity.leading,
                       title: Text(
-                        '${translate('Remember password')} · ${translate('Account')}',
+                        subnetText(
+                          context,
+                          '记住此设备使用的账号',
+                          'Remember this account for this device',
+                        ),
                       ),
                     ),
-              ],
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(translate('Cancel')),
-            ),
-            ElevatedButton(
-                onPressed: connectNow,
-              child: Text(translate('Connect')),
-            ),
-          ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(translate('Cancel')),
+              ),
+              ElevatedButton(
+                onPressed: selectedIdentityId == null ? null : connectNow,
+                child: Text(translate('Connect')),
+              ),
+            ],
           );
         },
       ),
@@ -754,25 +672,13 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
     bool bindIdentity = false,
   }) async {
     final endpoint = _idController.id;
-    final username = _usernameController.text.trim();
-    final password = _passwordController.text;
-    if (endpoint.isEmpty ||
-        (identityId == null && username.isEmpty && password.isNotEmpty)) {
-      showToast(
-        '${translate('Local Address')} · ${translate('Username')} · ${translate('Password')}',
-      );
+    if (endpoint.isEmpty) {
+      showToast(translate('Local Address'));
       return false;
     }
-    final credentialPayload = identityId != null
-        ? buildLanIdentityPayload(identityId, bindIdentity: bindIdentity)
-        : password.isEmpty
+    final credentialPayload = identityId == null
         ? null
-        : jsonEncode({
-            'lan_version': 1,
-            'username': username,
-            'password': password,
-            'remember': _rememberPassword,
-          });
+        : buildLanIdentityPayload(identityId, bindIdentity: bindIdentity);
     await connect(
       context,
       endpoint,
@@ -781,7 +687,6 @@ class _ConnectionPageState extends State<ConnectionPage> with WindowListener {
       isTerminal: isTerminal,
       password: credentialPayload,
     );
-    _passwordController.clear();
     return true;
   }
 }

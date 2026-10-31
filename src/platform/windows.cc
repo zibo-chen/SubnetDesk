@@ -217,6 +217,65 @@ extern "C"
         return bResult;
     }
 
+    // Launch the secure-desktop input/capture agent in this interactive session.
+    // No service is created, and no SYSTEM/LocalService profile is loaded.
+    HANDLE LaunchSessionAgentWin(LPCWSTR command, DWORD session, DWORD *error)
+    {
+        struct TokenGuard {
+            HANDLE handle = NULL;
+            TOKEN_PRIVILEGES previous{};
+            bool restore = false;
+            ~TokenGuard() {
+                if (restore) AdjustTokenPrivileges(handle, FALSE, &previous, 0, NULL, NULL);
+                if (handle) CloseHandle(handle);
+            }
+        } caller, source, primary;
+        struct HandleGuard {
+            HANDLE handle = NULL;
+            ~HandleGuard() { if (handle) CloseHandle(handle); }
+        } process;
+        *error = ERROR_SUCCESS;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &caller.handle)) {
+            *error = GetLastError(); return NULL;
+        }
+        TOKEN_PRIVILEGES privileges{};
+        privileges.PrivilegeCount = 1;
+        privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+        if (!LookupPrivilegeValueW(NULL, L"SeDebugPrivilege", &privileges.Privileges[0].Luid)) {
+            *error = GetLastError(); return NULL;
+        }
+        DWORD previous_size = sizeof(caller.previous);
+        SetLastError(ERROR_SUCCESS);
+        if (!AdjustTokenPrivileges(caller.handle, FALSE, &privileges, sizeof(caller.previous), &caller.previous, &previous_size)
+            || GetLastError() == ERROR_NOT_ALL_ASSIGNED) {
+            *error = ERROR_PRIVILEGE_NOT_HELD; return NULL;
+        }
+        caller.restore = true;
+        const DWORD pid = GetLogonPid(session, FALSE);
+        if (!pid) { *error = ERROR_NO_SUCH_LOGON_SESSION; return NULL; }
+        process.handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!process.handle || !OpenProcessToken(process.handle, TOKEN_DUPLICATE | TOKEN_QUERY, &source.handle)) {
+            *error = GetLastError(); return NULL;
+        }
+        if (!DuplicateTokenEx(source.handle, MAXIMUM_ALLOWED, NULL, SecurityImpersonation, TokenPrimary, &primary.handle)) {
+            *error = GetLastError(); return NULL;
+        }
+        std::wstring mutable_command(command);
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.lpDesktop = const_cast<LPWSTR>(L"winsta0\\default");
+        PROCESS_INFORMATION child{};
+        LPWCH environment = GetEnvironmentStringsW();
+        if (!environment) { *error = GetLastError(); return NULL; }
+        const BOOL started = CreateProcessWithTokenW(primary.handle, 0, NULL, &mutable_command[0],
+            CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW, environment, NULL, &startup, &child);
+        const DWORD failure = started ? ERROR_SUCCESS : GetLastError();
+        FreeEnvironmentStringsW(environment);
+        if (!started) { *error = failure; return NULL; }
+        CloseHandle(child.hThread);
+        return child.hProcess;
+    }
+
     bool is_windows_server()
     {
         return IsWindowsServer();

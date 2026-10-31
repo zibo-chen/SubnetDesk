@@ -96,7 +96,7 @@ lazy_static::lazy_static! {
     static ref IS_SERVER: bool = std::env::args().nth(1) == Some("--server".to_owned());
     // Is server logic running. The server code can invoked to run by the main process if --server is not running.
     static ref SERVER_RUNNING: Arc<RwLock<bool>> = Default::default();
-    static ref IS_MAIN: bool = std::env::args().nth(1).map_or(true, |arg| !arg.starts_with("--"));
+    static ref IS_MAIN: bool = std::env::args().skip(1).all(|arg| !arg.starts_with("--") || matches!(arg.as_str(), "--background" | "--portable" | "--data-dir") || arg.starts_with("--data-dir="));
     static ref IS_CM: bool = std::env::args().nth(1) == Some("--cm".to_owned()) || std::env::args().nth(1) == Some("--cm-no-ui".to_owned());
 }
 
@@ -193,11 +193,38 @@ mod subnetdesk_capability_tests {
         assert!(!is_support_screenshot("1.2.1"));
         assert!(is_support_screenshot("1.4.0"));
     }
+
+    #[test]
+    fn subnetdesk_releases_support_relative_mouse_mode() {
+        for version in ["1.0.0", "1.0.0-1", "1.2.3", "1.3.0", "2.0.0"] {
+            assert!(is_support_relative_mouse_mode(version), "{version}");
+            assert!(
+                is_support_relative_mouse_mode_num(hbb_common::get_version_number(version)),
+                "{version}"
+            );
+        }
+        for version in ["", "0.0.0", "0.9.9"] {
+            assert!(!is_support_relative_mouse_mode(version), "{version}");
+            assert!(
+                !is_support_relative_mouse_mode_num(hbb_common::get_version_number(version)),
+                "{version}"
+            );
+        }
+    }
+
+    #[test]
+    fn relative_mouse_version_gate_matches_flutter() {
+        let dart_consts = include_str!("../flutter/lib/consts.dart");
+        assert!(dart_consts.contains(&format!(
+            "const String kMinVersionForRelativeMouseMode = '{MIN_VERSION_RELATIVE_MOUSE_MODE}';"
+        )));
+    }
 }
 
-/// Minimum server version required for relative mouse mode support.
+/// SubnetDesk inherited relative mouse mode before its first 1.0.0 release.
+/// Its release versions are independent of upstream RustDesk's 1.4.5 gate.
 /// This constant must mirror Flutter's `kMinVersionForRelativeMouseMode` in `consts.dart`.
-const MIN_VERSION_RELATIVE_MOUSE_MODE: &str = "1.4.5";
+const MIN_VERSION_RELATIVE_MOUSE_MODE: &str = "1.0.0";
 
 #[inline]
 pub fn is_support_relative_mouse_mode(ver: &str) -> bool {
@@ -212,6 +239,8 @@ pub fn is_support_relative_mouse_mode_num(ver: i64) -> bool {
 // is server process, with "--server" args
 #[inline]
 pub fn is_server() -> bool {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if crate::desktop_runtime::is_host() { return true; }
     *IS_SERVER
 }
 

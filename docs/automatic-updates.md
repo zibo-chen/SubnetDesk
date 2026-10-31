@@ -62,6 +62,19 @@ while in-app update delivery stays disabled. Unsigned local builds can exercise
 the UI and manifest checks, but they cannot install a release package through
 the automatic updater.
 
+## Availability and troubleshooting
+
+The About page reports automatic updates as unavailable immediately when the
+embedded public key is missing or invalid. It offers the release download page
+instead of making a request that would fail before signature verification.
+Portable builds also use this manual download path: replace the application
+files while preserving the `userdata` directory.
+
+If a configured build reports an HTTP 404 while checking updates, verify that
+the latest stable GitHub release contains both `update-stable.json` and
+`update-stable.json.sig`. Ordinary installers alone do not enable automatic
+updates. Nightly builds are excluded from this stable update channel.
+
 ## Custom update origin
 
 Enterprise builds can set `SUBNETDESK_UPDATE_MANIFEST_URL` at compile time. It

@@ -1,5 +1,7 @@
 # Sciter / Flutter 界面对齐检查
 
+> 此 Sciter 实现已废弃。以下截图仅作历史记录；当前 Win7 包直接复用 Flutter UI。
+
 final result: blocked
 
 当前是候选实现，不是完整界面一致性验收。原有根目录 `design-qa.md` 保留不动。
