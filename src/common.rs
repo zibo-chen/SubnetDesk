@@ -183,6 +183,39 @@ mod subnetdesk_capability_tests {
     use super::*;
 
     #[test]
+    fn release_version_enables_inherited_features() {
+        let version = crate::VERSION;
+        let number = hbb_common::get_version_number(version);
+        assert_eq!(version, env!("CARGO_PKG_VERSION"));
+        assert!(is_support_multi_ui_session(version));
+        assert!(is_support_file_paste_if_macos(version));
+        assert!(is_support_screenshot(version));
+        assert!(is_support_file_transfer_resume(version));
+        assert!(is_support_relative_mouse_mode(version));
+        #[cfg(not(target_os = "ios"))]
+        {
+            assert!(crate::clipboard::is_support_multi_clipboard(version, "Windows"));
+            assert!(crate::clipboard::is_support_multi_clipboard(version, "Android"));
+        }
+        for minimum in ["1.3.8", "1.3.9", "1.4.0", "1.4.1", "1.4.2", "1.4.8"] {
+            assert!(number >= hbb_common::get_version_number(minimum), "{minimum}");
+        }
+        #[cfg(feature = "unix-file-copy-paste")]
+        assert!(is_support_file_copy_paste(version));
+    }
+
+    #[test]
+    fn legacy_peers_keep_their_feature_limits() {
+        assert!(!is_support_file_paste_if_macos("1.3.8"));
+        assert!(!is_support_screenshot("1.3.9"));
+        assert!(!is_support_file_transfer_resume("1.4.1"));
+        #[cfg(not(target_os = "ios"))]
+        assert!(!crate::clipboard::is_support_multi_clipboard("1.2.7", "Windows"));
+        #[cfg(feature = "unix-file-copy-paste")]
+        assert!(!is_support_file_copy_paste("1.3.7"));
+    }
+
+    #[test]
     fn current_subnetdesk_release_supports_multiple_displays() {
         assert!(is_support_multi_ui_session("1.2.1"));
         assert!(!is_support_multi_ui_session("1.2.0"));

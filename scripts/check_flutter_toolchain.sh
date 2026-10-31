@@ -28,7 +28,9 @@ require_fixed .github/workflows/bridge.yml 'FLUTTER_VERSION: "3.44.1"'
 require_fixed flutter/pubspec.yaml "sdk: '^3.12.0'"
 require_fixed flutter/pubspec.yaml "flutter: '>=3.44.0'"
 require_fixed flutter/pubspec.yaml 'extended_text: 15.0.2'
-require_fixed flutter/windows/runner/runner.exe.manifest '<!-- Windows 10 and Windows 11 -->'
+require_fixed flutter/windows/runner/runner.exe.manifest '<!-- Windows 7 SP1 through Windows 11; Win7 uses the dedicated engine package. -->'
+require_fixed .github/workflows/windows-win7-flutter.yml 'FLUTTER_VERSION: "3.24.5"'
+require_fixed flutter/windows/CMakeLists.txt 'if("$ENV{SUBNETDESK_WIN7}" STREQUAL "1")'
 require_fixed flutter/macos/Podfile "platform :osx, '10.15'"
 require_fixed flutter/macos/Runner/AppDelegate.swift 'applicationSupportsSecureRestorableState'
 
@@ -38,8 +40,6 @@ checked_files=(
   flutter/build_fdroid.sh
   flutter/build_ios.sh
   flutter/lib
-  flutter/windows/runner/runner.exe.manifest
-  build.py
 )
 
 reject_fixed '3.22.3' "${checked_files[@]}"
@@ -47,8 +47,6 @@ reject_fixed '3.24.5' "${checked_files[@]}"
 reject_fixed 'rustdesk/engine/releases/download/main/windows-x64-release.zip' "${checked_files[@]}"
 reject_fixed 'flutter_3.24.4_dropdown_menu_enableFilter.diff' "${checked_files[@]}"
 reject_fixed 'apply_flutter_3.44_source_patches.sh' "${checked_files[@]}"
-reject_fixed 'Windows 7' "${checked_files[@]}"
-reject_fixed 'win7' "${checked_files[@]}"
 reject_fixed 'kUseCompatibleUiMode' flutter/lib
 
 printf 'Flutter 3.44.1 toolchain migration checks passed.\n'

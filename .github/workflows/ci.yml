@@ -47,6 +47,8 @@ jobs:
       uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
       with:
         submodules: recursive
+    - name: Check release version consistency
+      run: python3 scripts/check_release_versions.py
     - name: Set up Bun
       uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       with:

@@ -70,7 +70,7 @@ Flutter runner 和目录包启动器均声明 Win7 支持及旧系统 DPI 回退
 也可直接将已验证的绿色目录包封装成安装版（不会重新编译或修改运行文件）：
 
 ```powershell
-python scripts/package_win7_installer.py --package target/win7-dist/subnetdesk-1.3.0-win7-x64-flutter --version 1.3.0 --output target/win7-dist/subnetdesk-1.3.0-win7-x64-flutter-setup.exe
+python scripts/package_win7_installer.py --package target/win7-dist/subnetdesk-2.0.0-win7-x64-flutter --version 2.0.0 --output target/win7-dist/subnetdesk-2.0.0-win7-x64-flutter-setup.exe
 ```
 
 ## 验收边界

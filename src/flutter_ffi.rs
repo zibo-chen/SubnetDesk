@@ -17,7 +17,7 @@ use flutter_rust_bridge::{StreamSink, SyncReturn};
 use hbb_common::allow_err;
 use base::fs;
 use hbb_common::{
-    config::{self, Config, LocalConfig, PeerConfig, RecentLanEndpoint},
+    config::{self, Config, LocalConfig, PeerConfig},
     lazy_static, log,
     rendezvous_proto::ConnType,
     ResultType,
