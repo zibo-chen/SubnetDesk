@@ -25,7 +25,11 @@ env:
   SUBNETDESK_WIN7: "1"
 
 jobs:
+  generate-bridge:
+    uses: ./.github/workflows/bridge.yml
+
   win7-flutter-x64:
+    needs: generate-bridge
     runs-on: windows-2022
     timeout-minutes: 120
     steps:
@@ -33,6 +37,11 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           submodules: recursive
+      - name: Restore generated Flutter bridge
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: bridge-artifact
+          path: ./
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c
         with:

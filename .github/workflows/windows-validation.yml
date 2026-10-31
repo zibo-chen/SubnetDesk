@@ -18,6 +18,9 @@ env:
   VERSION: 2.0.0
   SUBNETDESK_UPDATE_PUBLIC_KEY: ${{ secrets.SUBNETDESK_UPDATE_PUBLIC_KEY }}
 jobs:
+  generate-bridge:
+    uses: ./.github/workflows/bridge.yml
+
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     strategy:
@@ -35,6 +38,7 @@ jobs:
   windows-validation:
     name: Windows x64 build and tests
     needs:
+    - generate-bridge
     - build-RustDeskTempTopMostWindow
     runs-on: ${{ matrix.job.os }}
     strategy:
@@ -58,6 +62,11 @@ jobs:
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
         submodules: recursive
+    - name: Restore generated Flutter bridge
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      with:
+        name: bridge-artifact
+        path: ./
     - name: Install LLVM and Clang
       uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0
       with:
