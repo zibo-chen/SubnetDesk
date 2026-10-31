@@ -1,6 +1,7 @@
 """Check installer boundaries that protect existing user profiles."""
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 
@@ -23,6 +24,18 @@ class Win7InstallerTests(unittest.TestCase):
         (package / "userdata").mkdir()
         (package / "userdata/identity.toml").write_text("existing identity")
         return package
+
+    @unittest.skipUnless(shutil.which("makensis"), "NSIS compiler is not installed")
+    def test_compiles_installer_with_real_include_files(self):
+        with tempfile.TemporaryDirectory(prefix="subnetdesk installer ") as temporary:
+            root = Path(temporary)
+            package = self.fixture(root)
+            installer = packager.package_installer(package, root / "setup.exe", "2.0.0")
+            self.assertGreater(installer.stat().st_size, 0)
+            metadata = json.loads(installer.with_suffix(".json").read_text())
+            self.assertFalse(metadata["userdata_included"])
+            self.assertTrue(metadata["uninstall_preserves_userdata"])
+            self.assertEqual("existing identity", (package / "userdata/identity.toml").read_text())
 
     def test_profile_is_never_packaged_or_deleted(self):
         with tempfile.TemporaryDirectory() as temporary:

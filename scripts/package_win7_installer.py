@@ -53,7 +53,7 @@ def file_commands(package, files):
         target = nsis_literal(str(relative).replace("/", "\\"))
         parent = nsis_literal(str(relative.parent).replace("/", "\\"))
         install.extend([f'SetOutPath "$INSTDIR\\{parent}"',
-                        f'File "{nsis_literal((package / relative).as_posix())}"'])
+                        f'File "{nsis_literal(package / relative)}"'])
         uninstall.append(f'Delete "$INSTDIR\\{target}"')
         directories.update(parent for parent in relative.parents if parent != Path("."))
     for directory in sorted(directories, key=lambda path: (-len(path.parts), str(path))):
@@ -91,10 +91,10 @@ def package_installer(package, output, version, makensis=None):
         for name, contents in (("install.nsh", install), ("uninstall.nsh", uninstall)):
             (temporary / name).write_text(contents, encoding="utf-8-sig")
         definitions = {
-            "OUTPUT": output.as_posix(), "VERSION": version,
-            "ICON": (ROOT / "res/icon.ico").as_posix(),
-            "INSTALL_FILES": (temporary / "install.nsh").as_posix(),
-            "UNINSTALL_FILES": (temporary / "uninstall.nsh").as_posix(),
+            "OUTPUT": str(output), "VERSION": version,
+            "ICON": str(ROOT / "res/icon.ico"),
+            "INSTALL_FILES": str(temporary / "install.nsh"),
+            "UNINSTALL_FILES": str(temporary / "uninstall.nsh"),
         }
         prefix = "/" if os.name == "nt" else "-"
         subprocess.run([str(compiler), prefix + "V2", *[

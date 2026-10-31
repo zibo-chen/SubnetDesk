@@ -73,6 +73,10 @@ jobs:
         with:
           path: target/win7-flutter/windows-x64-release.zip
           key: rustdesk-win7-engine-${{ hashFiles('res/win7/flutter-engine.json') }}
+      - name: Install NSIS for the Win7 installer
+        run: |
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'NSIS installation failed' }
       - name: Check build boundary and package helpers
         run: |
           python -m unittest discover -s scripts -p test_win7_build.py
@@ -101,10 +105,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Pinned RustDesk engine verification failed' }
       - name: Install NASM
         run: choco install nasm --yes --no-progress
-      - name: Install NSIS for the Win7 installer
-        run: |
-          choco install nsis --yes --no-progress
-          if ($LASTEXITCODE -ne 0) { throw 'NSIS installation failed' }
       - name: Restore compiled Win7 dependencies
         id: native-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
