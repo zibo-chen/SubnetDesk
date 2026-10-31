@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -96,12 +97,20 @@ class ImagePainter extends CustomPainter {
     required this.x,
     required this.y,
     required this.scale,
+    this.quarterTurns = 0,
+    this.virtualSize,
   });
 
   ui.Image? image;
   double x;
   double y;
   double scale;
+
+  /// Number of clockwise quarter turns (0-3) to rotate the image by around
+  /// its center. [virtualSize] is the displayed (rotated) size of the image,
+  /// used to keep the rotated image centered on its unrotated box.
+  int quarterTurns;
+  Size? virtualSize;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -122,8 +131,26 @@ class ImagePainter extends CustomPainter {
     if (isWeb) {
       paint.filterQuality = FilterQuality.high;
     }
-    canvas.drawImage(
-        image!, Offset(x.toInt().toDouble(), y.toInt().toDouble()), paint);
+    if (quarterTurns % 4 == 0) {
+      canvas.drawImage(
+          image!, Offset(x.toInt().toDouble(), y.toInt().toDouble()), paint);
+      return;
+    }
+    final w = image!.width.toDouble();
+    final h = image!.height.toDouble();
+    var dx = x;
+    var dy = y;
+    final vs = virtualSize;
+    if (vs != null) {
+      // Shift so the rotated image stays centered on the displayed box.
+      dx += (vs.width - w) / 2;
+      dy += (vs.height - h) / 2;
+    }
+    canvas.save();
+    canvas.translate(dx + w / 2, dy + h / 2);
+    canvas.rotate(math.pi / 2 * quarterTurns);
+    canvas.drawImage(image!, Offset(-w / 2, -h / 2), paint);
+    canvas.restore();
   }
 
   @override

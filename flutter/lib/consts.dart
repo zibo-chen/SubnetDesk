@@ -57,7 +57,6 @@ const String kAppTypeDesktopTerminal = "terminal";
 
 const String kWindowMainWindowOnTop = "main_window_on_top";
 const String kWindowRefreshCurrentUser = "refresh_current_user";
-const String kWindowGetWindowInfo = "get_window_info";
 const String kWindowGetScreenList = "get_screen_list";
 // This method is not used, maybe it can be removed.
 const String kWindowDisableGrabKeyboard = "disable_grab_keyboard";
@@ -87,6 +86,8 @@ const String kWindowEventOpenMonitorSession = "open_monitor_session";
 const String kOptionViewStyle = "view_style";
 const String kOptionScrollStyle = "scroll_style";
 const String kOptionEdgeScrollEdgeThickness = "edge-scroll-edge-thickness";
+const String kOptionClientRotation = "client-rotation";
+const String kOptionPanelRotation = "panel-rotation";
 const String kOptionImageQuality = "image_quality";
 const String kOptionOpenNewConnInTabs = "enable-open-new-connections-in-tabs";
 const String kOptionTextureRender = "use-texture-render";
@@ -103,6 +104,7 @@ const String kOptionAutoDisconnectTimeout = "auto-disconnect-timeout";
 const String kOptionEnableHwcodec = "enable-hwcodec";
 const String kOptionAllowAutoRecordIncoming = "allow-auto-record-incoming";
 const String kOptionAllowAutoRecordOutgoing = "allow-auto-record-outgoing";
+const String kOptionHideRecordingButton = "hide-recording-button";
 const String kOptionVideoSaveDirectory = "video-save-directory";
 const String kOptionEnableKeyboard = "enable-keyboard";
 // "Settings -> Security -> Permissions"
@@ -154,6 +156,8 @@ const String kOptionAllowRemoveWallpaper = "allow-remove-wallpaper";
 const String kOptionStopService = "stop-service";
 const String kOptionDirectxCapture = "enable-directx-capture";
 const String kOptionAllowRemoteCmModification = "allow-remote-cm-modification";
+const String kOptionAllowSyncClipboardBetweenSessions =
+    "allow-sync-clipboard-between-sessions";
 const String kOptionShowVirtualMouse = "show-virtual-mouse";
 const String kOptionVirtualMouseScale = "virtual-mouse-scale";
 const String kOptionShowVirtualJoystick = "show-virtual-joystick";
@@ -284,10 +288,11 @@ double kNewWindowOffset = isWindows
     ? 30.0
     : 50.0;
 
+const kDragToResizeAreaPaddingSize = 5.0;
 EdgeInsets get kDragToResizeAreaPadding => isLinux
     ? stateGlobal.fullscreen.isTrue || stateGlobal.isMaximized.value
-          ? EdgeInsets.zero
-          : EdgeInsets.all(5.0)
+        ? EdgeInsets.zero
+        : EdgeInsets.all(kDragToResizeAreaPaddingSize)
     : EdgeInsets.zero;
 // https://en.wikipedia.org/wiki/Non-breaking_space
 const int $nbsp = 0x00A0;

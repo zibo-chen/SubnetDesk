@@ -137,6 +137,30 @@ struct WindowState {
     surface: Surface<DisplayHandle<'static>, Arc<Window>>,
     ripples: Vec<Ripple>,
     last_cursors: HashMap<String, Cursor>,
+    // The rect the incoming cursor coordinates are expressed in (the Wayland-side uinput rect,
+    // `get_displays_rect()`), and the scale/origin needed to map them into this window's own
+    // local coordinate space. The window itself lives in XWayland, which keeps its own X11-facing
+    // view of the screen and can legitimately disagree with what the native Wayland side reports
+    // (see `resumed()`); a 1.0 scale and matching origin make this a no-op when they agree.
+    cursor_space: CursorSpaceMap,
+}
+
+#[derive(Clone, Copy)]
+struct CursorSpaceMap {
+    origin_x: f32,
+    origin_y: f32,
+    scale_x: f32,
+    scale_y: f32,
+}
+
+impl CursorSpaceMap {
+    fn identity() -> Self {
+        Self { origin_x: 0.0, origin_y: 0.0, scale_x: 1.0, scale_y: 1.0 }
+    }
+
+    fn apply(&self, x: f32, y: f32) -> (f32, f32) {
+        ((x - self.origin_x) * self.scale_x, (y - self.origin_y) * self.scale_y)
+    }
 }
 
 struct WhiteboardApplication {
@@ -182,8 +206,13 @@ impl WhiteboardApplication {
 impl ApplicationHandler<(String, CustomEvent)> for WhiteboardApplication {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, (k, evt): (String, CustomEvent)) {
         match evt {
-            CustomEvent::Cursor(cursor) => {
+            CustomEvent::Cursor(mut cursor) => {
                 if let Some(state) = self.windows.first_mut() {
+                    // The incoming x/y are in the Wayland-side uinput rect the client's input is
+                    // sent in, not necessarily this (XWayland) window's own coordinate space.
+                    let (x, y) = state.cursor_space.apply(cursor.x, cursor.y);
+                    cursor.x = x;
+                    cursor.y = y;
                     if cursor.btns != 0 {
                         state.ripples.push(Ripple {
                             x: cursor.x,
@@ -203,13 +232,48 @@ impl ApplicationHandler<(String, CustomEvent)> for WhiteboardApplication {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let (x, y, w, h) = match super::server::get_displays_rect() {
+        // The rect the client's cursor coordinates are expressed in: the Wayland-side uinput
+        // rect (same one real mouse input now uses). This process forces itself onto XWayland
+        // (see `preset_env()`) purely to get `override_redirect` + shape-extension click-through,
+        // which has no good Wayland-native equivalent (upstream PR #12859: "Whiteboard
+        // functionality on Wayland seems difficult to implement at the moment"). But XWayland
+        // keeps its own X11-facing view of the screen, which can legitimately disagree with what
+        // native Wayland reports -- so size/position THIS window from XWayland's own primary
+        // monitor query (the space it will actually render into) rather than trusting the
+        // Wayland-side rect, and map incoming cursor coordinates from the Wayland-side rect into
+        // that window's space accordingly.
+        let (wl_x, wl_y, wl_w, wl_h) = match super::server::get_displays_rect() {
             Ok(r) => r,
             Err(err) => {
                 log::error!("Failed to get displays rect: {}", err);
                 self.close_requested = true;
                 return;
             }
+        };
+
+        let xw_rect: Option<(i32, i32, u32, u32)> = event_loop.primary_monitor().map(|m| {
+            let pos = m.position();
+            let size = m.size();
+            (pos.x, pos.y, size.width, size.height)
+        });
+        let (x, y, w, h) = xw_rect.unwrap_or((wl_x, wl_y, wl_w, wl_h));
+        let xw_rect_str = match xw_rect {
+            Some((rx, ry, rw, rh)) => format!("({rx}, {ry}, {rw}x{rh})"),
+            None => "unavailable".to_owned(),
+        };
+        log::info!(
+            "whiteboard: wayland-side rect ({wl_x}, {wl_y}, {wl_w}x{wl_h}), xwayland primary \
+             monitor {xw_rect_str}, using ({x}, {y}, {w}x{h}) for the overlay window"
+        );
+        let cursor_space = if wl_w > 0 && wl_h > 0 {
+            CursorSpaceMap {
+                origin_x: wl_x as f32,
+                origin_y: wl_y as f32,
+                scale_x: w as f32 / wl_w as f32,
+                scale_y: h as f32 / wl_h as f32,
+            }
+        } else {
+            CursorSpaceMap::identity()
         };
 
         let window_attributes = Window::default_attributes()
@@ -305,6 +369,7 @@ impl ApplicationHandler<(String, CustomEvent)> for WhiteboardApplication {
             surface,
             ripples: Vec::new(),
             last_cursors: HashMap::new(),
+            cursor_space,
         };
 
         self.windows.push(state);

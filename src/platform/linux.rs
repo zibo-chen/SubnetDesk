@@ -1,6 +1,6 @@
 use super::{gtk_sudo, CursorData, ResultType};
 use desktop::Desktop;
-pub use hbb_common::platform::linux::*;
+pub use base::platform::linux::*;
 
 #[cfg(feature = "drm")]
 pub fn dispatch_wayland_display_probe() {
@@ -14,13 +14,14 @@ use hbb_common::{
     allow_err,
     anyhow::anyhow,
     bail,
-    config::{keys::OPTION_ALLOW_LINUX_HEADLESS, Config},
+    config::Config,
     libc::{c_char, c_int, c_long, c_uint, c_ulong, c_void},
     log,
-    message_proto::{DisplayInfo, Resolution},
     regex::{Captures, Regex},
     users::{get_user_by_name, os::unix::UserExt},
 };
+use base::config::keys::OPTION_ALLOW_LINUX_HEADLESS;
+use base::message_proto::{DisplayInfo, Resolution};
 use libxdo_sys::{self, xdo_t, Window};
 use std::{
     cell::RefCell,
@@ -64,7 +65,7 @@ lazy_static::lazy_static! {
     /// serve but the DRM path can. Unmemoised lookup on purpose: this may run mid-boot, and
     /// a "no" cached that early would be wrong for the rest of the process.
     pub static ref IS_X11: bool = {
-        let x11 = hbb_common::platform::linux::is_x11_or_headless();
+        let x11 = base::platform::linux::is_x11_or_headless();
         #[cfg(feature = "drm")]
         {
             if x11 && !display_server_forced() && is_login_screen_wayland() {
@@ -96,6 +97,9 @@ lazy_static::lazy_static! {
     };
     static ref ACTIVE_USER_LOOKUP_CACHE: std::sync::Mutex<Option<ActiveUserLookupCache>> =
         std::sync::Mutex::new(None);
+    static ref GNOME_MONITOR_LAYOUT_MODE_CACHE: std::sync::Mutex<
+        Option<(Instant, Option<GnomeMonitorLayoutMode>)>,
+    > = Default::default();
     // https://github.com/rustdesk/rustdesk/issues/13705
     // Check if `sudo -E` actually preserves environment.
     //
@@ -126,6 +130,141 @@ lazy_static::lazy_static! {
                 .unwrap_or(false)
         }
     };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GnomeMonitorLayoutMode {
+    Logical,
+    Physical,
+}
+
+impl GnomeMonitorLayoutMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Logical => "logical",
+            Self::Physical => "physical",
+        }
+    }
+}
+
+fn gnome_monitor_layout_mode_from_value(value: u32) -> Option<GnomeMonitorLayoutMode> {
+    // Upstream: https://gitlab.gnome.org/GNOME/mutter/-/blob/main/data/dbus-interfaces/org.gnome.Mutter.DisplayConfig.xml
+    // Ubuntu mode 3: https://git.launchpad.net/ubuntu/+source/mutter/tree/debian/patches/x11-Add-support-for-fractional-scaling-using-Randr.patch
+    match value {
+        1 | 3 => Some(GnomeMonitorLayoutMode::Logical),
+        2 => Some(GnomeMonitorLayoutMode::Physical),
+        _ => None,
+    }
+}
+
+pub fn gnome_monitor_layout_mode() -> Option<GnomeMonitorLayoutMode> {
+    if let Ok(cache) = GNOME_MONITOR_LAYOUT_MODE_CACHE.lock() {
+        if let Some((updated_at, result)) = *cache {
+            if updated_at.elapsed() < Duration::from_secs(10) {
+                return result;
+            }
+        }
+    }
+
+    let result = (|| {
+        let is_gnome_desktop = std::env::var("XDG_CURRENT_DESKTOP")
+            .unwrap_or_default()
+            .split(':')
+            .any(|desktop| {
+                desktop.eq_ignore_ascii_case("gnome") || desktop.eq_ignore_ascii_case("unity")
+            });
+        let is_gnome_session = std::env::var("DESKTOP_SESSION")
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if !is_gnome_desktop && !is_gnome_session.contains("gnome") {
+            return None;
+        }
+        use dbus::{arg::PropMap, blocking::BlockingSender};
+
+        let conn = match dbus::blocking::Connection::new_session() {
+            Ok(conn) => conn,
+            Err(err) => {
+                log::warn!("Failed to connect to the session bus for GNOME monitor layout: {err}");
+                return None;
+            }
+        };
+        let message = match dbus::Message::new_method_call(
+            "org.gnome.Mutter.DisplayConfig",
+            "/org/gnome/Mutter/DisplayConfig",
+            "org.gnome.Mutter.DisplayConfig",
+            "GetCurrentState",
+        ) {
+            Ok(message) => message,
+            Err(err) => {
+                log::warn!("Failed to create GNOME monitor layout query: {err}");
+                return None;
+            }
+        };
+        let reply = match conn.send_with_reply_and_block(message, Duration::from_secs(2)) {
+            Ok(reply) => reply,
+            Err(err) => {
+                log::warn!("Failed to query GNOME monitor layout: {err}");
+                return None;
+            }
+        };
+        let mut args = reply.iter_init();
+        for _ in 0..3 {
+            if !args.next() {
+                log::warn!("GNOME monitor layout reply is missing properties");
+                return None;
+            }
+        }
+        let properties: PropMap = match args.read() {
+            Ok(properties) => properties,
+            Err(err) => {
+                log::warn!("Failed to read GNOME monitor layout properties: {err}");
+                return None;
+            }
+        };
+        let Some(value) = dbus::arg::prop_cast::<u32>(&properties, "layout-mode").copied() else {
+            log::warn!("GNOME monitor layout reply has no layout-mode");
+            return None;
+        };
+        let mode = gnome_monitor_layout_mode_from_value(value);
+        if mode.is_none() {
+            log::warn!("GNOME monitor layout reply has unknown layout-mode {value}");
+        }
+        mode
+    })();
+    if let Ok(mut cache) = GNOME_MONITOR_LAYOUT_MODE_CACHE.lock() {
+        *cache = Some((Instant::now(), result));
+    }
+    result
+}
+
+#[cfg(test)]
+mod gnome_monitor_layout_tests {
+    use super::*;
+
+    #[test]
+    fn maps_logical_layouts() {
+        assert_eq!(
+            gnome_monitor_layout_mode_from_value(1),
+            Some(GnomeMonitorLayoutMode::Logical)
+        );
+        assert_eq!(
+            gnome_monitor_layout_mode_from_value(3),
+            Some(GnomeMonitorLayoutMode::Logical)
+        );
+    }
+
+    #[test]
+    fn maps_physical_layout() {
+        assert_eq!(
+            gnome_monitor_layout_mode_from_value(2),
+            Some(GnomeMonitorLayoutMode::Physical)
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_layout() {
+        assert_eq!(gnome_monitor_layout_mode_from_value(4), None);
+    }
 }
 
 #[inline]
@@ -1146,20 +1285,15 @@ pub fn get_active_userid_cached() -> Option<u32> {
 }
 
 fn get_cm() -> bool {
-    // We use `CMD_PS` instead of `ps` to suppress some audit messages on some systems.
-    if let Ok(output) = Command::new(CMD_PS.as_str()).args(vec!["aux"]).output() {
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            if line.contains(&format!(
-                "{} --cm",
-                std::env::current_exe()
-                    .unwrap_or("".into())
-                    .to_string_lossy()
-            )) {
-                return true;
-            }
-        }
-    }
-    false
+    // Runs twice a second in the service loop, so walk /proc rather than forking `ps aux`; that
+    // fork is also what the `CMD_PS` audit-message workaround this replaces was for.
+    let cm = format!(
+        "{} --cm",
+        std::env::current_exe()
+            .unwrap_or_default()
+            .to_string_lossy()
+    );
+    any_process(None, "cmdline", |cmdline| cmdline.contains(&cm))
 }
 
 pub fn is_login_wayland() -> bool {
@@ -1469,6 +1603,34 @@ fn get_envs<'a>(
     process_pat: &str,
     names: &[&'a str],
 ) -> std::collections::HashMap<&'a str, String> {
+    get_envs_where(uid, process_pat, names, false, |count| count == names.len())
+}
+
+/// The newest process matching `process_pat`, whatever it happens to carry: the semantics of the
+/// `ps -u <uid> -f | grep <pat> | tail -1` pipeline the callers below used before. A variable this
+/// process does not have means moving on to the next pattern, never on to an older process that
+/// may belong to a session which has since logged out.
+fn get_envs_of_newest<'a>(
+    uid: &str,
+    process_pat: &str,
+    names: &[&'a str],
+) -> std::collections::HashMap<&'a str, String> {
+    get_envs_where(uid, process_pat, names, true, |_| true)
+}
+
+/// `get_envs` with the caller's own process order and its own notion of a complete answer, told
+/// how many of `names` the process carries: the first process `accept` takes wins outright, and
+/// the count-based ranking is only the fallback for when no process is accepted at all.
+fn get_envs_where<'a, F>(
+    uid: &str,
+    process_pat: &str,
+    names: &[&'a str],
+    newest_first: bool,
+    mut accept: F,
+) -> std::collections::HashMap<&'a str, String>
+where
+    F: FnMut(usize) -> bool,
+{
     // The tie-breaking logic uses a u64 bitmask, limiting us to 64 variables.
     debug_assert!(
         names.len() <= 64,
@@ -1495,21 +1657,24 @@ fn get_envs<'a>(
     let mut best_count = 0usize;
     let mut best_mask: u64 = 0;
 
-    // Iterate /proc to find matching processes
+    // Iterate /proc to find matching processes. `newest_first` is only for `get_envs_of_newest`,
+    // whose callers need the last PID-ordered match their `ps ... | tail -1` pipelines took;
+    // without it the order is whatever readdir returns, which is what `get_envs` has always used.
+    // Neither order identifies the active session -- a user with two live graphical sessions has
+    // one of each, and picking by PID guesses. See `Desktop::refresh` for who owns that question.
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return best;
     };
+    let mut pids: Vec<u32> = entries
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+        .collect();
+    if newest_first {
+        pids.sort_unstable_by(|a, b| b.cmp(a));
+    }
 
-    for entry in entries.flatten() {
-        let file_name = entry.file_name();
-        let Some(pid_str) = file_name.to_str() else {
-            continue;
-        };
-        if !pid_str.chars().all(|c| c.is_ascii_digit()) {
-            continue;
-        }
-
-        let proc_path = entry.path();
+    for pid in pids {
+        let proc_path = std::path::Path::new("/proc").join(pid.to_string());
 
         // Check if process belongs to the specified uid
         if let Ok(meta) = std::fs::metadata(&proc_path) {
@@ -1527,15 +1692,18 @@ fn get_envs<'a>(
             continue;
         };
         let cmdline_str = String::from_utf8_lossy(&cmdline).replace('\0', " ");
-        if !re.is_match(&cmdline_str) {
+        // The `grep -v 'grep'` of the pipeline this replaces. A user grepping for one of these
+        // patterns is otherwise the newest match for it, and answers with whatever environment
+        // their shell had -- an X forwarding endpoint over ssh, say.
+        if cmdline_str.contains("grep") || !re.is_match(&cmdline_str) {
             continue;
         }
 
-        // Read environ and extract matching variables
-        let environ_path = proc_path.join("environ");
-        let Ok(environ) = std::fs::read(&environ_path) else {
-            continue;
-        };
+        // Read environ and extract matching variables. A read that fails -- the process exited
+        // between these two reads -- is a process carrying none of `names`, not a process to
+        // skip: skipping it would hand `newest_first` on to an older PID, where the pipeline
+        // this replaces stopped at the single PID its `tail -1` had already picked.
+        let environ = std::fs::read(proc_path.join("environ")).unwrap_or_default();
 
         let mut found = empty.clone();
         let mut found_count = 0usize;
@@ -1566,12 +1734,12 @@ fn get_envs<'a>(
                             found_mask |= bit;
                         }
                     }
-
-                    if found_count == names.len() {
-                        return found;
-                    }
                 }
             }
+        }
+
+        if accept(found_count) {
+            return found;
         }
 
         if found_count > best_count || (found_count == best_count && found_mask > best_mask) {
@@ -1584,29 +1752,37 @@ fn get_envs<'a>(
     best
 }
 
-/// Deprecated: Use `get_envs` instead.
-///
-/// https://github.com/rustdesk/rustdesk/discussions/11959
-///
-/// **Note**: This function is retained for conservative migration. The plan is to gradually
-/// transition all callers to `get_envs` after it proves stable and reliable. Once `get_envs`
-/// is confirmed to work correctly across all use cases, this function will be removed entirely.
-///
-/// # Arguments
-/// * `name` - Environment variable name to retrieve
-/// * `uid` - User ID to filter processes
-/// * `process` - Process name pattern to match
-///
-/// # Returns
-/// The environment variable value, or empty string if not found
-#[inline]
-fn get_env(name: &str, uid: &str, process: &str) -> String {
-    let cmd = format!("ps -u {} -f | grep -E '{}' | grep -v 'grep' | tail -1 | awk '{{print $2}}' | xargs -I__ cat /proc/__/environ 2>/dev/null | tr '\\0' '\\n' | grep '^{}=' | tail -1 | sed 's/{}=//g'", uid, process, name, name);
-    if let Ok(x) = run_cmds(&cmd) {
-        x.trim_end().to_string()
-    } else {
-        "".to_owned()
+/// True when `pred` accepts the `/proc/<pid>/<file>` of any process, NULs turned into spaces,
+/// optionally only of processes owned by `uid`.
+/// Reads `/proc` directly instead of forking `ps` / `pgrep`, for the service-loop callers below.
+fn any_process<F: Fn(&str) -> bool>(uid: Option<u32>, file: &str, pred: F) -> bool {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(pid_str) = file_name.to_str() else {
+            continue;
+        };
+        if !pid_str.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let proc_path = entry.path();
+        if let Some(uid) = uid {
+            use std::os::unix::fs::MetadataExt;
+            match std::fs::metadata(&proc_path) {
+                Ok(meta) if meta.uid() == uid => {}
+                _ => continue,
+            }
+        }
+        let Ok(content) = std::fs::read(proc_path.join(file)) else {
+            continue;
+        };
+        if pred(&String::from_utf8_lossy(&content).replace('\0', " ")) {
+            return true;
+        }
     }
+    false
 }
 
 #[inline]
@@ -1824,12 +2000,16 @@ pub fn change_resolution_directly(name: &str, width: usize, height: usize) -> Re
     Ok(())
 }
 
+/// Scoped to `uid`, the user of the session being refreshed: the compositor starts Xwayland as
+/// that user, so another user's Xwayland -- a switched-away session, a second seat -- answering
+/// this used to route a pure-Wayland session into the Xwayland probe, which has no display for
+/// it to find. A uid that cannot be parsed falls back to the unscoped answer.
 #[inline]
-pub fn is_xwayland_running() -> bool {
-    if let Ok(output) = run_cmds("pgrep -a Xwayland") {
-        return output.contains("Xwayland");
-    }
-    false
+pub fn is_xwayland_running(uid: &str) -> bool {
+    // Same test as the `pgrep -a Xwayland` this replaces: the process name, not its command line.
+    any_process(uid.parse::<u32>().ok(), "comm", |comm| {
+        comm.contains("Xwayland")
+    })
 }
 
 mod desktop {
@@ -1849,6 +2029,18 @@ mod desktop {
     const ENV_KEY_XAUTHORITY: &str = "XAUTHORITY";
     const ENV_KEY_WAYLAND_DISPLAY: &str = "WAYLAND_DISPLAY";
     const ENV_KEY_DBUS_SESSION_BUS_ADDRESS: &str = "DBUS_SESSION_BUS_ADDRESS";
+
+    /// A compositor that runs Xwayland without exporting `XAUTHORITY` (wlroots, e.g. Hyprland)
+    /// still hands out a usable session through the Wayland side. Requiring xauth there never
+    /// succeeded, so every refresh ran the retry loop to the end.
+    /// https://github.com/rustdesk/rustdesk/issues/15952
+    fn is_session_env_complete(envs: &std::collections::HashMap<&str, String>) -> bool {
+        let value = |key: &str| envs.get(key).map_or("", |v| v.as_str());
+        !value(ENV_KEY_DISPLAY).is_empty()
+            && (!value(ENV_KEY_XAUTHORITY).is_empty()
+                || (!value(ENV_KEY_WAYLAND_DISPLAY).is_empty()
+                    && !value(ENV_KEY_DBUS_SESSION_BUS_ADDRESS).is_empty()))
+    }
 
     #[derive(Debug, Clone, Default)]
     pub struct Desktop {
@@ -1922,14 +2114,66 @@ mod desktop {
                     PLASMA_KDED,
                     tray.as_str(),
                 ];
+                self.display.clear();
+                self.xauth.clear();
+                self.wl_display.clear();
+                self.dbus.clear();
+                let mut kept = 0u8;
                 for proc in display_proc {
-                    self.display = get_env(ENV_KEY_DISPLAY, &self.uid, proc);
-                    self.xauth = get_env(ENV_KEY_XAUTHORITY, &self.uid, proc);
-                    self.wl_display = get_env(ENV_KEY_WAYLAND_DISPLAY, &self.uid, proc);
-                    self.dbus = get_env(ENV_KEY_DBUS_SESSION_BUS_ADDRESS, &self.uid, proc);
-                    if !self.display.is_empty() && !self.xauth.is_empty() {
+                    let mut envs = get_envs_of_newest(
+                        &self.uid,
+                        proc,
+                        &[
+                            ENV_KEY_DISPLAY,
+                            ENV_KEY_XAUTHORITY,
+                            ENV_KEY_WAYLAND_DISPLAY,
+                            ENV_KEY_DBUS_SESSION_BUS_ADDRESS,
+                        ],
+                    );
+                    let complete = is_session_env_complete(&envs);
+                    let display = envs.remove(ENV_KEY_DISPLAY).unwrap_or_default();
+                    let xauth = envs.remove(ENV_KEY_XAUTHORITY).unwrap_or_default();
+                    let wl_display = envs.remove(ENV_KEY_WAYLAND_DISPLAY).unwrap_or_default();
+                    let dbus = envs
+                        .remove(ENV_KEY_DBUS_SESSION_BUS_ADDRESS)
+                        .unwrap_or_default();
+                    // Take a candidate whole. Two graphical sessions of one user each answer
+                    // some of these, and a display paired with another session's xauth or
+                    // compositor is a pair that never existed. So rank candidates rather than
+                    // merge them, and keep the best seen: the later patterns are fallbacks.
+                    //
+                    // The Wayland-only rank matters when `is_xwayland_running` matched some other
+                    // user's Xwayland and this session has none of its own. Nothing here can then
+                    // answer with a display, and dropping the candidate for that would leave the
+                    // child server without the compositor and bus of a session that is perfectly
+                    // serveable through them.
+                    let rank = if complete {
+                        3
+                    } else if !wl_display.is_empty() && !dbus.is_empty() {
+                        2
+                    } else if !display.is_empty() {
+                        1
+                    } else {
+                        0
+                    };
+                    if rank > kept {
+                        kept = rank;
+                        self.display = display;
+                        self.xauth = xauth;
+                        self.wl_display = wl_display;
+                        self.dbus = dbus;
+                    }
+                    if complete {
                         return;
                     }
+                }
+                // The Wayland pair on its own is a session the child server can be started
+                // against -- it is what `get_display_xauth_wayland` returns on. Retrying is for a
+                // session that has not finished coming up, and a compositor whose Xwayland starts
+                // on demand may never export a `DISPLAY` for this walk to find, so waiting ten
+                // more rounds for one costs the whole probe again on every refresh.
+                if kept >= 2 {
+                    break;
                 }
                 sleep_millis(300);
             }
@@ -1946,7 +2190,9 @@ mod desktop {
                     SDDM_GREETER,
                 ];
                 for proc in display_proc {
-                    self.display = get_env(ENV_KEY_DISPLAY, &self.uid, proc);
+                    self.display = get_envs_of_newest(&self.uid, proc, &[ENV_KEY_DISPLAY])
+                        .remove(ENV_KEY_DISPLAY)
+                        .unwrap_or_default();
                     if !self.display.is_empty() {
                         break;
                     }
@@ -1958,6 +2204,21 @@ mod desktop {
             }
 
             if self.display.is_empty() {
+                // logind stores the value pam_systemd was handed at session creation, which is not
+                // necessarily a local display: it can be qualified with this host (`myhost:0`) or
+                // name an X forwarding endpoint (`localhost:10.0`), and some setups record a bare
+                // `:`. Strip this host, then require a display number. `localhost` is deliberately
+                // left in place: a non-empty display here suppresses every fallback below, both
+                // `get_display_by_user` and the `:0` default, so anything not local must not pass.
+                let display = Self::get_display_from_session(&self.sid)
+                    .replace(&hbb_common::whoami::hostname(), "");
+                if display.strip_prefix(':').map_or(false, |number| {
+                    number.starts_with(|c: char| c.is_ascii_digit())
+                }) {
+                    self.display = display;
+                }
+            }
+            if self.display.is_empty() {
                 self.display = Self::get_display_by_user(&self.username);
             }
             if self.display.is_empty() {
@@ -1967,6 +2228,34 @@ mod desktop {
                 .display
                 .replace(&hbb_common::whoami::hostname(), "")
                 .replace("localhost", "");
+        }
+
+        fn get_display_from_session(session: &str) -> String {
+            if session.is_empty() {
+                return String::new();
+            }
+
+            match Command::new(CMD_LOGINCTL.as_str())
+                .args(["show-session", "-p", "Display", session])
+                .output()
+            {
+                Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .strip_prefix("Display=")
+                    .unwrap_or_default()
+                    .to_owned(),
+                Ok(output) => {
+                    log::debug!(
+                        "Failed to get display for session {session}: {}",
+                        output.status
+                    );
+                    String::new()
+                }
+                Err(err) => {
+                    log::debug!("Failed to get display for session {session}: {err}");
+                    String::new()
+                }
+            }
         }
 
         fn get_home(&mut self) {
@@ -2034,7 +2323,9 @@ mod desktop {
                     tray.as_str(),
                 ];
                 for proc in display_proc {
-                    self.xauth = get_env("XAUTHORITY", &self.uid, proc);
+                    self.xauth = get_envs_of_newest(&self.uid, proc, &[ENV_KEY_XAUTHORITY])
+                        .remove(ENV_KEY_XAUTHORITY)
+                        .unwrap_or_default();
                     if !self.xauth.is_empty() {
                         break;
                     }
@@ -2133,7 +2424,7 @@ mod desktop {
         pub fn refresh(&mut self) {
             if !self.sid.is_empty() && is_active_and_seat0(&self.sid) {
                 // Xwayland display and xauth may not be available in a short time after login.
-                if is_xwayland_running() && !self.is_login_wayland() {
+                if is_xwayland_running(&self.uid) && !self.is_login_wayland() {
                     self.get_display_xauth_xwayland();
                     self.is_rustdesk_subprocess = false;
                 } else if self.is_wayland() {
@@ -2162,7 +2453,7 @@ mod desktop {
 
             self.get_home();
             if self.is_wayland() {
-                if is_xwayland_running() {
+                if is_xwayland_running(&self.uid) {
                     self.get_display_xauth_xwayland();
                 } else {
                     self.get_display_xauth_wayland();
@@ -2200,18 +2491,167 @@ mod desktop {
     }
 }
 
-pub struct WakeLock(Option<keepawake::AwakeHandle>);
+/// A session-bus idle-inhibit interface, tried in order; the first that answers wins.
+/// `org.freedesktop.ScreenSaver` is absent on purpose: that is the one `keepawake` already tried.
+struct SessionInhibitTarget {
+    dest: &'static str,
+    path: &'static str,
+    iface: &'static str,
+    /// GNOME takes `(app_id, xid, reason, flags)`; PowerManagement takes `(app, reason)`.
+    gnome_shape: bool,
+    uninhibit: &'static str,
+}
+
+/// `org.gnome.SessionManager.Inhibit` flag 8 = idle only; logout/switch-user/suspend would take
+/// away actions the person at the machine should keep.
+const GNOME_INHIBIT_IDLE: u32 = 8;
+
+const SESSION_INHIBIT_TARGETS: &[SessionInhibitTarget] = &[
+    // Measured on a GDM greeter: output held 129.9 s with the inhibit, 30.3 s without.
+    SessionInhibitTarget {
+        dest: "org.gnome.SessionManager",
+        path: "/org/gnome/SessionManager",
+        iface: "org.gnome.SessionManager",
+        gnome_shape: true,
+        uninhibit: "Uninhibit",
+    },
+    // What powerdevil and xfce4-power-manager implement. NOT tested here; costs one failed call
+    // where absent, and the log below names every interface tried.
+    SessionInhibitTarget {
+        dest: "org.freedesktop.PowerManagement",
+        path: "/org/freedesktop/PowerManagement/Inhibit",
+        iface: "org.freedesktop.PowerManagement.Inhibit",
+        gnome_shape: false,
+        uninhibit: "UnInhibit",
+    },
+];
+
+/// Idle inhibit for the case `keepawake` cannot serve: it inhibits `org.freedesktop.ScreenSaver`,
+/// which a GDM greeter bus neither provides nor can activate, so its `create()` fails outright.
+/// The connection is kept because the inhibit is bound to it: dropping it releases the inhibit.
+struct SessionIdleInhibit {
+    conn: dbus::blocking::Connection,
+    target: &'static SessionInhibitTarget,
+    cookie: u32,
+}
+
+impl SessionIdleInhibit {
+    fn new(reason: &str) -> Option<Self> {
+        let conn = match dbus::blocking::Connection::new_session() {
+            Ok(conn) => conn,
+            Err(err) => {
+                log::info!("wakelock: no session bus for the idle inhibit fallback ({err})");
+                return None;
+            }
+        };
+        let app = crate::get_app_name();
+        let mut refused = Vec::new();
+        for target in SESSION_INHIBIT_TARGETS {
+            let res: Result<(u32,), dbus::Error> = {
+                let proxy = conn.with_proxy(
+                    target.dest,
+                    target.path,
+                    std::time::Duration::from_secs(3),
+                );
+                if target.gnome_shape {
+                    // Inhibit(s app_id, u xid, s reason, u flags) -> u cookie; xid 0 = no window.
+                    proxy.method_call(
+                        target.iface,
+                        "Inhibit",
+                        (app.clone(), 0u32, reason.to_owned(), GNOME_INHIBIT_IDLE),
+                    )
+                } else {
+                    proxy.method_call(target.iface, "Inhibit", (app.clone(), reason.to_owned()))
+                }
+            };
+            match res {
+                Ok((cookie,)) => {
+                    log::info!(
+                        "wakelock: holding a {} idle inhibit (cookie {cookie})",
+                        target.dest
+                    );
+                    return Some(Self {
+                        conn,
+                        target,
+                        cookie,
+                    });
+                }
+                Err(err) => refused.push(format!("{}: {err}", target.dest)),
+            }
+        }
+        // Name every interface tried and why it failed: on an untested desktop this log is what
+        // turns "the screen still blanks" into a report naming the missing interface.
+        log::info!(
+            "wakelock: no session idle inhibitor answered, so the compositor may still blank this \
+             screen ({})",
+            refused.join("; ")
+        );
+        None
+    }
+}
+
+impl Drop for SessionIdleInhibit {
+    fn drop(&mut self) {
+        let proxy = self.conn.with_proxy(
+            self.target.dest,
+            self.target.path,
+            std::time::Duration::from_secs(3),
+        );
+        // Best effort: the session manager ties the inhibit to the caller's bus name, so dropping
+        // `conn` below releases it even if this call does not get through.
+        let res: Result<(), dbus::Error> =
+            proxy.method_call(self.target.iface, self.target.uninhibit, (self.cookie,));
+        if let Err(err) = res {
+            log::debug!("wakelock: releasing the idle inhibit by closing the bus instead ({err})");
+        }
+    }
+}
+
+pub struct WakeLock(Option<keepawake::AwakeHandle>, Option<SessionIdleInhibit>);
 
 impl WakeLock {
     pub fn new(display: bool, idle: bool, sleep: bool) -> Self {
-        WakeLock(
-            keepawake::Builder::new()
-                .display(display)
-                .idle(idle)
-                .sleep(sleep)
-                .create()
-                .ok(),
-        )
+        match keepawake::Builder::new()
+            .display(display)
+            .idle(idle)
+            .sleep(sleep)
+            .create()
+        {
+            Ok(handle) => WakeLock(Some(handle), None),
+            Err(err) => {
+                // Not `.ok()`: a discarded error is how a login screen ran with no inhibitor at
+                // all and nobody noticed.
+                log::info!("wakelock: keepawake could not take the inhibit ({err})");
+                // keepawake asks for the ScreenSaver inhibit first and abandons the whole request
+                // if it fails, losing the logind idle/sleep inhibits that stop the HOST suspending
+                // mid-session. Re-ask without the display part: those are on the system bus.
+                let system = if idle || sleep {
+                    match keepawake::Builder::new()
+                        .display(false)
+                        .idle(idle)
+                        .sleep(sleep)
+                        .create()
+                    {
+                        Ok(handle) => Some(handle),
+                        Err(err) => {
+                            log::info!(
+                                "wakelock: the logind idle/sleep inhibit did not come back \
+                                 either ({err})"
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                let session = if display {
+                    SessionIdleInhibit::new("incoming session")
+                } else {
+                    None
+                };
+                WakeLock(system, session)
+            }
+        }
     }
 }
 

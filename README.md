@@ -122,6 +122,8 @@ Download stable packages from **[GitHub Releases](https://github.com/zibo-chen/S
 
 As with any remote-control software, expose the listening port only to trusted networks, use a strong unique password, and verify fingerprints through a separate trusted channel when possible.
 
+See the [SubnetDesk Privacy Policy](PRIVACY.md) for session data, local storage, update requests, and deletion controls.
+
 <a id="build-from-source"></a>
 
 ## 🛠️ Build from source

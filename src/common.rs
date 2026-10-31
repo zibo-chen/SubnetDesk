@@ -8,6 +8,7 @@ use std::{
 
 use serde_json::{json, Map, Value};
 
+use base::{config::keys, message_proto::*};
 #[cfg(not(target_os = "ios"))]
 use hbb_common::whoami;
 use hbb_common::{
@@ -15,11 +16,10 @@ use hbb_common::{
     anyhow::anyhow,
     bail, base64,
     bytes::Bytes,
-    config::{self, keys, LocalConfig},
+    config::{self, LocalConfig},
     futures::future::join_all,
     futures_util::future::poll_fn,
     get_version_number, log,
-    message_proto::*,
     protobuf::{Enum, Message as _},
     sodiumoxide::crypto::{box_, secretbox, sign},
     tokio::{

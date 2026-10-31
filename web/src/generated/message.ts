@@ -795,17 +795,6 @@ export interface VideoFrame {
   display: number;
 }
 
-export interface IdPk {
-  id: string;
-  pk: Uint8Array;
-  /**
-   * DTLS certificate fingerprint of the signer's WebRTC endpoint, signed together with id/pk so
-   * a WebRTC peer's DTLS channel can be bound to its verified identity (defeats a rendezvous/relay
-   * that swaps SDP fingerprints). Empty for non-WebRTC handshakes.
-   */
-  dtls_fingerprint: string;
-}
-
 export interface DisplayInfo {
   x: number;
   y: number;
@@ -1157,11 +1146,6 @@ export interface FileTransferSendRequest {
 
 export enum FileTransferSendRequest_FileType {
   Generic = 0,
-  /**
-   * Printer - Retained for wire compatibility with older clients. New clients ignore it.
-   *
-   * @deprecated
-   */
   Printer = 1,
   UNRECOGNIZED = -1,
 }
@@ -1592,7 +1576,7 @@ export interface MessageBox {
   /**
    * If not empty, msgbox provides a button to following the link.
    * The link here can't be directly http url.
-   * It must be the key of http url configured in peer side or "subnetdesk://*" (jump in app).
+   * It must be the key of http url configed in peer side or "rustdesk://*" (jump in app).
    */
   link: string;
 }
@@ -2492,98 +2476,6 @@ export const VideoFrame: MessageFns<VideoFrame> = {
       ? EncodedVideoFrames.fromPartial(object.av1s)
       : undefined;
     message.display = object.display ?? 0;
-    return message;
-  },
-};
-
-function createBaseIdPk(): IdPk {
-  return { id: "", pk: new Uint8Array(0), dtls_fingerprint: "" };
-}
-
-export const IdPk: MessageFns<IdPk> = {
-  encode(message: IdPk, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.id !== "") {
-      writer.uint32(10).string(message.id);
-    }
-    if (message.pk.length !== 0) {
-      writer.uint32(18).bytes(message.pk);
-    }
-    if (message.dtls_fingerprint !== "") {
-      writer.uint32(26).string(message.dtls_fingerprint);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): IdPk {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseIdPk();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.id = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.pk = reader.bytes();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.dtls_fingerprint = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): IdPk {
-    return {
-      id: isSet(object.id) ? globalThis.String(object.id) : "",
-      pk: isSet(object.pk) ? bytesFromBase64(object.pk) : new Uint8Array(0),
-      dtls_fingerprint: isSet(object.dtls_fingerprint) ? globalThis.String(object.dtls_fingerprint) : "",
-    };
-  },
-
-  toJSON(message: IdPk): unknown {
-    const obj: any = {};
-    if (message.id !== "") {
-      obj.id = message.id;
-    }
-    if (message.pk.length !== 0) {
-      obj.pk = base64FromBytes(message.pk);
-    }
-    if (message.dtls_fingerprint !== "") {
-      obj.dtls_fingerprint = message.dtls_fingerprint;
-    }
-    return obj;
-  },
-
-  create<I extends Exact<DeepPartial<IdPk>, I>>(base?: I): IdPk {
-    return IdPk.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<IdPk>, I>>(object: I): IdPk {
-    const message = createBaseIdPk();
-    message.id = object.id ?? "";
-    message.pk = object.pk ?? new Uint8Array(0);
-    message.dtls_fingerprint = object.dtls_fingerprint ?? "";
     return message;
   },
 };

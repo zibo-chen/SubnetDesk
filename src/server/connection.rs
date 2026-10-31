@@ -30,11 +30,9 @@ use crate::{
 #[cfg(target_os = "android")]
 use hbb_common::protobuf::EnumOrUnknown;
 use hbb_common::{
-    config::{self, keys, Config},
-    fs::{self, can_enable_overwrite_detection, JobType},
+    config::{self, Config},
     futures::{SinkExt, StreamExt},
     get_time, get_version_number,
-    message_proto::option_message::BoolOption,
     sleep, timeout,
     tokio::{
         net::TcpStream,
@@ -42,6 +40,12 @@ use hbb_common::{
         time::{self, Duration, Instant},
     },
     tokio_util::codec::{BytesCodec, Framed},
+};
+use sha2::{Digest, Sha256};
+use base::{
+    config::keys,
+    fs::{self, can_enable_overwrite_detection, JobType},
+    message_proto::{option_message::BoolOption, permission_info::Permission},
 };
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use scrap::android::{call_main_service_key_event, call_main_service_pointer_input};
@@ -341,6 +345,9 @@ pub struct Connection {
     // handle input messages
     video_ack_required: bool,
     lr: LoginRequest,
+    // Authentication retries may update credentials, but not the requested session scope.
+    // A digest, so no peer-controlled strings are retained.
+    login_scope: Option<[u8; 32]>,
     peer_argb: u32,
     session_last_recv_time: Option<Arc<Mutex<Instant>>>,
     chat_unanswered: bool,
@@ -475,7 +482,9 @@ impl Connection {
                 tx: Some(tx),
                 tx_video: Some(tx_video),
             },
-            display_idx: *display_service::PRIMARY_DISPLAY_IDX,
+            // Defer display enumeration until login succeeds. Monitor login replaces this
+            // with the primary index returned with the refreshed display snapshot.
+            display_idx: 0,
             stream,
             server,
             read_jobs: Vec::new(),
@@ -515,6 +524,7 @@ impl Connection {
             tx_input,
             video_ack_required: false,
             lr: Default::default(),
+            login_scope: None,
             peer_argb: 0u32,
             session_last_recv_time: None,
             chat_unanswered: false,
@@ -568,13 +578,9 @@ impl Connection {
             crate::rustdesk_interval(time::interval_at(Instant::now(), TEST_DELAY_TIMEOUT));
         let mut last_recv_time = Instant::now();
 
-        conn.stream.set_send_timeout(
-            if conn.file_transfer.is_some() || conn.port_forward_socket.is_some() || conn.terminal {
-                SEND_TIMEOUT_OTHER
-            } else {
-                SEND_TIMEOUT_VIDEO
-            },
-        );
+        // The connection type is not known until the login request arrives;
+        // `on_message` picks the type-specific timeout then.
+        conn.stream.set_send_timeout(SEND_TIMEOUT_VIDEO);
 
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         std::thread::spawn(move || Self::handle_input(_rx_input, tx_cloned));
@@ -613,6 +619,18 @@ impl Connection {
                             conn.file_transferred = false; //seen
                             conn.send_close_reason_no_retry("").await;
                             conn.on_close("connection manager", true).await;
+                            break;
+                        }
+                        // The connection manager's window went away rather than a person
+                        // disconnecting this peer. End the session exactly as above, but do not
+                        // send the manual close reason: it is the one thing that stops the peer
+                        // from retrying, and on a logout the retry is the whole point - it is
+                        // what puts the peer back on the login screen a moment later.
+                        #[cfg(target_os = "linux")]
+                        ipc::Data::CmWindowClosed => {
+                            conn.chat_unanswered = false; // seen
+                            conn.file_transferred = false; //seen
+                            conn.on_close("connection manager window closed", true).await;
                             break;
                         }
                         ipc::Data::CmErr(e) => {
@@ -1064,6 +1082,13 @@ impl Connection {
                             ipc::Data::Close => {
                                 bail!("Close requested from connection manager");
                             }
+                            // Same end as above: a tunnel must not outlive the window either.
+                            // Only the reason differs, and a port forward carries none - the
+                            // peer sees the tunnel drop and decides for itself.
+                            #[cfg(target_os = "linux")]
+                            ipc::Data::CmWindowClosed => {
+                                bail!("Connection manager window closed");
+                            }
                             ipc::Data::CmErr(e) => {
                                 log::error!("Connection manager error: {e}");
                                 bail!("{e}");
@@ -1453,13 +1478,15 @@ impl Connection {
                 Err(err) => {
                     res.set_error(format!("{}", err));
                 }
-                Ok(displays) => {
+                Ok((displays, primary_display_idx)) => {
                     // For compatibility with old versions, we need to send the displays to the peer.
                     // But the displays may be updated later, before creating the video capturer.
                     #[cfg(target_os = "macos")]
                     {
                         self.retina.set_displays(&displays);
                     }
+                    // A separate primary lookup here could race with display hot-plug.
+                    self.display_idx = primary_display_idx;
                     pi.displays = displays;
                     pi.current_display = self.display_idx as _;
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -1567,8 +1594,8 @@ impl Connection {
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 let _h = try_start_record_cursor_pos();
                 self.auto_disconnect_timer = Self::get_auto_disconenct_timer();
-                s.try_add_primay_video_service();
-                s.add_connection(self.inner.clone(), &noperms);
+                s.try_add_monitor_service(self.display_idx);
+                s.add_monitor_connection(self.inner.clone(), &noperms, self.display_idx);
             }
         }
     }
@@ -1899,6 +1926,17 @@ impl Connection {
             return false;
         }
 
+        self.stream.set_send_timeout(
+            if self.file_transfer.is_some()
+                || self.terminal
+                || matches!(self.lr.union, Some(login_request::Union::PortForward(_)))
+            {
+                SEND_TIMEOUT_OTHER
+            } else {
+                SEND_TIMEOUT_VIDEO
+            },
+        );
+
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         if !should_use_terminal_os_login_scope(self.terminal, &lr.os_login.username) {
             self.try_start_cm_ipc();
@@ -1921,6 +1959,91 @@ impl Connection {
         }
         self.try_start_cm(lr.my_id.clone(), lr.my_name.clone(), true);
         true
+    }
+
+    // Approval and whitelist decisions must stay bound to the same controller identity and
+    // session scope across authentication retries.
+    fn login_scope_digest(lr: &LoginRequest) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        // Length-prefixed so adjacent fields cannot alias.
+        let mut push = |bytes: &[u8]| {
+            hasher.update((bytes.len() as u64).to_le_bytes());
+            hasher.update(bytes);
+        };
+        push(lr.my_id.as_bytes());
+        // Payloads are destructured exhaustively: a new field fails to compile until it is
+        // either latched here or deliberately ignored.
+        match lr.union.as_ref() {
+            Some(login_request::Union::FileTransfer(ft)) => {
+                let FileTransfer {
+                    dir,
+                    show_hidden,
+                    special_fields: _,
+                } = ft;
+                push(b"file_transfer");
+                push(dir.as_bytes());
+                push(&[*show_hidden as u8]);
+            }
+            Some(login_request::Union::ViewCamera(vc)) => {
+                let ViewCamera { special_fields: _ } = vc;
+                push(b"view_camera");
+            }
+            Some(login_request::Union::Terminal(t)) => {
+                let Terminal {
+                    service_id,
+                    special_fields: _,
+                } = t;
+                push(b"terminal");
+                push(service_id.as_bytes());
+            }
+            Some(login_request::Union::PortForward(pf)) => {
+                let PortForward {
+                    host,
+                    port,
+                    multiplex: _,
+                    special_fields: _,
+                } = pf;
+                push(b"port_forward");
+                push(host.as_bytes());
+                push(&port.to_le_bytes());
+            }
+            // Variants this build does not know execute as remote, so they latch as remote.
+            None | Some(_) => push(b"remote"),
+        }
+        hasher.finalize().into()
+    }
+
+    // Logging only; security decisions compare digests.
+    fn login_scope_kind(lr: &LoginRequest) -> &'static str {
+        match lr.union.as_ref() {
+            Some(login_request::Union::FileTransfer(_)) => "file_transfer",
+            Some(login_request::Union::ViewCamera(_)) => "view_camera",
+            Some(login_request::Union::Terminal(_)) => "terminal",
+            Some(login_request::Union::PortForward(_)) => "port_forward",
+            _ => "remote",
+        }
+    }
+
+    async fn check_login_scope(&mut self, lr: &LoginRequest) -> bool {
+        let requested = Self::login_scope_digest(lr);
+        match self.login_scope {
+            Some(initial) if initial != requested => {
+                // self.lr still holds the first accepted request, whose scope is the latched one.
+                log::warn!(
+                    "Rejected login scope change: conn_id={}, initial={}, requested={}",
+                    self.inner.id(),
+                    Self::login_scope_kind(&self.lr),
+                    Self::login_scope_kind(lr),
+                );
+                self.send_login_error("Connection not allowed").await;
+                false
+            }
+            Some(_) => true,
+            None => {
+                self.login_scope = Some(requested);
+                true
+            }
+        }
     }
 
     async fn handle_login_request_without_validation(&mut self, lr: &LoginRequest) {
@@ -1980,6 +2103,9 @@ impl Connection {
         }
         // After handling CloseReason messages, proceed to process other message types
         if let Some(message::Union::LoginRequest(lr)) = msg.union {
+            if !self.check_login_scope(&lr).await {
+                return false;
+            }
             self.handle_login_request_without_validation(&lr).await;
             if self.authorized {
                 return true;
@@ -3271,7 +3397,9 @@ impl Connection {
         let display_idx = s.display as usize;
         if self.display_idx != display_idx {
             if let Some(server) = self.server.upgrade() {
-                self.switch_display_to(display_idx, server.clone());
+                if !self.switch_display_to(display_idx, server.clone()) {
+                    return;
+                }
 
                 #[cfg(not(any(target_os = "android", target_os = "ios")))]
                 if !self.view_camera && s.width != 0 && s.height != 0 {
@@ -3298,6 +3426,13 @@ impl Connection {
         }
     }
 
+    fn video_source_count(video_source: VideoSource) -> usize {
+        match video_source {
+            VideoSource::Monitor => display_service::get_sync_displays().len(),
+            VideoSource::Camera => camera::Cameras::get_sync_cameras().len(),
+        }
+    }
+
     fn video_source(&self) -> VideoSource {
         if self.view_camera {
             VideoSource::Camera
@@ -3306,18 +3441,28 @@ impl Connection {
         }
     }
 
-    fn switch_display_to(&mut self, display_idx: usize, server: Arc<RwLock<Server>>) {
+    fn switch_display_to(&mut self, display_idx: usize, server: Arc<RwLock<Server>>) -> bool {
+        let source_count = Self::video_source_count(self.video_source());
+        if display_idx >= source_count {
+            // Do not remap an explicit switch: its resolution belongs to the requested source.
+            log::warn!(
+                "Ignore switch to invalid {:?} index {}, available source count: {}",
+                self.video_source(),
+                display_idx,
+                source_count
+            );
+            return false;
+        }
+
         let new_service_name = video_service::get_service_name(self.video_source(), display_idx);
         let old_service_name =
             video_service::get_service_name(self.video_source(), self.display_idx);
         let mut lock = server.write().unwrap();
-        if display_idx != *display_service::PRIMARY_DISPLAY_IDX {
-            if !lock.contains(&new_service_name) {
-                lock.add_service(Box::new(video_service::new(
-                    self.video_source(),
-                    display_idx,
-                )));
-            }
+        if !lock.contains(&new_service_name) {
+            lock.add_service(Box::new(video_service::new(
+                self.video_source(),
+                display_idx,
+            )));
         }
         // For versions greater than 1.2.4, a `CaptureDisplays` message will be sent immediately.
         // Unnecessary capturers will be removed then.
@@ -3326,6 +3471,7 @@ impl Connection {
         }
         lock.subscribe(&new_service_name, self.inner.clone(), true);
         self.display_idx = display_idx;
+        true
     }
 
     #[cfg(windows)]
@@ -3352,26 +3498,61 @@ impl Connection {
 
     async fn capture_displays(&mut self, add: &[usize], sub: &[usize], set: &[usize]) {
         let video_source = self.video_source();
-        if let Some(sever) = self.server.upgrade() {
-            let mut lock = sever.write().unwrap();
-            for display in add.iter() {
+        let source_count = Self::video_source_count(video_source);
+        // Only add/set can create services; sub only narrows existing subscriptions.
+        let valid_add = add
+            .iter()
+            .copied()
+            .filter(|display| *display < source_count)
+            .collect::<Vec<_>>();
+        let valid_sub = sub
+            .iter()
+            .copied()
+            .filter(|display| *display < source_count)
+            .collect::<Vec<_>>();
+        let valid_set = set
+            .iter()
+            .copied()
+            .filter(|display| *display < source_count)
+            .collect::<Vec<_>>();
+        let invalid_count =
+            add.len() + sub.len() + set.len() - valid_add.len() - valid_sub.len() - valid_set.len();
+        if invalid_count != 0 {
+            log::warn!(
+                "Ignore {} invalid {:?} indices, available source count: {}",
+                invalid_count,
+                video_source,
+                source_count
+            );
+        }
+        // Passing an invalid sub request as an empty exclude list would unsubscribe all services.
+        if (!add.is_empty() && valid_add.is_empty())
+            || (add.is_empty() && !sub.is_empty() && valid_sub.is_empty())
+            || (add.is_empty() && sub.is_empty() && !set.is_empty() && valid_set.is_empty())
+        {
+            return;
+        }
+
+        if let Some(server) = self.server.upgrade() {
+            let mut lock = server.write().unwrap();
+            for display in valid_add.iter() {
                 let service_name = video_service::get_service_name(video_source, *display);
                 if !lock.contains(&service_name) {
                     lock.add_service(Box::new(video_service::new(video_source, *display)));
                 }
             }
-            for display in set.iter() {
+            for display in valid_set.iter() {
                 let service_name = video_service::get_service_name(video_source, *display);
                 if !lock.contains(&service_name) {
                     lock.add_service(Box::new(video_service::new(video_source, *display)));
                 }
             }
             if !add.is_empty() {
-                lock.capture_displays(self.inner.clone(), video_source, add, true, false);
+                lock.capture_displays(self.inner.clone(), video_source, &valid_add, true, false);
             } else if !sub.is_empty() {
-                lock.capture_displays(self.inner.clone(), video_source, sub, false, true);
+                lock.capture_displays(self.inner.clone(), video_source, &valid_sub, false, true);
             } else {
-                lock.capture_displays(self.inner.clone(), video_source, set, true, true);
+                lock.capture_displays(self.inner.clone(), video_source, &valid_set, true, true);
             }
             self.multi_ui_session = lock.get_subbed_displays_count(self.inner.id()) > 1;
             if self.follow_remote_window {
@@ -3925,7 +4106,11 @@ impl Connection {
         // But it's not necessary now and we have to consider two audio services(client, server).
         crate::audio_service::set_voice_call_input_device(None, true);
         log::info!("#{} Connection closed: {}", self.inner.id(), reason);
-        if lock && self.lock_after_session_end && self.keyboard {
+        if lock
+            && self.lock_after_session_end
+            && self.keyboard
+            && !raii::AuthedConnID::session_reconnected(self.inner.id(), &self.session_key())
+        {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             lock_screen().await;
         }
@@ -4775,6 +4960,7 @@ impl Connection {
             Some(misc::Union::ChangeDisplayResolution(_)) => "misc.change_display_resolution",
             Some(misc::Union::MessageQuery(_)) => "misc.message_query",
             Some(misc::Union::FollowCurrentDisplay(_)) => "misc.follow_current_display",
+            Some(misc::Union::SwitchSidesRequest(_)) => "misc.switch_sides_request",
             Some(_) => "misc.other",
             None => "misc.empty",
         }
@@ -4789,7 +4975,7 @@ impl Connection {
             "Process clipboard message from clip, stop: {}, is_stopping_allowed: {}, file_transfer_enabled: {}",
             stop, is_stopping_allowed, file_transfer_enabled);
         if !stop {
-            use hbb_common::config::keys::OPTION_ONE_WAY_FILE_TRANSFER;
+            use base::config::keys::OPTION_ONE_WAY_FILE_TRANSFER;
             // Note: Code will not reach here if `crate::get_builtin_option(OPTION_ONE_WAY_FILE_TRANSFER) == "Y"` is true.
             // Because `file-clipboard` service will not be subscribed.
             // But we still check it here to keep the same logic to windows version in `ui_cm_interface.rs`.
@@ -5477,6 +5663,21 @@ mod raii {
     pub struct AuthedConnID(i32, AuthConnType);
 
     impl AuthedConnID {
+        pub(super) fn is_newer_session_remote(c: &AuthedConn, id: i32, key: &SessionKey) -> bool {
+            c.conn_id > id && c.conn_type == AuthConnType::Remote && &c.session_key == key
+        }
+
+        /// Whether a newer remote control connection of this session has replaced this one. A
+        /// controlling peer whose link dies reconnects while the connection it left behind runs
+        /// on here until its own timeout; locking for that one would lock a session that has
+        /// already resumed on its replacement.
+        pub fn session_reconnected(id: i32, key: &SessionKey) -> bool {
+            let conns = AUTHED_CONNS.lock().unwrap();
+            conns
+                .iter()
+                .any(|c| Self::is_newer_session_remote(c, id, key))
+        }
+
         pub fn new(conn_id: i32, conn_type: AuthConnType, session_key: SessionKey) -> Self {
             AUTHED_CONNS.lock().unwrap().push(AuthedConn {
                 conn_id,
@@ -5654,6 +5855,58 @@ mod test {
     #[allow(unused)]
     use super::*;
 
+    #[test]
+    fn login_scope_latches_session_scope_across_login_retries() {
+        let port_forward = |host: &str| {
+            let mut lr = LoginRequest::new();
+            lr.my_id = "peer".to_owned();
+            lr.set_port_forward(PortForward {
+                host: host.to_owned(),
+                port: 3389,
+                ..Default::default()
+            });
+            lr
+        };
+        let first = port_forward("localhost");
+        let scope = |lr: &LoginRequest| Connection::login_scope_digest(lr);
+
+        // A retry may carry new credentials, profile data, options, and unknown fields.
+        let mut retry = port_forward("localhost");
+        retry.password = "secret".into();
+        retry.hwid = "hwid".into();
+        retry.os_login = Some(OSLogin {
+            username: "admin".to_owned(),
+            ..Default::default()
+        })
+        .into();
+        retry.my_name = "New Display Name".to_owned();
+        retry.avatar = "data:image/png;base64,AAAA".to_owned();
+        retry
+            .special_fields
+            .mut_unknown_fields()
+            .add_varint(9999, 1);
+        assert_eq!(scope(&first), scope(&retry));
+
+        // It may not change the controller identity, move the target, or switch type.
+        let mut rotated_id = first.clone();
+        rotated_id.my_id = "rotated-id".to_owned();
+        assert_ne!(scope(&first), scope(&rotated_id));
+        assert_ne!(scope(&first), scope(&port_forward("10.0.0.5")));
+        let mut moved_port = port_forward("localhost");
+        moved_port.mut_port_forward().port = 22;
+        assert_ne!(scope(&first), scope(&moved_port));
+        let terminal = |service_id: &str| {
+            let mut lr = LoginRequest::new();
+            lr.my_id = "peer".to_owned();
+            lr.set_terminal(Terminal {
+                service_id: service_id.to_owned(),
+                ..Default::default()
+            });
+            lr
+        };
+        assert_ne!(scope(&first), scope(&terminal("")));
+        assert_ne!(scope(&terminal("a")), scope(&terminal("b")));
+    }
     #[cfg(target_os = "macos")]
     #[test]
     fn retina() {
@@ -5754,6 +6007,10 @@ mod test {
                         misc_msg(|m| m.set_capture_displays(CaptureDisplays::new())),
                         Some("misc.capture_displays"),
                     ),
+                    (
+                        misc_msg(|m| m.set_switch_sides_request(SwitchSidesRequest::new())),
+                        Some("misc.switch_sides_request"),
+                    ),
                     (msg(|m| m.set_clipboard(Clipboard::new())), None),
                     (
                         msg(|m| m.set_multi_clipboards(MultiClipboards::new())),
@@ -5797,6 +6054,10 @@ mod test {
                     (
                         misc_msg(|m| m.set_toggle_privacy_mode(TogglePrivacyMode::new())),
                         Some("misc.toggle_privacy_mode"),
+                    ),
+                    (
+                        misc_msg(|m| m.set_switch_sides_request(SwitchSidesRequest::new())),
+                        Some("misc.switch_sides_request"),
                     ),
                     (misc_msg(|m| m.set_chat_message(ChatMessage::new())), None),
                     (msg(|m| m.set_clipboard(Clipboard::new())), None),
@@ -5883,6 +6144,10 @@ mod test {
                         msg(|m| m.set_terminal_action(TerminalAction::new())),
                         Some("terminal_action"),
                     ),
+                    (
+                        misc_msg(|m| m.set_switch_sides_request(SwitchSidesRequest::new())),
+                        Some("misc.switch_sides_request"),
+                    ),
                 ],
             ),
             (
@@ -5893,6 +6158,10 @@ mod test {
                         None,
                     ),
                     (msg(|m| m.set_terminal_action(TerminalAction::new())), None),
+                    (
+                        misc_msg(|m| m.set_switch_sides_request(SwitchSidesRequest::new())),
+                        None,
+                    ),
                 ],
             ),
             (
@@ -5911,6 +6180,10 @@ mod test {
                     (
                         msg(|m| m.set_screenshot_request(ScreenshotRequest::new())),
                         Some("screenshot_request"),
+                    ),
+                    (
+                        misc_msg(|m| m.set_switch_sides_request(SwitchSidesRequest::new())),
+                        Some("misc.switch_sides_request"),
                     ),
                     (misc_msg(|m| m.set_refresh_video(true)), None),
                     (misc_msg(|m| m.set_refresh_video_display(0)), None),
@@ -6043,5 +6316,38 @@ mod test {
         assert!(!collaboration.restart);
         assert!(web_permission_set_for_transport(false, "view-only").is_none());
         assert!(web_permission_set_for_transport(true, "view-only").is_some());
+    }
+
+    #[test]
+    fn only_a_newer_remote_control_of_the_same_session_keeps_the_screen_unlocked() {
+        let replaced_by = super::raii::AuthedConnID::is_newer_session_remote;
+
+        let key = |session_id, peer: &str| SessionKey {
+            peer_id: peer.to_owned(),
+            name: "".to_owned(),
+            session_id,
+        };
+        let conn = |conn_id, conn_type, session_key| AuthedConn {
+            conn_id,
+            conn_type,
+            session_key,
+        };
+        let mine = key(7, "peer");
+        let remote = AuthConnType::Remote;
+
+        assert!(replaced_by(&conn(3, remote, mine.clone()), 2, &mine));
+        // An older one, and itself: of connections ending at once only the last still locks.
+        assert!(!replaced_by(&conn(1, remote, mine.clone()), 2, &mine));
+        assert!(!replaced_by(&conn(2, remote, mine.clone()), 2, &mine));
+        // A kind that keeps no screen in use.
+        assert!(!replaced_by(
+            &conn(3, AuthConnType::Terminal, mine.clone()),
+            2,
+            &mine
+        ));
+        // Another session of this peer, and another peer on the same session id: `SessionKey`
+        // is all three fields, and either of those is someone else's screen to lock.
+        assert!(!replaced_by(&conn(3, remote, key(8, "peer")), 2, &mine));
+        assert!(!replaced_by(&conn(3, remote, key(7, "other")), 2, &mine));
     }
 }

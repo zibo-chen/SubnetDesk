@@ -4,7 +4,8 @@ use crate::{
     flutter::{self, APP_TYPE_CM, APP_TYPE_MAIN, SESSIONS},
     ui_interface::get_api_server,
 };
-use hbb_common::{lazy_static, log, message_proto::PluginRequest};
+use base::message_proto::PluginRequest;
+use hbb_common::{lazy_static, log};
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
 use std::{

@@ -5,20 +5,24 @@ use crate::ipc::{self, Data};
 #[cfg(target_os = "windows")]
 use crate::{clipboard::ClipboardSide, ipc::ClipboardNonFile};
 #[cfg(target_os = "windows")]
-use clipboard::ContextSend;
+use base::config::keys::*;
 #[cfg(not(any(target_os = "ios")))]
-use hbb_common::fs::serialize_transfer_job;
+use base::fs::serialize_transfer_job;
+use base::{
+    config::keys::{OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW, OPTION_FILE_TRANSFER_MAX_FILES},
+    fs::{self, get_string, is_write_need_confirmation, new_send_confirm, DigestCheckResult},
+    message_proto::*,
+};
+#[cfg(target_os = "windows")]
+use clipboard::ContextSend;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use hbb_common::tokio::sync::mpsc::unbounded_channel;
+#[cfg(target_os = "windows")]
+use hbb_common::tokio::sync::Mutex as TokioMutex;
 use hbb_common::{
     allow_err, bail,
-    config::{
-        keys::{OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW, OPTION_FILE_TRANSFER_MAX_FILES},
-        option2bool, Config,
-    },
-    fs::{self, get_string, is_write_need_confirmation, new_send_confirm, DigestCheckResult},
+    config::{option2bool, Config},
     log,
-    message_proto::*,
     protobuf::Message as _,
     tokio::{
         self,
@@ -27,8 +31,6 @@ use hbb_common::{
     },
     ResultType,
 };
-#[cfg(target_os = "windows")]
-use hbb_common::{config::keys::*, tokio::sync::Mutex as TokioMutex};
 use serde_derive::Serialize;
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
 use std::iter::FromIterator;
@@ -365,6 +367,15 @@ pub fn get_click_time() -> i64 {
 pub fn close(id: i32) {
     if let Some(client) = CLIENTS.read().unwrap().get(&id) {
         allow_err!(client.tx.send(Data::Close));
+    };
+}
+
+/// Like `close`, but says the CM's WINDOW closed rather than a person disconnecting this peer.
+/// See `ipc::Data::CmWindowClosed`.
+#[cfg(target_os = "linux")]
+pub fn close_window(id: i32) {
+    if let Some(client) = CLIENTS.read().unwrap().get(&id) {
+        allow_err!(client.tx.send(Data::CmWindowClosed));
     };
 }
 
@@ -989,7 +1000,10 @@ async fn handle_fs(
                     ..Default::default()
                 };
                 if let Some(file) = job.files().get(file_num as usize) {
-                    let fs::DataSource::FilePath(p) = &job.data_source;
+                    let fs::DataSource::FilePath(p) = &job.data_source else {
+                        // In-memory transfer jobs have no on-disk path.
+                        return;
+                    };
                     let path = get_string(&fs::TransferJob::join(p, &file.name));
                     match is_write_need_confirmation(is_resume, &path, &digest) {
                         Ok(digest_result) => {
@@ -1223,7 +1237,7 @@ async fn start_read_job(
 /// Process read jobs periodically, reading file blocks and sending them via IPC.
 ///
 /// NOTE: This is the CM-side equivalent of `handle_read_jobs()` in
-/// `libs/hbb_common/src/fs.rs`. The logic mirrors that implementation
+/// `libs/base/src/fs.rs`. The logic mirrors that implementation
 /// but communicates via IPC instead of direct network stream.
 /// When modifying job processing logic, ensure both implementations stay in sync.
 #[cfg(not(any(target_os = "ios")))]
@@ -1322,7 +1336,7 @@ async fn handle_read_jobs_tick(
 /// Initialize a read job's data stream and handle digest sending for overwrite detection.
 ///
 /// NOTE: This is the CM-side equivalent of `TransferJob::init_data_stream()` in
-/// `libs/hbb_common/src/fs.rs`. It calls `init_data_stream_for_cm()` and sends
+/// `libs/base/src/fs.rs`. It calls `init_data_stream_for_cm()` and sends
 /// digest via IPC instead of direct network stream.
 /// When modifying initialization or digest logic, ensure both paths stay in sync.
 #[cfg(not(any(target_os = "ios")))]
@@ -1424,13 +1438,19 @@ async fn read_dir(dir: &str, include_hidden: bool, tx: &UnboundedSender<Data>) {
             fs::get_path(dir)
         }
     };
-    if let Ok(Ok(fd)) = spawn_blocking(move || fs::read_dir(&path, include_hidden)).await {
-        let mut msg_out = Message::new();
-        let mut file_response = FileResponse::new();
-        file_response.set_dir(fd);
-        msg_out.set_file_response(file_response);
-        send_raw(msg_out, tx);
-    }
+    let result = spawn_blocking(move || fs::read_dir(&path, include_hidden)).await;
+    let msg_out = match result {
+        Ok(Ok(fd)) => {
+            let mut msg_out = Message::new();
+            let mut file_response = FileResponse::new();
+            file_response.set_dir(fd);
+            msg_out.set_file_response(file_response);
+            msg_out
+        }
+        Ok(Err(err)) => fs::new_error(0, err, -1),
+        Err(err) => fs::new_error(0, err, -1),
+    };
+    send_raw(msg_out, tx);
 }
 
 #[cfg(not(any(target_os = "ios")))]
@@ -1573,6 +1593,19 @@ pub fn quit_cm() {
     // in case of std::process::exit not work
     log::info!("quit cm");
     CLIENTS.write().unwrap().clear();
+    // `quit_gui()` ends the process on Windows and macOS, but on Linux it calls
+    // `gtk_main_quit()`, which has no effect in the Flutter connection manager:
+    // `flutter/linux/main.cc` runs `g_application_run()` (GtkApplication), so
+    // `gtk_main()` is never called. Exit directly instead, otherwise this
+    // process keeps running while no longer serving the `_cm` ipc endpoint, so
+    // the server can't reuse it and spawns one more connection manager.
+    //
+    // NOTE: a client merely disconnecting does not come here, the Flutter side
+    // closes the window then, so this is a fallback rather than an explanation
+    // for the stale processes of #15698.
+    #[cfg(all(target_os = "linux", feature = "flutter"))]
+    std::process::exit(0);
+    #[cfg(not(all(target_os = "linux", feature = "flutter")))]
     crate::platform::quit_gui();
 }
 
@@ -1581,10 +1614,8 @@ mod tests {
     use super::*;
 
     use crate::ipc::Data;
-    use hbb_common::{
-        message_proto::{FileDirectory, Message},
-        tokio::{runtime::Runtime, sync::mpsc::unbounded_channel},
-    };
+    use base::message_proto::{FileDirectory, Message};
+    use hbb_common::tokio::{runtime::Runtime, sync::mpsc::unbounded_channel};
     use std::fs;
 
     #[test]
@@ -1615,7 +1646,7 @@ mod tests {
 
     #[test]
     #[cfg(not(any(target_os = "ios")))]
-    fn read_dir_success() {
+    fn read_dir_reports_success_and_error() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let (tx, mut rx) = unbounded_channel();
@@ -1638,6 +1669,18 @@ mod tests {
                 _ => panic!("unexpected data"),
             }
             let _ = fs::remove_dir_all(&dir);
+
+            super::read_dir(&dir.to_string_lossy(), false, &tx).await;
+
+            match rx.recv().await.unwrap() {
+                Data::RawMessage(bytes) => {
+                    let mut msg = Message::new();
+                    msg.merge_from_bytes(&bytes).unwrap();
+                    assert_eq!(msg.file_response().error().id, 0);
+                    assert!(!msg.file_response().error().error.is_empty());
+                }
+                _ => panic!("unexpected data"),
+            }
         });
     }
 

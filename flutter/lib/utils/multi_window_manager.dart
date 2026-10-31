@@ -194,7 +194,23 @@ class RustDeskMultiWindowManager {
             type, remoteId, msg, windows, screenRect != null);
         return MultiWindowCallResult(windowId, null);
       } else {
-        return call(type, methodName, msg);
+        // Reusing an existing tabbed window: `call` only pushes the new tab
+        // into that window's isolate over IPC, it never asks the window
+        // manager to show/focus it. Unlike the non-tabs branch below (which
+        // does call `.show()` for its reuse case), this path had no
+        // activation call at all, so a new tab silently landed in an
+        // already-open-but-backgrounded window until the user separately
+        // interacted with something else (e.g. the tray) to bring it
+        // forward -- reported as the tray favorites "lag" happening even
+        // when a session window is already open, not just on cold start.
+        final result = await call(type, methodName, msg);
+        if (result.windowId != kInvalidWindowId) {
+          final controller = WindowController.fromWindowId(result.windowId);
+          await controller.show();
+          await controller.focus();
+          await activateWindowWorkaroundLinux();
+        }
+        return result;
       }
     } else {
       if (_inactiveWindows.isNotEmpty) {

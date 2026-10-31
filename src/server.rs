@@ -15,10 +15,10 @@ use hbb_common::{
     bytes::Bytes,
     config::Config,
     log,
-    message_proto::*,
     protobuf::{Enum, Message as _},
     timeout, tokio, ResultType, Stream,
 };
+use base::message_proto::*;
 use scrap::camera;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use service::ServiceTmpl;
@@ -103,6 +103,11 @@ pub struct Server {
     connections: ConnMap,
     services: HashMap<String, Box<dyn Service>>,
     id_count: i32,
+    // Which connection ids were added as screen/monitor viewers (as opposed
+    // to camera-only connections), so `remove_connection` can tell whether a
+    // disconnecting connection should affect display power-save state at all.
+    #[cfg(target_os = "linux")]
+    monitor_conn_ids: std::collections::HashSet<i32>,
 }
 
 pub type ServerPtr = Arc<RwLock<Server>>;
@@ -113,6 +118,8 @@ pub fn new() -> ServerPtr {
         connections: HashMap::new(),
         services: HashMap::new(),
         id_count: hbb_common::rand::random::<i32>() % 1000 + 1000, // ensure positive
+        #[cfg(target_os = "linux")]
+        monitor_conn_ids: Default::default(),
     };
     server.add_service(Box::new(audio_service::new()));
     #[cfg(not(target_os = "ios"))]
@@ -194,15 +201,13 @@ impl Server {
         }
     }
 
-    pub fn try_add_primay_video_service(&mut self) {
-        let primary_video_service_name = video_service::get_service_name(
-            VideoSource::Monitor,
-            *display_service::PRIMARY_DISPLAY_IDX,
-        );
-        if !self.contains(&primary_video_service_name) {
+    pub fn try_add_monitor_service(&mut self, display_idx: usize) {
+        let monitor_service_name =
+            video_service::get_service_name(VideoSource::Monitor, display_idx);
+        if !self.contains(&monitor_service_name) {
             self.add_service(Box::new(video_service::new(
                 VideoSource::Monitor,
-                *display_service::PRIMARY_DISPLAY_IDX,
+                display_idx,
             )));
         }
     }
@@ -218,14 +223,17 @@ impl Server {
         self.connections.insert(conn.id(), conn);
     }
 
-    pub fn add_connection(&mut self, conn: ConnInner, noperms: &Vec<&'static str>) {
-        let primary_video_service_name = video_service::get_service_name(
-            VideoSource::Monitor,
-            *display_service::PRIMARY_DISPLAY_IDX,
-        );
+    pub fn add_monitor_connection(
+        &mut self,
+        conn: ConnInner,
+        noperms: &Vec<&'static str>,
+        display_idx: usize,
+    ) {
+        let monitor_service_name =
+            video_service::get_service_name(VideoSource::Monitor, display_idx);
         for s in self.services.values() {
             let name = s.name();
-            if Self::is_video_service_name(&name) && name != primary_video_service_name {
+            if Self::is_video_service_name(&name) && name != monitor_service_name {
                 continue;
             }
             if !noperms.contains(&(&name as _)) {
@@ -234,6 +242,16 @@ impl Server {
         }
         #[cfg(target_os = "macos")]
         self.update_enable_retina();
+        // A locked-and-powered-down screen (e.g. a user's own power-save
+        // script) has no frames to capture; wake it so this connection
+        // actually gets an image instead of hanging on "waiting for
+        // image..." forever. See dbus::wake_display_if_locked for details.
+        #[cfg(target_os = "linux")]
+        {
+            self.monitor_conn_ids.insert(conn.id());
+            dbus::note_monitor_connected();
+            dbus::wake_display_if_locked();
+        }
         self.connections.insert(conn.id(), conn);
     }
 
@@ -244,6 +262,14 @@ impl Server {
         self.connections.remove(&conn.id());
         #[cfg(target_os = "macos")]
         self.update_enable_retina();
+        // Restore the power-saving behavior once no monitor viewers remain
+        // (a camera-only connection never wakes the display, so it should
+        // never trigger a re-blank either), if the screen is still locked.
+        // See dbus::reblank_display_if_still_locked.
+        #[cfg(target_os = "linux")]
+        if self.monitor_conn_ids.remove(&conn.id()) && dbus::note_monitor_disconnected() <= 0 {
+            dbus::reblank_display_if_still_locked();
+        }
     }
 
     pub fn close_connections(&mut self) {
@@ -420,7 +446,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
             log::info!("XAUTHORITY={:?}", std::env::var("XAUTHORITY"));
         }
         #[cfg(windows)]
-        hbb_common::platform::windows::start_cpu_performance_monitor();
+        base::platform::windows::start_cpu_performance_monitor();
     });
 
     if is_server {

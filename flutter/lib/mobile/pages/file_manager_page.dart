@@ -360,8 +360,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
           return BottomSheetBody(
             leading: CircularProgressIndicator(),
             title: translate("Waiting"),
-            text:
-                "${translate("Speed")}:  ${readableFileSize(activeJob.speed)}/s",
+            text: "${readableFileSize(activeJob.speed)}/s",
             onCanceled: () {
               model.jobController.cancelJob(activeJob.id);
               jobTable.clear();

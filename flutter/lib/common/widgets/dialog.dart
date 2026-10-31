@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
@@ -1157,66 +1158,154 @@ customImageQualityDialog(SessionID sessionId, String id, FFI ffi) async {
   msgBoxCommon(ffi.dialogManager, 'Custom Image Quality', content, [btnClose]);
 }
 
-trackpadSpeedDialog(SessionID sessionId, FFI ffi) async {
-  int initSpeed = ffi.inputModel.trackpadSpeed;
-  final curSpeed = SimpleWrapper(initSpeed);
-  final btnClose = dialogButton(
-    'Close',
-    onPressed: () async {
-      if (curSpeed.value <= kMaxTrackpadSpeed &&
-          curSpeed.value >= kMinTrackpadSpeed &&
-          curSpeed.value != initSpeed) {
-        await bind.sessionSetTrackpadSpeed(
-          sessionId: sessionId,
-          value: curSpeed.value,
-        );
-        await ffi.inputModel.updateTrackpadSpeed();
-      }
-      ffi.dialogManager.dismissAll();
-    },
-  );
-  msgBoxCommon(
-    ffi.dialogManager,
-    'Trackpad speed',
-    TrackpadSpeedWidget(value: curSpeed),
-    [btnClose],
+int? _validateTrackpadSpeed(String text) {
+  final speed = int.tryParse(text);
+  if (speed == null || speed < kMinTrackpadSpeed || speed > kMaxTrackpadSpeed) {
+    BotToast.showText(
+      text:
+          '${translate('Invalid format')}: $kMinTrackpadSpeed-$kMaxTrackpadSpeed',
+      contentColor: Colors.red,
+    );
+    return null;
+  }
+  return speed;
+}
+
+Future<void> _saveTrackpadSpeed({
+  required SessionID sessionId,
+  required FFI ffi,
+  required int initSpeed,
+  required int speed,
+}) async {
+  if (speed == initSpeed) {
+    return;
+  }
+  await bind.sessionSetTrackpadSpeed(sessionId: sessionId, value: speed);
+  await ffi.inputModel.updateTrackpadSpeed();
+}
+
+void _showTrackpadSpeedSaveError(Object error, StackTrace stackTrace) {
+  debugPrint('Failed to save trackpad speed: $error');
+  debugPrintStack(stackTrace: stackTrace);
+  BotToast.showText(
+    text: translate('Failed'),
+    contentColor: Colors.red,
   );
 }
 
-void deleteConfirmDialog(Function onSubmit, String title) async {
-  gFFI.dialogManager.show((setState, close, context) {
-    submit() async {
-      await onSubmit();
-      close();
+List<Widget> _trackpadSpeedDialogActions({
+  required bool isSubmitting,
+  required VoidCallback close,
+  required VoidCallback submit,
+}) {
+  return [
+    dialogButton(
+      'Cancel',
+      icon: Icon(Icons.close_rounded),
+      onPressed: isSubmitting ? null : close,
+      isOutline: true,
+    ),
+    dialogButton(
+      'OK',
+      icon: Icon(Icons.done_rounded),
+      onPressed: isSubmitting ? null : submit,
+    ),
+  ];
+}
+
+void trackpadSpeedDialog(SessionID sessionId, FFI ffi) {
+  final initSpeed = ffi.inputModel.trackpadSpeed;
+  final curSpeed = SimpleWrapper(initSpeed);
+  var speedText = initSpeed.toString();
+  var isSubmitting = false;
+  ffi.dialogManager.show((setState, close, context) {
+    Future<void> submit([String? submittedText]) async {
+      if (isSubmitting) {
+        return;
+      }
+      speedText = submittedText ?? speedText;
+      final speed = _validateTrackpadSpeed(speedText);
+      if (speed == null) {
+        return;
+      }
+      setState(() => isSubmitting = true);
+      try {
+        await _saveTrackpadSpeed(
+          sessionId: sessionId,
+          ffi: ffi,
+          initSpeed: initSpeed,
+          speed: speed,
+        );
+        close();
+      } catch (error, stackTrace) {
+        _showTrackpadSpeedSaveError(error, stackTrace);
+        setState(() => isSubmitting = false);
+      }
     }
 
     return CustomAlertDialog(
-      title: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.delete_rounded, color: Colors.red),
-          Expanded(
-            child: Text(
-              title,
-              overflow: TextOverflow.ellipsis,
-            ).paddingOnly(left: 10),
-          ),
-        ],
+      title: Text(
+        translate('Trackpad speed'),
+        style: TextStyle(fontSize: 21),
       ),
-      content: SizedBox.shrink(),
-      actions: [
-        dialogButton(
-          "Cancel",
-          icon: Icon(Icons.close_rounded),
-          onPressed: close,
-          isOutline: true,
-        ),
-        dialogButton("OK", icon: Icon(Icons.done_rounded), onPressed: submit),
-      ],
-      onSubmit: submit,
-      onCancel: close,
+      content: TrackpadSpeedWidget(
+        value: curSpeed,
+        onTextChanged: (text) => speedText = text,
+        onTextSubmitted: submit,
+      ),
+      actions: _trackpadSpeedDialogActions(
+        isSubmitting: isSubmitting,
+        close: close,
+        submit: submit,
+      ),
+      onSubmit: isSubmitting ? null : submit,
+      onCancel: isSubmitting ? null : close,
     );
   });
+}
+
+void deleteConfirmDialog(Function onSubmit, String title) async {
+  gFFI.dialogManager.show(
+    (setState, close, context) {
+      submit() async {
+        await onSubmit();
+        close();
+      }
+
+      return CustomAlertDialog(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.delete_rounded,
+              color: Colors.red,
+            ),
+            Expanded(
+              child: Text(title, overflow: TextOverflow.ellipsis).paddingOnly(
+                left: 10,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox.shrink(),
+        actions: [
+          dialogButton(
+            "Cancel",
+            icon: Icon(Icons.close_rounded),
+            onPressed: close,
+            isOutline: true,
+          ),
+          dialogButton(
+            "OK",
+            icon: Icon(Icons.done_rounded),
+            onPressed: submit,
+          ),
+        ],
+        onSubmit: submit,
+        onCancel: close,
+      );
+    },
+  );
 }
 
 void renameDialog({

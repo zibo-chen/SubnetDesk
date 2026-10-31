@@ -43,12 +43,10 @@ use hbb_common::{
     anyhow::{anyhow, Context},
     bail,
     config::{
-        self, keys, Config, LocalConfig, PeerConfig, PeerInfoSerde, Resolution, CONNECT_TIMEOUT,
+        self, Config, LocalConfig, PeerConfig, PeerInfoSerde, Resolution, CONNECT_TIMEOUT,
         READ_TIMEOUT,
     },
-    fs::JobType,
     get_version_number, log,
-    message_proto::{option_message::BoolOption, *},
     protobuf::{Enum, Message as _, MessageField},
     rand,
     rendezvous_proto::*,
@@ -60,6 +58,11 @@ use hbb_common::{
         time::{Duration, Instant},
     },
     AddrMangle, ResultType, Stream,
+};
+use base::{
+    config::keys,
+    fs::JobType,
+    message_proto::{option_message::BoolOption, *},
 };
 pub use helper::*;
 use scrap::{
@@ -829,6 +832,10 @@ impl AudioHandler {
 
     /// Handle audio format and create an audio decoder.
     pub fn handle_format(&mut self, f: AudioFormat) {
+        if !is_supported_audio_channel_count(f.channels) {
+            log::error!("Unsupported audio channel count: {}", f.channels);
+            return;
+        }
         match AudioDecoder::new(f.sample_rate, if f.channels > 1 { Stereo } else { Mono }) {
             Ok(d) => {
                 let buffer = vec![0.; f.sample_rate as usize * f.channels as usize];
@@ -965,6 +972,23 @@ impl AudioHandler {
         stream.play()?;
         self.audio_stream = Some(Box::new(stream));
         Ok(())
+    }
+}
+
+fn is_supported_audio_channel_count(channels: u32) -> bool {
+    (1..=2).contains(&channels)
+}
+
+#[cfg(test)]
+mod audio_format_tests {
+    use super::is_supported_audio_channel_count;
+
+    #[test]
+    fn only_mono_and_stereo_are_supported() {
+        assert!(is_supported_audio_channel_count(1));
+        assert!(is_supported_audio_channel_count(2));
+        assert!(!is_supported_audio_channel_count(0));
+        assert!(!is_supported_audio_channel_count(u32::MAX));
     }
 }
 
@@ -2373,7 +2397,7 @@ async fn do_sync_cpu_usage() {
                 if let Ok(Some(data)) = conn.next_timeout(50).await {
                     match data {
                         Data::SyncWinCpuUsage(cpu_usage) => {
-                            hbb_common::platform::windows::sync_cpu_usage(cpu_usage);
+                            base::platform::windows::sync_cpu_usage(cpu_usage);
                         }
                         _ => {}
                     }
@@ -2825,7 +2849,7 @@ pub trait Interface: Send + Clone + 'static + Sized {
         self.get_lch().read().unwrap().id.clone()
     }
 
-    fn swap_modifier_mouse(&self, _msg: &mut hbb_common::protos::message::MouseEvent) {}
+    fn swap_modifier_mouse(&self, _msg: &mut base::protos::message::MouseEvent) {}
 
     fn update_direct(&self, direct: Option<bool>) {
         self.get_lch().write().unwrap().direct = direct;

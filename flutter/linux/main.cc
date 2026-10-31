@@ -1,4 +1,9 @@
 #include <dlfcn.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #include "my_application.h"
 
 #define RUSTDESK_LIB_PATH "librustdesk.so"
@@ -7,8 +12,36 @@ bool gIsConnectionManager = false;
 
 void print_help_install_pkg(const char* so);
 
+// The bundle keeps the core library at lib/librustdesk.so next to the
+// executable. Resolve that path explicitly instead of relying on the
+// runner's RPATH, which repackaged installs may strip.
+// https://github.com/rustdesk/rustdesk/discussions/14407
+static void* dlopen_bundled_lib() {
+  char exe_path[PATH_MAX];
+  ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+  if (len <= 0 || len >= (ssize_t)(sizeof(exe_path) - 1)) return nullptr;
+  exe_path[len] = '\0';
+  char* last_slash = strrchr(exe_path, '/');
+  if (last_slash == nullptr) return nullptr;
+  *last_slash = '\0';
+  char lib_path[PATH_MAX + sizeof("/lib/" RUSTDESK_LIB_PATH)];
+  snprintf(lib_path, sizeof(lib_path), "%s/lib/%s", exe_path, RUSTDESK_LIB_PATH);
+  if (access(lib_path, F_OK) != 0) return nullptr;
+  void* librustdesk = dlopen(lib_path, RTLD_LAZY);
+  if (!librustdesk) {
+    char* error = dlerror();
+    if (error != nullptr) {
+      fprintf(stderr, "Failed to load \"%s\": %s\n", lib_path, error);
+    }
+  }
+  return librustdesk;
+}
+
 bool flutter_rustdesk_core_main() {
-   void* librustdesk = dlopen(RUSTDESK_LIB_PATH, RTLD_LAZY);
+   void* librustdesk = dlopen_bundled_lib();
+   if (!librustdesk) {
+      librustdesk = dlopen(RUSTDESK_LIB_PATH, RTLD_LAZY);
+   }
    if (!librustdesk) {
       fprintf(stderr,"Failed to load \"librustdesk.so\"\n");
       char* error;
@@ -34,6 +67,29 @@ bool flutter_rustdesk_core_main() {
 }
 
 int main(int argc, char** argv) {
+  // REVERTED (2026-09-12): forcing GDK_BACKEND=x11,wayland here made
+  // xdotool able to find and activate the window (verified), but also
+  // crashed the --server process outright on architect immediately after
+  // startup, inside GTK itself:
+  //   Got signal 11 and exit. stack:
+  //   gtk_window_is_maximized
+  //   _ZL14method_call_cbP16_FlMethodChannelP13_FlMethodCallPv
+  //   g_main_context_iteration / g_application_run / main
+  // i.e. a segfault inside GTK's own maximized-state query, reached via the
+  // window_manager plugin's method channel, applying to every role that
+  // runs through this main() (including headless --server, which still
+  // spins up a GTK application loop) -- not just the user-facing main
+  // window this was meant to help. A crash that breaks incoming
+  // connections entirely ("No Displays") is far worse than the slow tray
+  // activation this was fixing, so it's reverted rather than scoped down:
+  // scoping it to skip --server etc. wouldn't rule out the same crash
+  // recurring intermittently in the main window's own GTK init (this one
+  // didn't reproduce on every run either). The KDE/KWin tray-activation fix
+  // in src/server/dbus.rs's activate_via_kwin_script() and
+  // flutter/lib/common.dart's _activateViaKWinScript() does not depend on
+  // this and is unaffected by the revert. GNOME/Mutter tray activation
+  // returns to its prior (slow/no-op) behavior until a safe way to make
+  // the window visible to xdotool is found.
   if (!flutter_rustdesk_core_main()) {
       return 0;
   }

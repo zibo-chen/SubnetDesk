@@ -4,7 +4,7 @@ This browser client speaks the same LAN-only protocol as the native client throu
 HTTPS/WebSocket gateway. It does not use the public RustDesk ID, rendezvous, or relay services.
 
 The generated bundle is embedded into the desktop binary by `src/web_gateway.rs`. Rebuild it after
-changing the TypeScript source or `libs/hbb_common/protos/message.proto`:
+changing the TypeScript source or `libs/base/protos/message.proto`:
 
 ```sh
 bun install --frozen-lockfile

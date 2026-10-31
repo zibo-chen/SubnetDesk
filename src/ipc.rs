@@ -47,6 +47,7 @@ use hbb_common::{
     tokio_util::codec::Framed,
     ResultType,
 };
+use base::config::keys::{self, OPTION_ALLOW_WEBSOCKET};
 #[cfg(windows)]
 pub(crate) use ipc_auth::authorize_windows_portable_service_ipc_connection;
 #[cfg(windows)]
@@ -467,6 +468,15 @@ pub enum Data {
     PortForwardSessionCount(Option<usize>),
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     Whiteboard((String, crate::whiteboard::CustomEvent)),
+    /// CM -> server: the connection manager's WINDOW went away, which is not the same event
+    /// as the operator disconnecting a peer. Linux only, and deliberately: there a session
+    /// logout closes every window, and the close arrives at the CM indistinguishable from a
+    /// person clicking it - measured on KDE, the CM gets no signal and logind still reports the
+    /// session active. So the ambiguous case ends the session WITHOUT the no-retry reason and
+    /// the peer is allowed to reconnect (landing on the greeter after a logout), while the
+    /// explicit Disconnect button keeps sending `Close` and kicking for good.
+    #[cfg(target_os = "linux")]
+    CmWindowClosed,
     // --- DRM/KMS capture (opt-in `drm` feature) over the `_drm` service-scoped channel ---
     // All of the following are `cfg(all(linux, drm))`, so the drm-off IPC wire is byte-identical
     // to upstream. Protocol on `_drm`: on connect the root service sends `DrmDisplayList`, the
@@ -907,7 +917,7 @@ async fn handle(data: Data, stream: &mut Connection) {
             allow_err!(
                 stream
                     .send(&Data::SyncWinCpuUsage(
-                        hbb_common::platform::windows::cpu_uage_one_minute()
+                        base::platform::windows::cpu_uage_one_minute()
                     ))
                     .await
             );

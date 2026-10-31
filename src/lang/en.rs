@@ -280,6 +280,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("wayland-soft-keyboard-input-label", "Soft keyboard input"),
         ("wayland-keyboard-input-reset-choice-tip", "Reset keyboard input choice"),
         ("remember-wayland-keyboard-choice-tip", "Don't ask again for this remote computer"),
-        ("conn-e2ee-unavailable-tip", "Could not verify end-to-end encryption.\nThe remote device may still be setting up. Try again later.\nIf this keeps happening, the server may be untrusted.\nContinue anyway?")
+        ("conn-e2ee-unavailable-tip", "Could not verify end-to-end encryption.\nThe remote device may still be setting up. Try again later.\nIf this keeps happening, the server may be untrusted.\nContinue anyway?"),
+        ("sync-clipboard-between-sessions-tip", "Text or images copied in one remote session are also sent to the clipboard of your other connected sessions."),
     ].iter().cloned().collect();
 }

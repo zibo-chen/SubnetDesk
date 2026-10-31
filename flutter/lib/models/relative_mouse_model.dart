@@ -28,6 +28,11 @@ class RelativeMouseModel {
   final bool Function() getPointerInsideImage;
   final void Function(bool inside) setPointerInsideImage;
 
+  /// Rotate a relative mouse delta from the displayed (virtual) coordinate
+  /// space to the base (remote) coordinate space (identity when client-side
+  /// rotation is inactive).
+  final Offset Function(Offset delta) rotateDelta;
+
   RelativeMouseModel({
     required this.sessionId,
     required this.enabled,
@@ -38,6 +43,7 @@ class RelativeMouseModel {
     required this.modify,
     required this.getPointerInsideImage,
     required this.setPointerInsideImage,
+    required this.rotateDelta,
   });
 
   final RelativeMouseAccumulator _accumulator = RelativeMouseAccumulator();
@@ -78,10 +84,11 @@ class RelativeMouseModel {
   void _onNativeMouseDelta(int dx, int dy) {
     if (!enabled.value) return;
     // Send directly to remote without accumulator (native already provides integer deltas)
+    final rotated = rotateDelta(Offset(dx.toDouble(), dy.toDouble()));
     _sendMouseMessageToSession({
       'type': 'move_relative',
-      'x': '$dx',
-      'y': '$dy',
+      'x': '${rotated.dx.round()}',
+      'y': '${rotated.dy.round()}',
     });
   }
 
@@ -596,10 +603,11 @@ class RelativeMouseModel {
     _pendingDeltaX = 0;
     _pendingDeltaY = 0;
 
+    final rotated = rotateDelta(Offset(x.toDouble(), y.toDouble()));
     final ok = await _sendMouseMessageToSession({
       'type': 'move_relative',
-      'x': '$x',
-      'y': '$y',
+      'x': '${rotated.dx.round()}',
+      'y': '${rotated.dy.round()}',
     });
     if (!ok) return;
 

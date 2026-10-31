@@ -114,6 +114,17 @@ async fn handle_new_stream(mut conn: Connection) {
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub(super) fn get_displays_rect() -> ResultType<(i32, i32, u32, u32)> {
+    // On Wayland the overlay must cover the compositor's pointer space, which
+    // is the rect input is injected in. The display list may instead report
+    // the panel-rotated (captured) orientation: a hardware-rotated panel can
+    // report 1200x1920 while its pointer space is 1920x1200, and drawing the
+    // viewer cursor in that space clips it well before the screen edges.
+    #[cfg(target_os = "linux")]
+    if let Some((min_x, max_x, min_y, max_y)) =
+        scrap::wayland::display::get_desktop_rect_for_uinput()
+    {
+        return Ok((min_x, min_y, (max_x - min_x) as u32, (max_y - min_y) as u32));
+    }
     let displays = crate::server::display_service::try_get_displays()?;
     let mut min_x = i32::MAX;
     let mut min_y = i32::MAX;

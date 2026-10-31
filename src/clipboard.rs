@@ -2,7 +2,8 @@
 use arboard::{ClipboardData, ClipboardFormat};
 #[cfg(target_os = "linux")]
 use arboard::{LinuxClipboardKind, SetExtLinux};
-use hbb_common::{bail, log, message_proto::*, ResultType};
+use hbb_common::{bail, log, ResultType};
+use base::message_proto::*;
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -12,6 +13,17 @@ pub const CLIPBOARD_NAME: &'static str = "clipboard";
 #[cfg(feature = "unix-file-copy-paste")]
 pub const FILE_CLIPBOARD_NAME: &'static str = "file-clipboard";
 pub const CLIPBOARD_INTERVAL: u64 = 333;
+
+pub const OPTION_ALLOW_SYNC_CLIPBOARD_BETWEEN_SESSIONS: &str =
+    "allow-sync-clipboard-between-sessions";
+
+#[cfg(all(feature = "flutter", not(any(target_os = "android", target_os = "ios"))))]
+pub fn is_sync_clipboard_between_sessions_enabled() -> bool {
+    hbb_common::config::option2bool(
+        OPTION_ALLOW_SYNC_CLIPBOARD_BETWEEN_SESSIONS,
+        &hbb_common::config::LocalConfig::get_option(OPTION_ALLOW_SYNC_CLIPBOARD_BETWEEN_SESSIONS),
+    )
+}
 
 // This format is used to store the flag in the clipboard.
 const RUSTDESK_CLIPBOARD_OWNER_FORMAT: &'static str = "dyn.com.rustdesk.owner";
@@ -35,6 +47,17 @@ lazy_static::lazy_static! {
 const CLIPBOARD_GET_MAX_RETRY: usize = 3;
 #[cfg(not(target_os = "android"))]
 const CLIPBOARD_GET_RETRY_INTERVAL_DUR: Duration = Duration::from_millis(33);
+
+#[cfg(not(target_os = "android"))]
+fn valid_rgba_dimensions(width: i32, height: i32, data_len: usize) -> Option<(usize, usize)> {
+    let width = usize::try_from(width).ok()?;
+    let height = usize::try_from(height).ok()?;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let expected_len = width.checked_mul(height)?.checked_mul(4)?;
+    (data_len == expected_len).then_some((width, height))
+}
 
 #[cfg(not(target_os = "android"))]
 const SUPPORTED_FORMATS: &[ClipboardFormat] = &[
@@ -493,10 +516,10 @@ impl ClipboardContext {
                 // The host-side clear file clipboard `let _ = self.inner.clear();`,
                 // does not work on KDE Plasma for the installed version.
 
-                // Don't use `hbb_common::platform::linux::is_kde()` here.
+                // Don't use `base::platform::linux::is_kde()` here.
                 // It's not correct in the server process.
                 #[cfg(target_os = "linux")]
-                let is_kde_x11 = hbb_common::platform::linux::is_kde_session()
+                let is_kde_x11 = base::platform::linux::is_kde_session()
                     && crate::platform::linux::is_x11();
                 #[cfg(target_os = "macos")]
                 let is_kde_x11 = false;
@@ -559,7 +582,7 @@ pub fn get_current_clipboard_msg(
         multi_clipboards
             .clipboards
             .iter()
-            .find(|c| c.format.enum_value() == Ok(hbb_common::message_proto::ClipboardFormat::Text))
+            .find(|c| c.format.enum_value() == Ok(base::message_proto::ClipboardFormat::Text))
             .map(|c| {
                 let mut msg = Message::new();
                 msg.set_clipboard(c.clone());
@@ -607,8 +630,8 @@ mod proto {
     use arboard::ClipboardData;
     use hbb_common::{
         compress::{compress as compress_func, decompress},
-        message_proto::{Clipboard, ClipboardFormat, Message, MultiClipboards},
     };
+    use base::message_proto::{Clipboard, ClipboardFormat, Message, MultiClipboards};
 
     fn plain_to_proto(s: String, format: ClipboardFormat) -> Clipboard {
         let compressed = compress_func(s.as_bytes());
@@ -676,7 +699,7 @@ mod proto {
         let content = if compress {
             compressed
         } else {
-            s.bytes().collect::<Vec<u8>>()
+            d
         };
         Clipboard {
             compress,
@@ -722,11 +745,15 @@ mod proto {
             Ok(ClipboardFormat::Text) => String::from_utf8(data).ok().map(ClipboardData::Text),
             Ok(ClipboardFormat::Rtf) => String::from_utf8(data).ok().map(ClipboardData::Rtf),
             Ok(ClipboardFormat::Html) => String::from_utf8(data).ok().map(ClipboardData::Html),
-            Ok(ClipboardFormat::ImageRgba) => Some(ClipboardData::Image(arboard::ImageData::rgba(
-                clipboard.width as _,
-                clipboard.height as _,
-                data.into(),
-            ))),
+            Ok(ClipboardFormat::ImageRgba) => {
+                let (width, height) =
+                    super::valid_rgba_dimensions(clipboard.width, clipboard.height, data.len())?;
+                Some(ClipboardData::Image(arboard::ImageData::rgba(
+                    width,
+                    height,
+                    data.into(),
+                )))
+            }
             Ok(ClipboardFormat::ImagePng) => {
                 Some(ClipboardData::Image(arboard::ImageData::png(data.into())))
             }
@@ -767,6 +794,45 @@ mod proto {
                 msg.set_clipboard(c.clone());
                 msg
             })
+    }
+
+    #[cfg(all(test, not(target_os = "android")))]
+    mod tests {
+        use super::{from_clipboard, special_to_proto};
+        use arboard::ClipboardData;
+
+        #[test]
+        fn preserves_uncompressed_special_clipboard_data() {
+            let data = vec![0x01, 0x02, 0x03];
+            let name = "custom-format".to_owned();
+
+            let clipboard = special_to_proto(data.clone(), name.clone());
+
+            assert!(!clipboard.compress);
+            assert_eq!(clipboard.content.as_ref(), data.as_slice());
+            assert_eq!(clipboard.special_name, name);
+            assert!(matches!(
+                from_clipboard(clipboard),
+                Some(ClipboardData::Special((restored_name, restored_data)))
+                    if restored_name == name && restored_data == data
+            ));
+        }
+    }
+}
+
+#[cfg(all(test, not(target_os = "android")))]
+mod rgba_tests {
+    use super::valid_rgba_dimensions;
+
+    #[test]
+    fn validates_dimensions_against_content_length() {
+        assert_eq!(valid_rgba_dimensions(1, 1, 4), Some((1, 1)));
+        assert_eq!(valid_rgba_dimensions(1, 1, 3), None);
+        assert_eq!(valid_rgba_dimensions(-1, 1, 4), None);
+        assert_eq!(valid_rgba_dimensions(0, 1, 0), None);
+        assert_eq!(valid_rgba_dimensions(i32::MAX, i32::MAX, 4), None);
+        #[cfg(target_pointer_width = "32")]
+        assert_eq!(valid_rgba_dimensions(i32::MAX, 2, 0), None);
     }
 }
 
