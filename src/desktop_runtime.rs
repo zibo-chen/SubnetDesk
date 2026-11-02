@@ -104,8 +104,8 @@ pub fn state() -> String {
         "listening": crate::lan_server::LanServer::is_running(),
         "portable": paths.is_some_and(|paths| paths.portable),
         "data_dir": paths.map(|paths| paths.root.to_string_lossy().into_owned()).unwrap_or_default(),
-        "autostart": autostart_path().and_then(|path| Ok(fs::read_to_string(path)?))
-            .and_then(|actual| Ok(actual.trim_end() == autostart_contents(&launch_arguments()?, &startup_user()?).trim_end()))
+        "autostart": autostart_path().and_then(|path| Ok(fs::read(path)?))
+            .and_then(|actual| Ok(actual == autostart_file_contents(&launch_arguments()?, &startup_user()?)))
             .unwrap_or(false),
         "error": AUTOSTART_ERROR.lock().unwrap().clone(),
     }).to_string()
@@ -196,7 +196,7 @@ fn autostart_contents(args: &[String], user: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+        r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
 <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>
 <Principals><Principal id="User"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>HighestAvailable</RunLevel></Principal></Principals>
@@ -211,6 +211,20 @@ fn autostart_contents(args: &[String], user: &str) -> String {
             .unwrap_or_else(|| std::path::Path::new(""))
             .to_string_lossy()),
     )
+}
+
+fn autostart_file_contents(args: &[String], user: &str) -> Vec<u8> {
+    let contents = autostart_contents(args, user);
+    #[cfg(windows)]
+    {
+        // schtasks imports Unicode XML; the declaration and file bytes must agree.
+        std::iter::once(0xfeffu16)
+            .chain(contents.encode_utf16())
+            .flat_map(u16::to_le_bytes)
+            .collect()
+    }
+    #[cfg(not(windows))]
+    contents.into_bytes()
 }
 
 pub fn set_autostart(enabled: bool) {
@@ -241,7 +255,7 @@ fn configure_autostart(enabled: bool) -> ResultType<()> {
         let user = startup_user()?;
         let pending = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
         let result = (|| -> ResultType<()> {
-            fs::write(&pending, autostart_contents(&arguments, &user))?;
+            fs::write(&pending, autostart_file_contents(&arguments, &user))?;
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
@@ -303,6 +317,31 @@ pub extern "C" fn subnetdesk_shutdown() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_startup_xml_is_utf16le_with_bom() {
+        let args = vec![
+            r"C:\Program Files\SubnetDesk & 测试\SubnetDesk.exe".into(),
+            "--background".into(),
+            r"--data-dir=C:\用户\测试 & 🖥\userdata".into(),
+        ];
+        let user = "S-1-5-21-123-456-789-1001";
+        let bytes = autostart_file_contents(&args, user);
+        assert!(bytes.starts_with(&[0xff, 0xfe]));
+        assert_eq!(bytes.len() % 2, 0);
+        let units: Vec<_> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        let contents = String::from_utf16(&units).unwrap();
+        assert!(contents.starts_with(r#"<?xml version="1.0" encoding="UTF-16"?>"#));
+        assert!(contents.contains(r"SubnetDesk &amp; 测试\SubnetDesk.exe</Command>"));
+        assert!(contents.contains(r"--data-dir=C:\用户\测试 &amp; 🖥\userdata&quot;"));
+        assert!(contents.contains(&format!("<UserId>{user}</UserId>")));
+        assert_eq!(contents, autostart_contents(&args, user));
+    }
+
     #[test]
     fn startup_escapes_paths_without_a_shell_or_service() {
         let args = vec![
