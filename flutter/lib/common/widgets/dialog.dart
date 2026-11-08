@@ -569,7 +569,7 @@ _connectDialog(
               ? Offstage()
               : Container(height: 12),
           passwdWidget(),
-          if (lanAccess && isDesktop)
+          if (lanAccess && (isDesktop || isAndroid))
             CheckboxListTile(
               value: rememberPassword,
               onChanged: (value) =>
@@ -578,6 +578,10 @@ _connectDialog(
               dense: true,
               controlAffinity: ListTileControlAffinity.leading,
               title: Text(translate('Remember password')),
+              subtitle: isAndroid
+                  ? Text(subnetText(
+                      context, '仅在此设备加密保存', 'Encrypted on this device only'))
+                  : null,
             ),
         ],
       ),

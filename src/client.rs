@@ -126,6 +126,21 @@ fn lan_credential_config_id_for_fingerprint(fingerprint: &str) -> Option<String>
     }
 }
 
+#[cfg(target_os = "android")]
+pub(crate) fn load_remembered_lan_credential_for_fingerprint(
+    fingerprint: &str,
+) -> Option<(String, Vec<u8>)> {
+    lan_credential_config_id_for_fingerprint(fingerprint)?;
+    match crate::android_credentials::load(&fingerprint.to_ascii_lowercase()) {
+        Ok(credential) => credential,
+        Err(err) => {
+            log::warn!("Failed to read the remembered LAN credential: {err}");
+            None
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
 pub(crate) fn load_remembered_lan_credential_for_fingerprint(
     fingerprint: &str,
 ) -> Option<(String, Vec<u8>)> {
@@ -171,6 +186,10 @@ pub(crate) fn load_remembered_lan_credential_for_fingerprint(
 
 pub(crate) fn clear_remembered_lan_credential_for_fingerprint(fingerprint: &str) {
     if let Some(config_id) = lan_credential_config_id_for_fingerprint(fingerprint) {
+        #[cfg(target_os = "android")]
+        if let Err(err) = crate::android_credentials::delete(&fingerprint.to_ascii_lowercase()) {
+            log::warn!("Failed to delete the remembered LAN credential: {err}");
+        }
         #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
         match keyring::Entry::new(LAN_CREDENTIAL_KEYRING_SERVICE, &config_id)
             .and_then(|entry| entry.delete_password())
@@ -1245,6 +1264,26 @@ impl LoginConfigHandler {
         load_remembered_lan_credential_for_fingerprint(&self.lan_fingerprint)
     }
 
+    #[cfg(target_os = "android")]
+    pub fn save_remembered_lan_credential(
+        &self,
+        username: &str,
+        password: &[u8],
+    ) -> ResultType<()> {
+        self.lan_credential_config_id()
+            .ok_or_else(|| anyhow!("LAN device fingerprint is not available"))?;
+        let username = hbb_common::lan::validate_username(username)?;
+        hbb_common::lan::validate_password(password)?;
+        let password = std::str::from_utf8(password)
+            .map_err(|_| anyhow!("LAN password is not valid UTF-8"))?;
+        crate::android_credentials::save(
+            &self.lan_fingerprint.to_ascii_lowercase(),
+            &username,
+            password,
+        )
+    }
+
+    #[cfg(not(target_os = "android"))]
     pub fn save_remembered_lan_credential(
         &self,
         username: &str,

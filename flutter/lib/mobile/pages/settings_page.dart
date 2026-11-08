@@ -12,6 +12,8 @@ import '../../common.dart';
 import '../../consts.dart';
 import '../../models/model.dart';
 import 'home_page.dart';
+import 'saved_lan_credentials_page.dart';
+import '../../common/widgets/subnet_ui.dart';
 
 class SettingsPage extends StatefulWidget implements PageShape {
   @override
@@ -82,6 +84,30 @@ class _SettingsState extends State<SettingsPage> {
               leading: const Icon(Icons.lan),
               onPressed: (context) => showLanSettingsDialog(context),
             ),
+            if (isAndroid && !bind.isIncomingOnly())
+              SettingsTile(
+                title: Text(subnetText(context, '已保存的 LAN 凭据', 'Saved LAN credentials')),
+                leading: const Icon(Icons.password),
+                onPressed: (context) => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => SavedLanCredentialsPage(
+                    deviceNames: {
+                      for (final peer in [
+                        ...gFFI.lanPeersModel.peers,
+                        ...gFFI.recentPeersModel.peers,
+                        ...gFFI.favoritePeersModel.peers,
+                      ])
+                        if (peer.fingerprint.isNotEmpty)
+                          peer.fingerprint.toLowerCase():
+                              peer.alias.isNotEmpty
+                                  ? '${peer.alias} · ${peer.id}'
+                                  : peer.hostname.isNotEmpty
+                                      ? '${peer.hostname} · ${peer.id}'
+                                      : peer.id,
+                    },
+                  )),
+                ),
+              ),
           ],
         ),
         SettingsSection(
