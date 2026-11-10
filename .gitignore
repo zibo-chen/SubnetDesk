@@ -28,6 +28,7 @@ cert.pfx
 !flutter/assets/icon.png
 !assets/screenshots/device-discovery.png
 !assets/screenshots/lan-settings.png
+!assets/screenshots/local-device.png
 *svg
 !res/subnetdesk-icon.svg
 !flutter/assets/remote_toolbar/*.svg
