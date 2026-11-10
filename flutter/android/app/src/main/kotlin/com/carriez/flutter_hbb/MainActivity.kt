@@ -32,6 +32,7 @@ import com.hjq.permissions.XXPermissions
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.StandardMethodCodec
 import kotlin.concurrent.thread
 
 
@@ -46,12 +47,34 @@ class MainActivity : FlutterActivity() {
     private val channelTag = "mChannel"
     private val logTag = "mMainActivity"
     private var mainService: MainService? = null
+    private val lanCredentialStore by lazy { LanCredentialStore(applicationContext) }
 
     private var isAudioStart = false
     private val audioRecordHandle = AudioRecordHandle(this, { false }, { isAudioStart })
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        FFI.initLanCredentialStore(lanCredentialStore)
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+        MethodChannel(messenger, "com.zibochen.subnetdesk/lan_credentials",
+            StandardMethodCodec.INSTANCE, messenger.makeBackgroundTaskQueue())
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "list" -> result.success(lanCredentialStore.list())
+                        "delete" -> {
+                            val fingerprint = call.argument<String>("fingerprint")
+                                ?: throw IllegalArgumentException("Missing device fingerprint")
+                            lanCredentialStore.delete(fingerprint)
+                            result.success(null)
+                        }
+                        else -> result.notImplemented()
+                    }
+                } catch (error: Exception) {
+                    Log.w(logTag, "LAN credential management failed", error)
+                    result.error("credential_store", "Cannot access saved LAN credentials", null)
+                }
+            }
         if (MainService.isReady) {
             Intent(activity, MainService::class.java).also {
                 bindService(it, serviceConnection, Context.BIND_AUTO_CREATE)

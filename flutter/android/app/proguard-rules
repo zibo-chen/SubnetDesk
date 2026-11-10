@@ -5,3 +5,6 @@
 
 # Keep rustls-platform-verifier classes for JNI
 -keep, includedescriptorclasses class org.rustls.platformverifier.** { *; }
+
+# Rust holds this application-scoped object and calls its methods through JNI.
+-keep class com.carriez.flutter_hbb.LanCredentialStore { *; }
