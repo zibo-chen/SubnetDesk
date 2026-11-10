@@ -12,7 +12,10 @@ require_fixed() {
   fi
 }
 
-require_fixed README.md '# SubnetDesk'
+if ! grep -Eq '^# SubnetDesk([[:space:]]|$)|^<h1([[:space:]][^>]*)?>SubnetDesk</h1>$' README.md; then
+  printf 'Missing SubnetDesk heading in README.md\n' >&2
+  exit 1
+fi
 require_fixed Cargo.toml 'description = "SubnetDesk LAN/VPN Remote Desktop"'
 require_fixed Cargo.toml 'ProductName = "SubnetDesk"'
 require_fixed Cargo.toml 'identifier = "com.zibochen.subnetdesk"'
