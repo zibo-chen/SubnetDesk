@@ -8,6 +8,9 @@
 
 		<SummaryInformation Keywords="Installer" Description="$(var.Description)" Codepage="!(loc.SummaryCodepage)" />
 
+		<!-- Replace an equal-version Win7 directory launcher when switching to this runtime. -->
+		<Property Id="REINSTALLMODE" Value="emus" />
+
 		<!--<PropertyRef Id="UpgradesFile" />-->
 
 		<PropertyRef Id="AddRemovePropertiesFile" />
