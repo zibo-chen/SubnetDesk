@@ -71,8 +71,8 @@ def main():
     if len(packages) != 1:
         raise ValueError("Expected one MSI package")
     # Audit the native custom-action DLL as well as the application payload.
-    actions = list((msi / "CustomActions").rglob("CustomActions.dll"))
-    if not actions:
+    actions = [msi / "x64/Release/CustomActions.dll"]
+    if not all(path.is_file() for path in actions):
         raise ValueError("MSI native custom-action DLL was not found")
     reports = []
     for path in actions:
