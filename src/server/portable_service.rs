@@ -22,7 +22,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use winapi::{
     shared::minwindef::{BOOL, FALSE, TRUE},
@@ -55,6 +55,7 @@ const SHMEM_NAME_MAX_LEN: usize = 64;
 const MAX_NACK: usize = 3;
 const PORTABLE_SERVICE_STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_DXGI_FAIL_TIME: usize = 5;
+const CAPTURE_FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[inline]
 fn is_valid_portable_service_shmem_name(name: &str) -> bool {
@@ -475,6 +476,7 @@ pub mod server {
         let mut last_timeout_ms: i32 = 33;
         let mut spf = Duration::from_millis(last_timeout_ms as _);
         let mut first_frame_captured = false;
+        let mut first_frame_started = Instant::now();
         let mut dxgi_failed_times = 0;
         let mut display_width = 0;
         let mut display_height = 0;
@@ -507,9 +509,14 @@ pub mod server {
                             c = {
                                 last_current_display = current_display;
                                 first_frame_captured = false;
+                                first_frame_started = Instant::now();
                                 if dxgi_failed_times > MAX_DXGI_FAIL_TIME {
                                     dxgi_failed_times = 0;
-                                    v.set_gdi();
+                                    if !v.set_gdi() {
+                                        log::error!("Failed to create portable service GDI capturer");
+                                        *EXIT.lock().unwrap() = true;
+                                        return;
+                                    }
                                 }
                                 utils::set_para(
                                     &shmem,
@@ -544,6 +551,23 @@ pub mod server {
                     {
                         last_timeout_ms = timeout_ms;
                         spf = Duration::from_millis(timeout_ms as _);
+                    }
+                }
+                if !first_frame_captured
+                    && first_frame_started.elapsed() >= CAPTURE_FIRST_FRAME_TIMEOUT
+                {
+                    if let Some(capturer) = c.as_mut().filter(|c| !c.is_gdi()) {
+                        log::warn!(
+                            "Portable service DXGI first frame timed out after {:?}, falling back to GDI, display: {}",
+                            CAPTURE_FIRST_FRAME_TIMEOUT,
+                            current_display,
+                        );
+                        if !capturer.set_gdi() {
+                            log::error!("Failed to create portable service GDI capturer");
+                            *EXIT.lock().unwrap() = true;
+                            return;
+                        }
+                        dxgi_failed_times = 0;
                     }
                 }
                 if first_frame_captured {
