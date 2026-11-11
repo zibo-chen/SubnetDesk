@@ -2294,6 +2294,9 @@ jobs:
           # https://github.com/AppImage/AppImageKit/issues/1395
           sudo pip3 install "setuptools_scm<10"
           sudo pip3 install git+https://github.com/rustdesk-org/appimage-builder.git
+          if [ '${{ matrix.job.arch }}' = 'aarch64' ]; then
+            bash scripts/prepare_appimage_apt_key.sh
+          fi
           # run appimage-builder
           pushd appimage
           sudo appimage-builder --skip-tests --recipe ./AppImageBuilder-${{ matrix.job.arch }}.yml

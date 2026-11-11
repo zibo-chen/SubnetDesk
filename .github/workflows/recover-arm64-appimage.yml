@@ -1,0 +1,114 @@
+name: Recover ARM64 AppImage release asset
+
+on:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: Existing release containing the ARM64 DEB
+        required: true
+        default: v2.0.0-rc.4
+      version:
+        description: Application version in the package filenames
+        required: true
+        default: '2.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.release-tag }}
+      APP_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Download and verify the existing release binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+          [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git fetch --depth 1 origin "refs/tags/$RELEASE_TAG"
+          echo "APP_SOURCE_COMMIT=$(git rev-parse 'FETCH_HEAD^{}')" >> "$GITHUB_ENV"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > release-source.json
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "subnetdesk-$APP_VERSION-aarch64.deb" --dir appimage
+      - name: Verify source package provenance
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          release = json.loads(Path('release-source.json').read_text())
+          name = 'subnetdesk-' + os.environ['APP_VERSION'] + '-aarch64.deb'
+          asset = next(a for a in release['assets'] if a['name'] == name)
+          package = Path('appimage') / name
+          digest = hashlib.sha256(package.read_bytes()).hexdigest()
+          assert asset['digest'] == 'sha256:' + digest, 'Release DEB digest mismatch'
+          package.rename('appimage/subnetdesk.deb')
+          provenance = {'source_tag': os.environ['RELEASE_TAG'],
+                        'source_commit': os.environ['APP_SOURCE_COMMIT'],
+                        'packaging_commit': os.environ['GITHUB_SHA'],
+                        'source_deb_sha256': digest}
+          Path('appimage/recovery-provenance.json').write_text(json.dumps(provenance, indent=2))
+          PY
+      - name: Build AppImage using the installed Ubuntu archive keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y libarchive-tools libfuse2
+          sudo pip3 install 'setuptools_scm<10'
+          sudo pip3 install git+https://github.com/rustdesk-org/appimage-builder.git
+          bash scripts/prepare_appimage_apt_key.sh
+          cd appimage
+          sed -i -E "s/^    version: .*/    version: $APP_VERSION/" AppImageBuilder-aarch64.yml
+          sudo appimage-builder --skip-tests --recipe AppImageBuilder-aarch64.yml
+          sudo chown "$(id -u):$(id -g)" subnetdesk-*.AppImage
+      - name: Verify and publish the recovered package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, struct
+          from pathlib import Path
+          name = 'subnetdesk-' + os.environ['APP_VERSION'] + '-aarch64.AppImage'
+          package = Path('appimage') / name
+          with package.open('rb') as stream:
+              header = stream.read(20)
+          assert header[:4] == b'\x7fELF' and header[4:6] == b'\x02\x01', 'Expected a 64-bit ELF'
+          assert struct.unpack_from('<H', header, 18)[0] == 183, 'Expected an AArch64 runtime'
+          assert package.stat().st_size > 1024 * 1024, 'AppImage is incomplete'
+          provenance_path = Path('appimage/recovery-provenance.json')
+          provenance = json.loads(provenance_path.read_text())
+          provenance['appimage_sha256'] = hashlib.sha256(package.read_bytes()).hexdigest()
+          provenance_path.write_text(json.dumps(provenance, indent=2))
+          PY
+          bash scripts/upload_release_asset_with_retry.sh "$RELEASE_TAG" "appimage/subnetdesk-$APP_VERSION-aarch64.AppImage"
+          gh release view "$RELEASE_TAG" --json tagName,isPrerelease,assets > release-assets.json
+          python3 scripts/check_release_assets.py --release release-assets.json --tag "$RELEASE_TAG"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          before = json.loads(Path('release-source.json').read_text())
+          after = json.loads(Path('release-assets.json').read_text())
+          expected = {a['name'] for a in before['assets']}
+          expected.add('subnetdesk-' + os.environ['APP_VERSION'] + '-aarch64.AppImage')
+          assets = {a['name']: a for a in after['assets']}
+          assert all(n in assets and assets[n]['state'] == 'uploaded' and assets[n]['size'] > 0 for n in expected)
+          print('Verified all', len(expected), 'release downloads')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: recovered-arm64-appimage
+          path: |
+            appimage/*.AppImage
+            appimage/recovery-provenance.json
+          if-no-files-found: error
