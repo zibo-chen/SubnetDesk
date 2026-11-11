@@ -13,6 +13,8 @@ def required_assets(version):
         f"{prefix}-x86_64-portable.zip",
         f"{prefix}-x86_64-setup.exe",
         f"{prefix}-universal-signed.apk",
+        f"{prefix}-ios-arm64-unsigned.ipa",
+        "subnetdesk-ios-installation.md",
     }
     for arch in ("x86_64", "aarch64"):
         for extension in ("deb", "AppImage", "flatpak", "dmg"):

@@ -20,11 +20,13 @@ class ReleaseAssetsTests(unittest.TestCase):
 
     def test_contract_covers_requested_downloads(self):
         names = required_assets("2.0.0")
-        self.assertEqual(18, len(names))
+        self.assertEqual(20, len(names))
         self.assertIn("subnetdesk-2.0.0-x86_64-portable.zip", names)
         self.assertIn("subnetdesk-2.0.0-x86_64-setup.exe", names)
         self.assertIn("subnetdesk-2.0.0-0.aarch64-suse.rpm", names)
         self.assertIn("subnetdesk-2.0.0-universal-signed.apk", names)
+        self.assertIn("subnetdesk-2.0.0-ios-arm64-unsigned.ipa", names)
+        self.assertIn("subnetdesk-ios-installation.md", names)
         for arch in ("x86_64", "aarch64"):
             for extension in ("deb", "AppImage", "flatpak", "dmg"):
                 self.assertIn(f"subnetdesk-2.0.0-{arch}.{extension}", names)

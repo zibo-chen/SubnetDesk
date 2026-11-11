@@ -521,118 +521,12 @@ jobs:
 
   build-rustdesk-ios:
     if: ${{ inputs.upload-artifact && inputs.build-mobile }}
-    name: Build SubnetDesk ios ipa
-    runs-on: ${{ matrix.job.os }}
     needs: [generate-bridge]
-    strategy:
-      fail-fast: false
-      matrix:
-        job:
-          - {
-              arch: aarch64,
-              target: aarch64-apple-ios,
-              os: macos-latest,
-              vcpkg-triplet: arm64-ios,
-            }
-    steps:
-      - name: Export GitHub Actions cache environment variables
-        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
-      - name: Install dependencies
-        run: |
-          brew install nasm yasm
-      - name: Checkout source code
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          submodules: recursive
-
-      - name: Install flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
-        with:
-          channel: "stable"
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-
-      - name: Setup vcpkg with Github Actions binary cache
-        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
-        with:
-          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-          doNotCache: false
-
-      - name: Install vcpkg dependencies
-        run: |
-          if ! $VCPKG_ROOT/vcpkg \
-            install \
-            --triplet ${{ matrix.job.vcpkg-triplet }} \
-            --x-install-root="$VCPKG_ROOT/installed"; then
-            find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
-              echo "$_1:"
-              echo "======"
-              cat "$_1"
-              echo "======"
-              echo ""
-            done
-            exit 1
-          fi
-          head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
-        shell: bash
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-          targets: ${{ matrix.job.target }}
-          components: "rustfmt"
-
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          prefix-key: rustdesk-lib-cache-ios
-          key: ${{ matrix.job.target }}
-
-      - name: Restore bridge files
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: bridge-artifact
-          path: ./
-
-      - name: Build SubnetDesk lib
-        run: |
-          rustup target add ${{ matrix.job.target }}
-          cargo build --locked --features flutter,hwcodec --release --target aarch64-apple-ios --lib
-          
-      - name: Upload liblibrustdesk.a Artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: liblibrustdesk.a
-          path: target/aarch64-apple-ios/release/liblibrustdesk.a
-
-      - name: Build SubnetDesk
-        shell: bash
-        run: |
-          pushd flutter
-          # flutter build ipa --release --obfuscate --split-debug-info=./split-debug-info --no-codesign
-          # for easy debugging
-          flutter build ipa --release --no-codesign
-
-      # - name: Upload Artifacts
-      #   # if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
-      #   uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-      #   with:
-      #     name: subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
-      #     path: flutter/build/ios/ipa/*.ipa
-
-      # - name: Publish ipa package
-      #   # if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
-      #   uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-      #   with:
-      #     prerelease: true
-      #     tag_name: ${{ env.TAG_NAME }}
-      #     files: |
-      #       flutter/build/ios/ipa/*.ipa
-
+    uses: ./.github/workflows/flutter-ios.yml
+    with:
+      reuse-generated-bridge: true
+      publish-release: ${{ inputs.publish-release }}
+      upload-tag: ${{ inputs.upload-tag }}
 
   build-for-macOS:
     name: ${{ matrix.job.target }}
@@ -2462,6 +2356,7 @@ jobs:
             };
             const label = (name) => {
               const lower = name.toLowerCase();
+              if (lower.endsWith('-ios-arm64-unsigned.ipa')) return '实验版 IPA · 未签名';
               if (lower.endsWith('-x86_64-portable.zip')) return '推荐绿色版 · Win7+';
               if (lower.endsWith('-x86_64-setup.exe')) return '推荐安装版 · Win7+';
               if (lower.endsWith('-win10-portable.zip')) return '绿色版 · Win10+';
@@ -2506,6 +2401,9 @@ jobs:
               ...rows.map(([title, arch]) =>
                 `| ${title} | ${cell(arch, 'windows')} | ${cell(arch, 'macos')} | ${cell(arch, 'linux')} | ${cell(arch, 'android')} | ${cell(arch, 'ios')} |`
               ),
+              '',
+              ...assets.filter((asset) => asset.name === 'subnetdesk-ios-installation.md')
+                .map((asset) => `iOS 为实验版控制端，需自行签名安装：[安装说明与局域网限制](${asset.browser_download_url})。`),
               '',
               '<details>',
               '<summary>如何选择架构？</summary>',
