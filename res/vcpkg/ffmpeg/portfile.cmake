@@ -526,13 +526,14 @@ if(VCPKG_TARGET_IS_WINDOWS)
         foreach(PKGCONFIG_MODULE IN LISTS FFMPEG_PKGCONFIG_MODULES)
             set(PKGCONFIG_FILE "${CURRENT_PACKAGES_DIR}${_debug}lib/pkgconfig/${PKGCONFIG_MODULE}.pc")
 
-            # remove redundant cygwin style -libpath entries
+            # Remove redundant cygwin-style entries when pkgconf emits them.
+            # Newer pkgconf can already omit this path; absence is valid.
             execute_process(
                 COMMAND "${MSYS_ROOT}/usr/bin/cygpath.exe" -u "${CURRENT_INSTALLED_DIR}"
                 OUTPUT_VARIABLE CYG_INSTALLED_DIR
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-            vcpkg_replace_string("${PKGCONFIG_FILE}" "-libpath:${CYG_INSTALLED_DIR}${_debug}lib/pkgconfig/../../lib " "")
+            vcpkg_replace_string("${PKGCONFIG_FILE}" "-libpath:${CYG_INSTALLED_DIR}${_debug}lib/pkgconfig/../../lib " "" IGNORE_UNCHANGED)
 
             # transform libdir, includedir, and prefix paths from cygwin style to windows style
             file(READ "${PKGCONFIG_FILE}" PKGCONFIG_CONTENT)
