@@ -59,7 +59,6 @@ jobs:
               vcpkg-triplet: arm64-ios,
             }
     env:
-      IPHONEOS_DEPLOYMENT_TARGET: "15.0"
       PUBLISH_RELEASE: ${{ inputs.publish-release || false }}
       TAG_NAME: ${{ inputs.upload-tag }}
     steps:
@@ -143,6 +142,9 @@ jobs:
           path: ./
 
       - name: Build SubnetDesk lib
+        env:
+          # Keep this out of vcpkg's macOS host-tool builds.
+          IPHONEOS_DEPLOYMENT_TARGET: "15.0"
         run: |
           rustup target add ${{ matrix.job.target }}
           cargo build --locked --features flutter,hwcodec --release --target aarch64-apple-ios --lib
