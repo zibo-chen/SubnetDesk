@@ -1,0 +1,63 @@
+name: Validate Windows self-extracting package
+
+on:
+  push:
+    branches:
+      - 'validation/portable-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-x64:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: '1.82'
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          prefix-key: windows-portable-validation
+      - name: Reuse the verified RC3 Windows runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory runtime | Out-Null
+          gh release download v2.0.0-rc.3 --repo $env:GITHUB_REPOSITORY --pattern subnetdesk-2.0.0-x86_64-win10-portable.zip --dir runtime
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          $archive = Get-Item runtime/*.zip
+          if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash -ne '27e41f65ea6d3524b919444ee81edeeaeb0a2132c39d5b854ea65c2a925fbbc7') {
+            throw 'RC3 runtime digest mismatch'
+          }
+          Expand-Archive $archive.FullName -DestinationPath runtime
+      - name: Build the fixed wrapper and test archive extraction on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install brotli==1.1.0
+          if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed' }
+          python libs/portable/generate.py -f runtime/subnetdesk-2.0.0-x86_64-portable/app -o libs/portable -e SubnetDesk.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Portable build failed' }
+          cargo test --locked -p rustdesk-portable-packer
+          if ($LASTEXITCODE -ne 0) { throw 'Portable extraction regression tests failed' }
+          New-Item -ItemType Directory validation-output | Out-Null
+          Copy-Item target/release/rustdesk-portable-packer.exe validation-output/subnetdesk-self-extract-fixed-x64.exe
+          @{
+            source_commit = $env:GITHUB_SHA
+            runtime_tag = 'v2.0.0-rc.3'
+            runtime_sha256 = '27e41f65ea6d3524b919444ee81edeeaeb0a2132c39d5b854ea65c2a925fbbc7'
+            package_sha256 = (Get-FileHash validation-output/*.exe -Algorithm SHA256).Hash
+          } | ConvertTo-Json | Set-Content validation-output/provenance.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: windows-self-extract-validation
+          path: validation-output/*
+          if-no-files-found: error
+          retention-days: 7

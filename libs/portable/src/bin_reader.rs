@@ -46,7 +46,11 @@ impl BinaryData {
         use std::path::Component;
         let normalized = self.path.replace('\\', "/");
         let relative = Path::new(&normalized);
-        if relative.components().any(|part| !matches!(part, Component::Normal(_))) || normalized.contains(':') {
+        // generate.py stores paths with a leading ./ (or .\ on Windows).
+        if relative.components().any(|part| !matches!(part, Component::Normal(_) | Component::CurDir))
+            || !relative.components().any(|part| matches!(part, Component::Normal(_)))
+            || normalized.contains(':')
+        {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid portable archive path"));
         }
         let p = prefix.join(relative);
@@ -70,6 +74,48 @@ impl BinaryData {
             }
         }
         fs::write(p, self.decompress()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BinaryData;
+    use std::{fs, io::ErrorKind};
+
+    #[test]
+    fn extracts_generator_relative_paths() {
+        let root = std::env::temp_dir().join(format!("subnetdesk-unpack-test-{}", std::process::id()));
+        // Brotli-compressed "hello", as stored by generate.py.
+        let raw = &[11, 2, 128, 104, 101, 108, 108, 111, 3];
+        for path in [r".\SubnetDesk.exe", "./librustdesk.dll", r".\data\app.so"] {
+            let file = BinaryData {
+                md5_code: b"5d41402abc4b2a76b9719d911017c592",
+                raw,
+                path: path.to_owned(),
+            };
+            file.write_to_file(&root).unwrap();
+            assert_eq!(fs::read(root.join(path.replace('\\', "/"))).unwrap(), b"hello");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_paths_outside_the_runtime_directory() {
+        for path in [
+            "", ".", "./", "../escape", r".\..\escape", "/escape", r"C:\escape",
+            "C:escape", r"\\server\share\escape", "file:stream",
+        ] {
+            let file = BinaryData {
+                md5_code: b"",
+                raw: b"",
+                path: path.to_owned(),
+            };
+            assert_eq!(
+                file.write_to_file(std::path::Path::new("unused")).unwrap_err().kind(),
+                ErrorKind::InvalidData,
+                "{path:?}",
+            );
+        }
     }
 }
 
