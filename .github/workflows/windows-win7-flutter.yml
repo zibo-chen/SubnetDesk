@@ -133,8 +133,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg repository initialization failed' }
           git -C $env:VCPKG_ROOT remote add origin https://github.com/microsoft/vcpkg
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg remote setup failed' }
-          # Version overrides need historical port trees, not a shallow checkout.
-          git -C $env:VCPKG_ROOT fetch --filter=blob:none origin $env:VCPKG_COMMIT
+          # Include historical blobs up front: vcpkg checks old port versions out offline.
+          git -C $env:VCPKG_ROOT fetch origin $env:VCPKG_COMMIT
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg revision fetch failed' }
           git -C $env:VCPKG_ROOT checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg revision failed' }
