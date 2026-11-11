@@ -59,14 +59,15 @@ jobs:
   generate-bridge:
     uses: ./.github/workflows/bridge.yml
 
-  build-for-windows-win7:
+  build-for-windows-unified-x64:
     needs: generate-bridge
     uses: ./.github/workflows/windows-win7-flutter.yml
+    secrets: inherit
     with:
       reuse-generated-bridge: true
 
-  publish-windows-win7:
-    needs: build-for-windows-win7
+  publish-windows-unified-x64:
+    needs: build-for-windows-unified-x64
     if: ${{ inputs.publish-release }}
     runs-on: ubuntu-24.04
     steps:
@@ -75,13 +76,14 @@ jobs:
         with:
           name: subnetdesk-win7-x64-flutter-test
           path: win7-artifacts
-      - name: Publish the default Win7-compatible Windows downloads
+      - name: Publish the unified Windows x64 downloads
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir release-assets
           cp "win7-artifacts/win7-dist/subnetdesk-${VERSION}-win7-x64-flutter.zip" "release-assets/subnetdesk-${VERSION}-x86_64-portable.zip"
           cp "win7-artifacts/win7-dist/subnetdesk-${VERSION}-win7-x64-flutter-setup.exe" "release-assets/subnetdesk-${VERSION}-x86_64-setup.exe"
+          cp win7-artifacts/win7-dist/subnetdesk-"${VERSION}"-x86_64.{exe,msi} release-assets/
           for asset in release-assets/*; do
             bash scripts/upload_release_asset_with_retry.sh "$TAG_NAME" "$asset"
           done
@@ -92,10 +94,6 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          - {
-              target: windows-2022,
-              platform: x64,
-            }
           - {
               target: windows-11-arm,
               platform: ARM64,
@@ -117,14 +115,6 @@ jobs:
         job:
           # - { target: i686-pc-windows-msvc        , os: windows-2022                  }
           # - { target: x86_64-pc-windows-gnu       , os: windows-2022                  }
-          - {
-              target: x86_64-pc-windows-msvc,
-              os: windows-2022,
-              arch: x86_64,
-              flutter-arch: x64,
-              vcpkg-triplet: x64-windows-static,
-              build-args: "--vram",
-            }
           - {
               target: aarch64-pc-windows-msvc,
               os: windows-11-arm,
@@ -341,8 +331,7 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           python3 scripts/package_portable.py --runtime ./rustdesk --launcher ./rustdesk/SubnetDeskLauncher.exe --output ./target/portable/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-portable
-          $suffix = if ('${{ matrix.job.arch }}' -eq 'x86_64') { '-win10-portable.zip' } else { '-portable.zip' }
-          Copy-Item ./target/portable/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-portable.zip "./SignOutput/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}$suffix"
+          Copy-Item ./target/portable/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-portable.zip "./SignOutput/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-portable.zip"
 
       - name: Upload Windows installers
         if: env.UPLOAD_ARTIFACT == 'true'
@@ -847,6 +836,7 @@ jobs:
 
   publish_unsigned:
     needs:
+      - build-for-windows-unified-x64
       - build-for-macOS
       - build-for-windows-flutter
     runs-on: ubuntu-latest
@@ -2409,7 +2399,7 @@ jobs:
     name: Organize release downloads by system and architecture
     if: ${{ always() && inputs.publish-release }}
     needs:
-      - publish-windows-win7
+      - publish-windows-unified-x64
       - build-for-windows-flutter
       - build-rustdesk-ios
       - build-for-macOS
@@ -2468,9 +2458,8 @@ jobs:
               const lower = name.toLowerCase();
               if (lower.endsWith('-x86_64-portable.zip')) return '推荐绿色版 · Win7+';
               if (lower.endsWith('-x86_64-setup.exe')) return '推荐安装版 · Win7+';
-              if (lower.endsWith('-win10-portable.zip')) return '绿色版 · Win10+';
-              if (lower.endsWith('.msi')) return 'MSI · Win10+';
-              if (lower.endsWith('.exe')) return '自解压版 · Win10+';
+              if (lower.endsWith('.msi')) return 'MSI';
+              if (lower.endsWith('.exe')) return '自解压版';
               if (lower.endsWith('-portable.zip')) return '绿色版';
               if (lower.endsWith('-suse.rpm')) return 'RPM (SUSE)';
               if (lower.endsWith('.pkg.tar.zst')) return 'Arch';
@@ -2503,7 +2492,7 @@ jobs:
                 ? '> ⚠️ Nightly 是主分支自动构建的测试版本，仅保留最新一次构建产物。'
                 : '> 请根据操作系统和 CPU 架构选择安装包。',
               '',
-              `**Windows x64 默认下载（兼容 Win7 SP1 及以上）：** [绿色版 ZIP](https://github.com/${context.repo.owner}/${context.repo.repo}/releases/download/${tag}/subnetdesk-${process.env.VERSION}-x86_64-portable.zip) · [安装版 EXE](https://github.com/${context.repo.owner}/${context.repo.repo}/releases/download/${tag}/subnetdesk-${process.env.VERSION}-x86_64-setup.exe)`,
+              `**Windows x64 统一包（Win7 SP1 及以上，自动探测硬件编解码）：** [绿色版 ZIP](https://github.com/${context.repo.owner}/${context.repo.repo}/releases/download/${tag}/subnetdesk-${process.env.VERSION}-x86_64-portable.zip) · [安装版 EXE](https://github.com/${context.repo.owner}/${context.repo.repo}/releases/download/${tag}/subnetdesk-${process.env.VERSION}-x86_64-setup.exe)`,
               '',
               '| 架构 | Windows | macOS | Linux | Android | iOS |',
               '| --- | --- | --- | --- | --- | --- |',
@@ -2552,6 +2541,7 @@ jobs:
     if: ${{ always() && inputs.publish-release && inputs.upload-tag != 'nightly' && !contains(inputs.upload-tag, '-') }}
     needs:
       - build-for-windows-flutter
+      - publish-windows-unified-x64
       - build-for-macOS
     runs-on: ubuntu-24.04
     env:

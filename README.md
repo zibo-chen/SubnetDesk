@@ -90,7 +90,7 @@ Choose a 2.0 package from **[GitHub Releases](https://github.com/zibo-chen/Subne
 
 | Platform | Architectures | Packages |
 | --- | --- | --- |
-| Windows x64 | Intel/AMD 64-bit | Recommended: `*-x86_64-setup.exe` or `*-x86_64-portable.zip` (targeting Win7 SP1 and later); separate Win10+ packages are also available |
+| Windows x64 | Intel/AMD 64-bit | Recommended: `*-x86_64-setup.exe` or `*-x86_64-portable.zip` (Win7 SP1 and later); MSI and self-extracting EXE share the same runtime |
 | Windows ARM64 | Windows on ARM | `*-aarch64-portable.zip`, `.msi`, self-extracting `.exe`; not for Win7 |
 | macOS | Intel, Apple Silicon | `.dmg` |
 | Linux | x86_64, ARM64 | `.deb`, `.rpm`, `.AppImage`, `.flatpak`; Arch package on x86_64 |
@@ -101,7 +101,7 @@ Choose a 2.0 package from **[GitHub Releases](https://github.com/zibo-chen/Subne
 
 ### Install and upgrade
 
-- **Windows**: Extract the complete portable ZIP and launch the top-level `SubnetDesk.exe`; keep the directory together. Exit from the tray before upgrading, and preserve a backup of `userdata/`, which contains configuration, device identity, and logs. Win10+ builds use the `-win10-portable.zip` suffix, MSI, or self-extracting EXE. See the [Win7 package notes](docs/win7/README.md) for scope and validation limits.
+- **Windows**: Extract the complete portable ZIP and launch the top-level `SubnetDesk.exe`; keep the directory together. Exit from the tray before upgrading, and preserve a backup of `userdata/`, which contains configuration, device identity, and logs. All x64 formats use the same hardware-enabled runtime: supported GPU codecs are detected at runtime, with software encoding as fallback. See the [Win7 package notes](docs/win7/README.md) for scope and validation limits.
 - **macOS**: Open the DMG for your architecture and drag SubnetDesk into Applications. To receive remote connections, follow the screen recording and accessibility permission prompts in This device.
 - **Linux**: Choose the package for your distribution. 2.0 ships regular desktop packages; the separate DRM unattended/login-screen package is on hold. See [host readiness notes](docs/linux-host-readiness.md) for Wayland and login-screen limits.
 - **Android**: Install the APK; choose `universal` if unsure of your architecture. Receiving remote connections also requires the screen-sharing and input permissions requested by the app.

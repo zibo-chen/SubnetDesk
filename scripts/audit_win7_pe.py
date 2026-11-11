@@ -13,6 +13,8 @@ import struct
 POST_WIN7_DLLS = {"shcore.dll", "bcryptprimitives.dll", "dcomp.dll",
                  "api-ms-win-core-path-l1-1-0.dll"}
 POST_WIN7_APIS = {
+    "createdxgifactory2", "dxgigetdebuginterface1", "d3d12createdevice",
+    "d3d11on12createdevice",
     "waitonaddress", "wakebyaddresssingle", "wakebyaddressall",
     "getsystemtimepreciseasfiletime", "getoverlappedresultex", "createfile2",
     "setthreadinformation", "getthreadinformation", "setprocessinformation",

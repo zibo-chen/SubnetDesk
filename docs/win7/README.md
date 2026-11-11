@@ -1,9 +1,9 @@
-# Win7 x64 Flutter 专用包
+# Windows x64 统一 Flutter 包
 
 当前 Win7 路线与 RustDesk 原版一致：Flutter 3.24.5 / Dart 3.5.4，加上
 `rustdesk/engine` 发布的 `windows-x64-release.zip` 定制引擎。
 Sciter Win7 构建、Sciter 引擎下载和旧测试版发布流程已废弃，专用包不包含 Sciter DLL。
-范围为 Windows 7 SP1 **64 位**；不再生成 32 位 Sciter 替代包。
+范围为 Windows 7 SP1 及以上 **64 位**；不再区分 Win7 软件包和 Win10 硬件包。
 
 ## 引擎与共享 UI
 
@@ -33,16 +33,21 @@ Win7 的依赖版本和锁文件分别位于 `res/win7/flutter-dependencies.json
 不使用普通现代 Windows target 的标准库，也不使用 Sciter 可执行程序。
 
 vcpkg 依赖树独立于普通 Windows 包，固定 baseline，使用静态 CRT、
-`WINVER/_WIN32_WINNT=0x0601` 和软件编解码。不启用 `hwcodec`、`vram`，
-不携带现代 Windows 的显示器驱动、注入工具或系统服务。
+`WINVER/_WIN32_WINNT=0x0601`，同时编入 `hwcodec`、`vram` 和软件编解码。
+FFmpeg 启用 QSV、NVENC、AMF；沿用上游锁定的 GPU SDK 头文件版本。
+运行时由独立探测进程实际测试显卡编解码能力，连接双方支持时自动使用 H.265/H.264。
+没有可用硬件、禁用硬件加速或硬件初始化/编码失败时，沿用软件编码回退逻辑。
+编码与解码能力分别探测，不能仅凭显卡型号或 Windows 版本保证 H.265 可用。
+统一运行时不携带现代 Windows 的显示器驱动、注入工具或系统服务。
 Flutter runner 和目录包启动器均声明 Win7 支持及旧系统 DPI 回退，并保留管理员权限。
 
 ## GitHub runner 构建
 
 统一 CI、Nightly 和标签发布默认包含此 Win7 x64 构建。发布时将已验证的绿色 ZIP
 命名为 `subnetdesk-<版本>-x86_64-portable.zip`，安装版命名为
-`subnetdesk-<版本>-x86_64-setup.exe`，作为 Windows x64 推荐下载。现代 Windows
-绿色包另带 `-win10-portable.zip` 后缀；MSI 和自解压 EXE 标注为 Win10+。
+`subnetdesk-<版本>-x86_64-setup.exe`，作为 Windows x64 推荐下载。
+MSI 和自解压 EXE 也从同一份已检查的运行时封装，保留原更新文件名；
+不再额外构建 `-win10-portable.zip`。
 Windows ARM64 仍使用现代 Windows 构建，不属于 Win7 支持范围。
 
 `.github/workflows/windows-win7-flutter.yml` 可手动运行；推送 `win7-test/**` 分支也会触发。
@@ -53,7 +58,8 @@ Windows ARM64 仍使用现代 Windows 构建，不属于 Win7 支持范围。
 3. 构建 Win7 原生依赖、Rust Flutter 库、Flutter runner 和便携入口。
 4. 验证引擎身份，对包中每个 EXE、DLL 检查架构、子系统及已知不兼容导入。
    Dart `data/app.so` 是引擎自行加载的 ELF AOT 快照，单独检查 x64 格式、快照导出和无外部 ELF 依赖。
-5. 在 runner 执行实际包内程序的 `--version`，上传专用测试 ZIP 和校验/导入报告。
+5. 在 runner 执行实际包内程序的 `--version` 和主机监听冒烟，封装 MSI/自解压 EXE，
+   检查自解压入口及 MSI 原生自定义操作的 PE 导入，上传各格式及来源/载荷哈希报告。
 
 本地 Windows 开发环境需先安装 NSIS 3（`choco install nsis --yes`），然后使用：
 

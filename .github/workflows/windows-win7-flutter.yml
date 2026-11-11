@@ -28,6 +28,9 @@ env:
   VCPKG_INSTALLED_ROOT: C:\vcpkg-win7\installed
   VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
   SUBNETDESK_WIN7: "1"
+  SUBNETDESK_UPDATE_PUBLIC_KEY: "${{ secrets.SUBNETDESK_UPDATE_PUBLIC_KEY }}"
+  SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
+  SIGN_SECRET_KEY: "${{ secrets.SIGN_SECRET_KEY }}"
 
 jobs:
   generate-bridge:
@@ -130,7 +133,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg repository initialization failed' }
           git -C $env:VCPKG_ROOT remote add origin https://github.com/microsoft/vcpkg
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg remote setup failed' }
-          git -C $env:VCPKG_ROOT fetch --depth 1 origin $env:VCPKG_COMMIT
+          # Version overrides need historical port trees, not a shallow checkout.
+          git -C $env:VCPKG_ROOT fetch --filter=blob:none origin $env:VCPKG_COMMIT
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg revision fetch failed' }
           git -C $env:VCPKG_ROOT checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg revision failed' }
@@ -149,6 +153,8 @@ jobs:
           VCPKG_ROOT: C:\vcpkg-win7
           VCPKG_INSTALLED_ROOT: C:\vcpkg-win7\installed
         run: |
+          python -m pip install requests
+          if ($LASTEXITCODE -ne 0) { throw 'Release signer dependencies failed' }
           python scripts/build_win7.py --arch x64 --flutter-sdk "${{ steps.flutter.outputs['CACHE-PATH'] }}"
           if ($LASTEXITCODE -ne 0) { throw 'Win7 Flutter build or PE compatibility checks failed' }
       - name: Verify the packaged host keeps TCP 21118 listening after window startup
@@ -156,6 +162,21 @@ jobs:
           $package = Get-ChildItem target/win7-dist/subnetdesk-*-win7-x64-flutter -Directory | Select-Object -First 1
           python scripts/smoke_windows_host.py --executable "$($package.FullName)/app/SubnetDesk.exe" --output target/win7-dist/host-runtime-smoke.json
           if ($LASTEXITCODE -ne 0) { throw 'Packaged host listener smoke check failed' }
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
+      - name: Package the same runtime as MSI and self-extracting EXE
+        run: |
+          python -m pip install -r libs/portable/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Portable packer dependencies failed' }
+          python scripts/package_windows_x64.py --runtime target/win7-flutter/build/flutter/build/windows/x64/runner/Release --output target/win7-dist
+          if ($LASTEXITCODE -ne 0) { throw 'Unified Windows installer packaging failed' }
+      - name: Upload the unified unsigned runtime
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: subnetdesk-unsigned-windows-x86_64
+          if-no-files-found: error
+          retention-days: 30
+          path: target/win7-flutter/build/flutter/build/windows/x64/runner/Release
       - name: Preserve compatibility reports after a failed package check
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -189,8 +210,10 @@ jobs:
           retention-days: 30
           path: |
             target/win7-dist/*.zip
-            target/win7-dist/*-setup.exe
+            target/win7-dist/*.exe
+            target/win7-dist/*.msi
             target/win7-dist/*-setup.json
+            target/win7-dist/installer-payload.json
             target/win7-dist/*-imports.json
             target/win7-dist/*-aot.json
             target/win7-dist/*-provenance.json

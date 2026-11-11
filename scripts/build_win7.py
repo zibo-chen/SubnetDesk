@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import re
+import tempfile
 import zipfile
 
 import audit_win7_pe
@@ -33,6 +34,24 @@ def load_module(name, path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def sign_files(paths):
+    """Use the release workflow's configured signer, keeping unrelated files intact."""
+    base_url = os.environ.get("SIGN_BASE_URL", "-2")
+    if base_url == "-2":
+        return
+    env = os.environ.copy()
+    env["BASE_URL"] = base_url
+    env["SECRET_KEY"] = env["SIGN_SECRET_KEY"]
+    with tempfile.TemporaryDirectory(prefix="subnetdesk-sign-") as temporary:
+        directory = Path(temporary)
+        for path in paths:
+            shutil.copy2(path, directory / path.name)
+        subprocess.run([sys.executable, str(ROOT / "res/job.py"), "sign_files", str(directory)],
+                       cwd=ROOT, env=env, check=True)
+        for path in paths:
+            shutil.copy2(directory / path.name, path)
 
 
 def win7_import_library_paths(arch, cargo_home, lock_file=ROOT / "Cargo.lock"):
@@ -137,6 +156,8 @@ def main():
         raise RuntimeError("The compiled runtime does not contain the pinned RustDesk Win7 engine")
     host = runtime / "rustdesk.exe"
     host.rename(runtime / "SubnetDesk.exe")
+    sign_files([runtime / name for name in (
+        "SubnetDesk.exe", "SubnetDeskLauncher.exe", "librustdesk.dll")])
     shutil.copy2(ROOT / "LICENCE", runtime / "SubnetDesk-LICENSE.txt")
     shutil.copy2(sdk / "LICENSE", runtime / "Flutter-LICENSE.txt")
     manifest = (ROOT / "Cargo.toml").read_text(encoding="utf-8").split("[package]", 1)[1].split("\n[", 1)[0]
