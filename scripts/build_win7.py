@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the shared Flutter UI with RustDesk's custom Win7 x64 engine."""
+"""Build the unified Windows x64 runtime with the custom Win7-compatible engine."""
 import argparse
 import hashlib
 import json
@@ -19,6 +19,7 @@ import package_win7_installer
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLCHAIN = "nightly-2025-08-01"  # Rust 1.90.0 nightly; rust-src is required.
+NATIVE_FEATURES = "flutter,software-update,hwcodec,vram"
 TARGETS = {"x64": "x86_64-win7-windows-msvc", "x86": "i686-win7-windows-msvc"}
 
 
@@ -70,7 +71,7 @@ def main():
     parser.add_argument("--flutter-sdk", type=Path)
     parser.add_argument("--print-commands", action="store_true")
     args = parser.parse_args()
-    command = cargo_command(args.arch, "-p", "rustdesk", "--features", "flutter,software-update", "--lib")
+    command = cargo_command(args.arch, "-p", "rustdesk", "--features", NATIVE_FEATURES, "--lib")
     if args.print_commands:
         print(subprocess.list2cmdline(command))
         print("flutter build windows --release --no-pub (RustDesk custom engine "
@@ -148,6 +149,8 @@ def main():
     provenance = {
         "ui": "shared Flutter UI", "sciter": False, "minimum_os": "Windows 7 SP1 x64",
         "rust_target": TARGETS[args.arch], "rust_toolchain": TOOLCHAIN,
+        "native_features": NATIVE_FEATURES.split(","),
+        "codec_selection": "runtime hardware probe with software fallback",
         "ui_source_sha256": ui_metadata["source_sha256"],
         "engine": prepare_win7_flutter.ENGINE, "engine_dll_sha256": expected,
         "source_commit": os.environ.get("GITHUB_SHA") or subprocess.check_output(

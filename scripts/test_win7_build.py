@@ -93,12 +93,14 @@ class Win7BuildTests(unittest.TestCase):
 
     def test_flutter_library_uses_the_dedicated_win7_standard_library(self):
         command = build_win7.cargo_command("x64", "-p", "rustdesk", "--features",
-                                          "flutter,software-update", "--lib")
+                                          build_win7.NATIVE_FEATURES, "--lib")
         self.assertIn("x86_64-win7-windows-msvc", command)
         self.assertIn("build-std=std,panic_abort", command)
         self.assertIn("--locked", command)
         self.assertIn("--lib", command)
-        self.assertIn("flutter,software-update", command)
+        self.assertIn(build_win7.NATIVE_FEATURES, command)
+        self.assertTrue({"flutter", "software-update", "hwcodec", "vram"}.issubset(
+            set(build_win7.NATIVE_FEATURES.split(","))))
         self.assertNotIn("inline", command)
 
     def test_shared_ui_api_compatibility_preserves_nested_expressions_and_content(self):

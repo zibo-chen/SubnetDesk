@@ -1,9 +1,10 @@
-name: Build Win7 Flutter test package
+name: Build unified Windows x64 package
 
 on:
   push:
     branches:
       - "win7-test/**"
+      - "unified/windows-x64"
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -117,7 +118,7 @@ jobs:
         with:
           path: C:/vcpkg-win7/installed
           key: win7-native-x64-v2-${{ env.VCPKG_COMMIT }}-${{ hashFiles('res/win7/vcpkg.json', 'res/win7/triplets/**', 'res/win7/ports/**', 'res/vcpkg/**') }}
-      - name: Build Win7 software codec dependencies
+      - name: Build software and hardware codec dependencies for Windows 7+
         env:
           VCPKG_ROOT: C:\vcpkg-win7
           VCPKG_INSTALLED_ROOT: C:\vcpkg-win7\installed
