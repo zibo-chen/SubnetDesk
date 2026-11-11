@@ -55,6 +55,30 @@ jobs:
             runtime_sha256 = '27e41f65ea6d3524b919444ee81edeeaeb0a2132c39d5b854ea65c2a925fbbc7'
             package_sha256 = (Get-FileHash validation-output/*.exe -Algorithm SHA256).Hash
           } | ConvertTo-Json | Set-Content validation-output/provenance.json
+      - uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
+      - name: Build and verify the MSI overwrite policy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location res/msi
+          python preprocess.py --arp --app-name SubnetDesk --manufacturer SubnetDesk -d ../../runtime/subnetdesk-2.0.0-x86_64-portable/app
+          if ($LASTEXITCODE -ne 0) { throw 'MSI preprocessing failed' }
+          nuget restore msi.sln
+          if ($LASTEXITCODE -ne 0) { throw 'MSI dependency restore failed' }
+          msbuild msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
+          if ($LASTEXITCODE -ne 0) { throw 'MSI build failed' }
+          $msi = Get-ChildItem Package/bin/*/Release/en-us/Package.msi | Select-Object -First 1
+          Copy-Item $msi.FullName ../../validation-output/subnetdesk-fixed-x64.msi
+          Pop-Location
+          $path = (Resolve-Path validation-output/subnetdesk-fixed-x64.msi).Path
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          $database = $installer.OpenDatabase($path, 0)
+          $view = $database.OpenView('SELECT `Value` FROM `Property` WHERE `Property` = ''REINSTALLMODE''')
+          $view.Execute()
+          if ($view.Fetch().StringData(1) -ne 'emus') { throw 'MSI must replace equal-version launchers' }
+          $provenance = Get-Content validation-output/provenance.json -Raw | ConvertFrom-Json
+          $provenance | Add-Member -NotePropertyName msi_sha256 -NotePropertyValue (Get-FileHash $path -Algorithm SHA256).Hash
+          $provenance | ConvertTo-Json | Set-Content validation-output/provenance.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: windows-self-extract-validation
