@@ -307,6 +307,7 @@ jobs:
           pushd ./libs/portable
           pip3 install -r requirements.txt
           python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/SubnetDesk.exe
+          cargo test --locked -p rustdesk-portable-packer
           popd
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/subnetdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
