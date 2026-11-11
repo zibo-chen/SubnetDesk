@@ -162,6 +162,16 @@ jobs:
           $package = Get-ChildItem target/win7-dist/subnetdesk-*-win7-x64-flutter -Directory | Select-Object -First 1
           python scripts/smoke_windows_host.py --executable "$($package.FullName)/app/SubnetDesk.exe" --output target/win7-dist/host-runtime-smoke.json
           if ($LASTEXITCODE -ne 0) { throw 'Packaged host listener smoke check failed' }
+      - name: Preserve the verified ZIP and setup before additional wrappers
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: subnetdesk-unified-x64-runtime-test
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            target/win7-dist/*.zip
+            target/win7-dist/*-setup.exe
+            target/win7-dist/*.json
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
       - name: Package the same runtime as MSI and self-extracting EXE

@@ -38,8 +38,9 @@ def main():
     env["CFLAGS"] = env.get("CFLAGS", "") + " /D_WIN32_WINNT=0x0601 /DWINVER=0x0601"
     env["CXXFLAGS"] = env.get("CXXFLAGS", "") + " /D_WIN32_WINNT=0x0601 /DWINVER=0x0601"
 
-    def run(command, cwd=ROOT):
-        subprocess.run([str(v) for v in command], cwd=cwd, env=env, check=True)
+    def run(command, cwd=ROOT, overrides=None):
+        subprocess.run([str(v) for v in command], cwd=cwd,
+                       env={**env, **(overrides or {})}, check=True)
 
     generate = build_win7.load_module("portable_generate", ROOT / "libs/portable/generate.py")
     packer = ROOT / "libs/portable"
@@ -49,7 +50,9 @@ def main():
     run(build_win7.cargo_command("x64", "-p", "rustdesk-portable-packer"))
     test = build_win7.cargo_command("x64", "-p", "rustdesk-portable-packer")
     test[2] = "test"
-    run(test)
+    # libtest unwinds panics; do not mix it with the release panic=abort sysroot.
+    test.remove("--release")
+    run(test, overrides={"CARGO_TARGET_DIR": str(ROOT / "target/win7-flutter/packer-tests")})
     executable = Path(env["CARGO_TARGET_DIR"]) / build_win7.TARGETS["x64"] / "release/rustdesk-portable-packer.exe"
     report = audit_win7_pe.inspect(executable)
     report["errors"] = audit_win7_pe.violations(report, "x64")
