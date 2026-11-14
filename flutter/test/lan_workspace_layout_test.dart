@@ -294,94 +294,77 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('full device list scrolls and connects each original endpoint', (
-    tester,
-  ) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(966, 677);
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final peers = List.generate(
-      30,
-      (i) => WorkspaceDevice(
-        id: '10.1.1.${i + 10}:${i == 29 ? 22000 : 21118}',
-        name: 'Workstation ${i.toString().padLeft(2, '0')}',
-        online: i == 0 ? null : i != 1,
-      ),
-    );
-    final connected = <String>[];
-    Widget workspace(List<WorkspaceDevice> devices) => MaterialApp(
-      theme: SubnetPalette.apply(ThemeData()),
-      home: LanWorkspace(
-        nearby: devices,
-        recent: devices.isEmpty ? const [] : [devices.first],
-        favorites: devices.isEmpty ? const [] : [devices.first],
-        onConnect: (peer, tool) {
-          expect(tool, LanTool.desktop);
-          connected.add(peer.id);
-        },
-        onFavorite: (_) {},
-        onRefresh: () {},
-        onSettings: () {},
-      ),
-    );
-    await tester.pumpWidget(workspace(peers));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('workspace-nav-1')));
-    await tester.pumpAndSettle();
-    expect(find.text('30 devices'), findsOneWidget);
-    expect(find.text('Sessions'), findsNothing);
-    expect(find.byType(TextField), findsNothing);
-    expect(find.byType(ChoiceChip), findsNothing);
-    expect(find.byIcon(Icons.search_rounded), findsNothing);
-    expect(find.text('Not checked'), findsOneWidget);
-    expect(find.text('Unreachable'), findsOneWidget);
-    expect(
-      tester.getTopLeft(find.byKey(ValueKey('device-row-${peers[8].id}'))).dy,
-      lessThan(677),
-      reason: 'Compact rows show at least nine devices in the current window',
-    );
-    for (final peer in [peers.first, peers.last]) {
-      final button = find.byKey(
-        ValueKey('workspace-device-connect-${peer.id}'),
-      );
-      await tester.scrollUntilVisible(
-        button,
-        200,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('workspace-device-list')),
-          matching: find.byType(Scrollable),
+  testWidgets(
+    'full device list paginates and connects each original endpoint',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(966, 677);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final peers = List.generate(
+        30,
+        (i) => WorkspaceDevice(
+          id: '10.1.1.${i + 10}:${i == 29 ? 22000 : 21118}',
+          name: 'Workstation ${i.toString().padLeft(2, '0')}',
+          online: i == 0 ? null : i != 1,
         ),
       );
-      final label = tester.renderObject<RenderParagraph>(
-        find.descendant(of: button, matching: find.text('Connect')),
+      final connected = <String>[];
+      Widget workspace(List<WorkspaceDevice> devices) => MaterialApp(
+        theme: SubnetPalette.apply(ThemeData()),
+        home: LanWorkspace(
+          nearby: devices,
+          recent: devices.isEmpty ? const [] : [devices.first],
+          favorites: devices.isEmpty ? const [] : [devices.first],
+          onConnect: (peer, tool) {
+            expect(tool, LanTool.desktop);
+            connected.add(peer.id);
+          },
+          onFavorite: (_) {},
+          onRefresh: () {},
+          onSettings: () {},
+        ),
       );
-      expect(
-        label.didExceedMaxLines,
-        isFalse,
-        reason: 'The full English action stays visible in the device table',
-      );
-      expect(
-        label
-            .getBoxesForSelection(
-              const TextSelection(baseOffset: 0, extentOffset: 7),
-            )
-            .map((box) => box.top)
-            .toSet(),
-        hasLength(1),
-      );
-      await tester.tap(button);
+      await tester.pumpWidget(workspace(peers));
       await tester.pumpAndSettle();
-    }
-    expect(connected, [peers.first.id, peers.last.id]);
-    expect(find.text('10.1.1.39:22000'), findsOneWidget);
-    await tester.pumpWidget(workspace(const []));
-    await tester.pumpAndSettle();
-    expect(find.text('0 devices'), findsOneWidget);
-    expect(find.text('No devices here'), findsOneWidget);
-    expect(find.text('Connect by address').hitTestable(), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      await tester.tap(find.byKey(const ValueKey('workspace-nav-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('30 devices'), findsOneWidget);
+      expect(find.text('Sessions'), findsNothing);
+      expect(find.byType(TextField), findsWidgets);
+      expect(find.byType(ChoiceChip), findsNWidgets(4));
+      expect(find.byIcon(Icons.search_rounded), findsNothing);
+      expect(find.text('Not checked'), findsOneWidget);
+      expect(find.text('Unreachable'), findsOneWidget);
+      for (final peer in [peers.first, peers.last]) {
+        if (peer == peers.last) {
+          for (var page = 0; page < 2; page++) {
+            await tester.tap(find.byTooltip('Next page'));
+            await tester.pumpAndSettle();
+          }
+        }
+        final row = find.byKey(ValueKey('device-row-${peer.id}'));
+        await tester.scrollUntilVisible(
+          row,
+          150,
+          scrollable: find.descendant(
+            of: find.byKey(const ValueKey('workspace-device-list')),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await tester.tap(row);
+        await tester.pumpAndSettle();
+      }
+      expect(connected, [peers.first.id, peers.last.id]);
+      expect(find.text('10.1.1.39:22000'), findsOneWidget);
+      await tester.pumpWidget(workspace(const []));
+      await tester.pumpAndSettle();
+      expect(find.text('0 devices'), findsNWidgets(2));
+      expect(find.text('No devices found'), findsOneWidget);
+      expect(find.text('Add device').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets('device navigation merges sources and resets favorites', (
     tester,
   ) async {
@@ -425,14 +408,12 @@ void main() {
     expect(find.text('2 devices'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('workspace-nav-1')));
     await tester.pumpAndSettle();
-    expect(find.text('All devices'), findsOneWidget);
+    expect(find.text('All devices'), findsNWidgets(2));
     expect(find.text('3 devices'), findsOneWidget);
     expect(find.text('Old desktop'), findsNothing);
     expect(find.text('Current desktop'), findsOneWidget);
     for (final peer in [nearby, history, favorite]) {
-      await tester.tap(
-        find.byKey(ValueKey('workspace-device-connect-${peer.id}')),
-      );
+      await tester.tap(find.byKey(ValueKey('device-row-${peer.id}')));
     }
     expect(connected, [nearby.id, history.id, favorite.id]);
     await tester.tap(find.byKey(const ValueKey('workspace-nav-0')));
@@ -846,8 +827,11 @@ void main() {
           await tester.tap(find.text('View all'));
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
-          expect(find.byType(TextField), findsNothing);
-          expect(find.byType(ChoiceChip), findsNothing);
+          expect(find.byType(TextField), mobile ? findsNothing : findsWidgets);
+          expect(
+            find.byType(ChoiceChip),
+            mobile ? findsNothing : findsNWidgets(4),
+          );
           expect(find.byTooltip('Search devices'), findsNothing);
           await tester.ensureVisible(find.text(device.name));
           await tester.tap(find.text(device.name));
@@ -1001,26 +985,24 @@ void main() {
             await tester.ensureVisible(find.text('View all'));
             await tester.tap(find.text('View all'));
             await tester.pumpAndSettle();
-            expect(find.byType(TextField), findsNothing);
+            expect(find.byType(TextField), findsWidgets);
             expect(tester.takeException(), isNull);
             await tester.scrollUntilVisible(
               find.text(device.name),
               80,
               scrollable: find
                   .descendant(
-                    of: find.byType(CustomScrollView),
+                    of: find.byKey(const ValueKey('workspace-device-list')),
                     matching: find.byType(Scrollable),
                   )
                   .first,
             );
             await tester.pumpAndSettle();
             selectedTool = null;
-            await tester.tap(
-              find.byKey(ValueKey('workspace-device-connect-${device.id}')),
-            );
+            await tester.tap(find.byKey(ValueKey('device-row-${device.id}')));
             await tester.pumpAndSettle();
             expect(selectedTool, LanTool.desktop);
-            expect(find.byType(TextField), findsNothing);
+            expect(find.byType(TextField), findsWidgets);
             expect(
               find.byKey(ValueKey('device-actions-' + device.id)).hitTestable(),
               findsOneWidget,

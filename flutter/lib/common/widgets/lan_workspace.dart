@@ -19,6 +19,10 @@ import 'peer_card.dart';
 import 'device_art.dart';
 import 'subnet_ui.dart';
 
+part 'saved_devices_browser.dart';
+
+typedef UndoDeviceAddress = Future<void> Function();
+
 enum LanTool { desktop, files, terminal, camera }
 
 class WorkspaceDevice {
@@ -30,6 +34,10 @@ class WorkspaceDevice {
     this.hostname = '',
     this.online,
     this.fingerprint = '',
+    this.address = '',
+    this.autoUpdateAddress = true,
+    this.addressSource = 'saved',
+    this.addressRevision = 0,
   });
   final String id;
   final String name;
@@ -37,10 +45,16 @@ class WorkspaceDevice {
   final String deviceType, hostname;
   final bool? online;
   final String fingerprint;
+  final String address, addressSource;
+  final bool autoUpdateAddress;
+  final int addressRevision;
+  String get connectionAddress => address.isEmpty ? id : address;
 
   String get displayAddress {
-    final match = RegExp(r'^([^:]+|\[[^\]]+\]):21118$').firstMatch(id);
-    return match?.group(1) ?? id;
+    final match = RegExp(
+      r'^([^:]+|\[[^\]]+\]):21118$',
+    ).firstMatch(connectionAddress);
+    return match?.group(1) ?? connectionAddress;
   }
 
   String get displayName => name == id ? displayAddress : name;
@@ -63,6 +77,10 @@ class WorkspaceDevice {
     hostname: peer.hostname,
     online: peer.online,
     fingerprint: peer.fingerprint,
+    address: peer.address,
+    autoUpdateAddress: peer.autoUpdateAddress,
+    addressSource: peer.addressSource,
+    addressRevision: peer.addressRevision,
   );
 }
 
@@ -105,10 +123,35 @@ class _LanWorkspacePageState extends State<LanWorkspacePage>
       gFFI.favoritePeersModel,
       favoriteGroupModel,
     ]);
+    _updates.addListener(_migrateGroupKeys);
     _refresh();
     _timer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (_resumed) _refresh();
     });
+  }
+
+  bool _migratingGroupKeys = false;
+  void _migrateGroupKeys() {
+    if (_migratingGroupKeys) return;
+    _migratingGroupKeys = true;
+    try {
+      final mappings = <String, String>{};
+      for (final peer in [
+        ...gFFI.favoritePeersModel.peers,
+        ...gFFI.recentPeersModel.peers,
+      ]) {
+        if (peer.id == peer.fingerprint && peer.fingerprint.isNotEmpty) {
+          for (final legacy in peer.legacyIds) {
+            mappings[legacy] = peer.fingerprint;
+          }
+        }
+      }
+      favoriteGroupModel.migratePeerKeys(mappings);
+    } catch (error) {
+      debugPrint('Migrating favorite device keys failed: $error');
+    } finally {
+      _migratingGroupKeys = false;
+    }
   }
 
   void _refresh() {
@@ -127,10 +170,15 @@ class _LanWorkspacePageState extends State<LanWorkspacePage>
 
   Future<void> _readHostAccess() async {
     try {
-      final info = jsonDecode(await bind.mainGetLanServerInfo()) as Map<String, dynamic>;
+      final info =
+          jsonDecode(await bind.mainGetLanServerInfo()) as Map<String, dynamic>;
       if (mounted) {
-        setState(() => _hostAccess = HostAccessState.fromInfo(
-            info, busy: _changingHostAccess));
+        setState(
+          () => _hostAccess = HostAccessState.fromInfo(
+            info,
+            busy: _changingHostAccess,
+          ),
+        );
       }
     } catch (error) {
       debugPrint('Reading local access failed: $error');
@@ -149,7 +197,10 @@ class _LanWorkspacePageState extends State<LanWorkspacePage>
       if (_hostAccess.loading) throw StateError('Host status is unavailable');
       if (!discovery && enabled && !_hostAccess.canEnableRemote) return false;
       if (discovery) {
-        await bind.mainSetOption(key: kOptionEnableLanDiscovery, value: enabled ? 'Y' : 'N');
+        await bind.mainSetOption(
+          key: kOptionEnableLanDiscovery,
+          value: enabled ? 'Y' : 'N',
+        );
       } else {
         await start_service(enabled);
       }
@@ -159,8 +210,13 @@ class _LanWorkspacePageState extends State<LanWorkspacePage>
     } catch (error) {
       debugPrint('Updating local access failed: $error');
       if (mounted) {
-        showToast(subnetText(context, '无法更新本机接入状态，请重试',
-            'Could not update local access. Try again.'));
+        showToast(
+          subnetText(
+            context,
+            '无法更新本机接入状态，请重试',
+            'Could not update local access. Try again.',
+          ),
+        );
       }
       return true;
     } finally {
@@ -179,6 +235,7 @@ class _LanWorkspacePageState extends State<LanWorkspacePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     if (isDesktop) windowManager.removeListener(this);
+    _updates.removeListener(_migrateGroupKeys);
     _timer?.cancel();
     super.dispose();
   }
@@ -214,7 +271,22 @@ class _LanWorkspacePageState extends State<LanWorkspacePage>
   Future<void> _favorite(WorkspaceDevice device) async {
     try {
       final ids = (await bind.mainGetFav()).toSet();
-      if (!ids.remove(device.id)) ids.add(device.id);
+      final id = device.fingerprint.isNotEmpty
+          ? device.fingerprint.toLowerCase()
+          : device.id;
+      if (!isDeviceFingerprint(id) && !ids.contains(id)) {
+        if (mounted) {
+          showToast(
+            subnetText(
+              context,
+              '请先连接并确认设备指纹',
+              'Connect and verify the device fingerprint first',
+            ),
+          );
+        }
+        return;
+      }
+      if (!ids.remove(id)) ids.add(id);
       await bind.mainStoreFav(favs: ids.toList());
       if (!ids.contains(device.id)) favoriteGroupModel.removePeer(device.id);
       await bind.mainLoadFavPeers();
@@ -229,6 +301,32 @@ class _LanWorkspacePageState extends State<LanWorkspacePage>
           ),
         );
     }
+  }
+
+  Future<UndoDeviceAddress> _editAddress(
+    WorkspaceDevice device,
+    String address,
+    bool automatic,
+  ) async {
+    final response =
+        jsonDecode(
+              await bind.mainUpdateLanDeviceAddress(
+                id: device.id,
+                address: address,
+                automatic: automatic,
+                revision: device.addressRevision,
+              ),
+            )
+            as Map<String, dynamic>;
+    if (response['error'] != null)
+      throw StateError(response['error'] as String);
+    final token = jsonEncode(response['undo']);
+    _refresh();
+    return () async {
+      final error = await bind.mainRestoreLanDeviceAddress(token: token);
+      if (error.isNotEmpty) throw StateError(error);
+      _refresh();
+    };
   }
 
   @override
@@ -260,6 +358,9 @@ class _LanWorkspacePageState extends State<LanWorkspacePage>
       groups: favoriteGroupModel.groups,
       groupFor: favoriteGroupModel.groupIdForPeer,
       onAssignGroup: favoriteGroupModel.setPeerGroup,
+      onAssignGroups: favoriteGroupModel.setPeerGroups,
+      captureGroupUndo: favoriteGroupModel.captureUndo,
+      onEditAddress: _editAddress,
       onCreateGroup: favoriteGroupModel.createGroup,
       onRenameGroup: favoriteGroupModel.renameGroup,
       onDeleteGroup: favoriteGroupModel.deleteGroup,
@@ -271,13 +372,23 @@ class _LanWorkspacePageState extends State<LanWorkspacePage>
       localPane: widget.localPane,
       hostAccess: widget.mobile || bind.isOutgoingOnly() ? null : _hostAccess,
       hostPermissionLabel: isMacOS
-          ? subnetText(context, '授予辅助功能与屏幕录制权限', 'Allow accessibility and screen recording')
+          ? subnetText(
+              context,
+              '授予辅助功能与屏幕录制权限',
+              'Allow accessibility and screen recording',
+            )
           : isWindows
           ? subnetText(context, '授予管理员权限', 'Allow administrator access')
           : isLinux && bind.mainCurrentIsWayland()
-          ? subnetText(context, '授予 Wayland 录屏与输入控制权限', 'Allow Wayland screen sharing and input control')
+          ? subnetText(
+              context,
+              '授予 Wayland 录屏与输入控制权限',
+              'Allow Wayland screen sharing and input control',
+            )
           : subnetText(context, '检查系统接入权限', 'Check system access permissions'),
-      onDiscoveryChanged: (value) async { await _changeHostAccess(value, discovery: true); },
+      onDiscoveryChanged: (value) async {
+        await _changeHostAccess(value, discovery: true);
+      },
       onRemoteChanged: _changeHostAccess,
     ),
   );
@@ -300,6 +411,9 @@ class LanWorkspace extends StatefulWidget {
     this.groups = const [],
     this.groupFor,
     this.onAssignGroup,
+    this.onAssignGroups,
+    this.captureGroupUndo,
+    this.onEditAddress,
     this.onCreateGroup,
     this.onRenameGroup,
     this.onDeleteGroup,
@@ -319,6 +433,10 @@ class LanWorkspace extends StatefulWidget {
   final List<FavoriteGroup> groups;
   final String? Function(String)? groupFor;
   final void Function(String, String?)? onAssignGroup;
+  final void Function(Iterable<String>, String?)? onAssignGroups;
+  final bool Function() Function()? captureGroupUndo;
+  final Future<UndoDeviceAddress> Function(WorkspaceDevice, String, bool)?
+  onEditAddress;
   final bool Function(String)? onCreateGroup, onDeleteGroup;
   final bool Function(String, String)? onRenameGroup;
   final ValueChanged<int>? onNavigationChanged;
@@ -491,7 +609,9 @@ class _LanWorkspaceState extends State<LanWorkspace> {
     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
     child: Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1040),
+        constraints: BoxConstraints(
+          maxWidth: _navigation == 1 ? double.infinity : 1040,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -647,7 +767,9 @@ class _LanWorkspaceState extends State<LanWorkspace> {
     final devices = <String, WorkspaceDevice>{};
     for (final device in widget.nearby) {
       final previous = devices[device.id];
-      if (previous == null || previous.online != true || device.online == true) {
+      if (previous == null ||
+          previous.online != true ||
+          device.online == true) {
         devices[device.id] = device;
       }
     }
@@ -1085,6 +1207,7 @@ class _LanWorkspaceState extends State<LanWorkspace> {
       ],
     );
   }
+
   Widget _heroActions(
     WorkspaceDevice? device, {
     bool compact = false,
@@ -1169,14 +1292,22 @@ class _LanWorkspaceState extends State<LanWorkspace> {
             case 'favorite':
               widget.onFavorite(device);
               return;
+            case 'edit-address':
+              _editDeviceAddress(device);
+              return;
             case 'copy-address':
-              _copy(device.id);
+              _copy(device.connectionAddress);
               return;
             default:
               widget.onConnect(device, LanTool.values.byName(value));
           }
         },
         itemBuilder: (_) => [
+          if (widget.onEditAddress != null && isDeviceFingerprint(device.id))
+            PopupMenuItem(
+              value: 'edit-address',
+              child: Text(t('编辑地址', 'Edit address')),
+            ),
           if (widget.mobile)
             PopupMenuItem(
               value: 'details',
@@ -1210,6 +1341,227 @@ class _LanWorkspaceState extends State<LanWorkspace> {
         ],
       );
 
+  void _groupUndoNotice(String message, bool Function()? undo) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: undo == null
+            ? null
+            : SnackBarAction(
+                label: t('撤销', 'Undo'),
+                onPressed: () {
+                  try {
+                    if (!undo())
+                      showToast(
+                        t('分组已有新更改，无法撤销', 'Groups changed again. Cannot undo.'),
+                      );
+                  } catch (error) {
+                    debugPrint('Restoring groups failed: $error');
+                    showToast(
+                      t('无法保存分组，请重试', 'Could not save groups. Try again.'),
+                    );
+                  }
+                },
+              ),
+      ),
+    );
+  }
+
+  Future<void> _editDeviceAddress(WorkspaceDevice device) async {
+    final update = widget.onEditAddress;
+    if (update == null) return;
+    var address = device.displayAddress;
+    var automatic = device.autoUpdateAddress;
+    var saving = false;
+    String? error;
+    final form = GlobalKey<FormState>();
+    UndoDeviceAddress? undo;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (c, refresh) => PopScope(
+          canPop: !saving,
+          child: AlertDialog(
+            scrollable: true,
+            title: Text(t('编辑地址', 'Edit address')),
+            content: SizedBox(
+              width: 430,
+              child: Form(
+                key: form,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      device.displayName,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      t('当前地址：', 'Current address: ') + device.displayAddress,
+                      style: TextStyle(color: Theme.of(c).hintColor),
+                    ),
+                    const SizedBox(height: 20),
+                    TextFormField(
+                      initialValue: address,
+                      autofocus: true,
+                      enabled: !saving,
+                      decoration: InputDecoration(
+                        labelText: t('新地址', 'New address'),
+                      ),
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      onChanged: (value) {
+                        address = value;
+                        if (error != null) refresh(() => error = null);
+                      },
+                      validator: (value) =>
+                          validLanWorkspaceAddress(value ?? '')
+                          ? null
+                          : t(
+                              '请输入有效的 IP 或主机名',
+                              'Enter a valid IP address or hostname',
+                            ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      t(
+                        '保留设备名称和分组，连接时继续核对设备身份。',
+                        'Keeps the device name and group. The device identity is still checked when connecting.',
+                      ),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(c).hintColor,
+                      ),
+                    ),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      value: automatic,
+                      onChanged: saving
+                          ? null
+                          : (value) => refresh(() => automatic = value ?? true),
+                      title: Text(
+                        t(
+                          '允许 mDNS 自动更新地址',
+                          'Allow automatic address updates via mDNS',
+                        ),
+                      ),
+                    ),
+                    Text(
+                      automatic
+                          ? t(
+                              '手动保存后仍会跟随同一设备的新地址。',
+                              'New addresses for the same device will still update automatically.',
+                            )
+                          : t(
+                              '已关闭自动更新，保留手动地址。',
+                              'Automatic updates are off. Keeps the manual address.',
+                            ),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(c).hintColor,
+                      ),
+                    ),
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Text(
+                          error!,
+                          style: TextStyle(
+                            color: Theme.of(c).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(c),
+                child: Text(t('取消', 'Cancel')),
+              ),
+              ElevatedButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        if (form.currentState?.validate() != true) return;
+                        refresh(() {
+                          saving = true;
+                          error = null;
+                        });
+                        try {
+                          undo = await update(
+                            device,
+                            address.trim(),
+                            automatic,
+                          );
+                          if (c.mounted) Navigator.pop(c);
+                        } catch (err) {
+                          debugPrint('Updating device address failed: $err');
+                          if (!c.mounted) return;
+                          refresh(() {
+                            saving = false;
+                            final code = err.toString();
+                            error = code.contains('address_conflict')
+                                ? t(
+                                    '该地址已被其他设备使用，请核对地址',
+                                    'Another device already uses this address.',
+                                  )
+                                : code.contains('stale_address')
+                                ? t(
+                                    '地址已有更新，请关闭后重新编辑',
+                                    'The address changed. Close and reopen this dialog.',
+                                  )
+                                : code.contains('invalid_address')
+                                ? t(
+                                    '请输入有效的 IP 或主机名',
+                                    'Enter a valid IP address or hostname',
+                                  )
+                                : t(
+                                    '无法保存地址，请重试',
+                                    'Could not save the address. Try again.',
+                                  );
+                          });
+                        }
+                      },
+                child: Text(
+                  saving ? t('保存中…', 'Saving…') : t('保存地址', 'Save address'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || undo == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(t('已更新设备地址', 'Device address updated')),
+        action: SnackBarAction(
+          label: t('撤销', 'Undo'),
+          onPressed: () async {
+            try {
+              await undo!();
+            } catch (err) {
+              debugPrint('Restoring device address failed: $err');
+              if (mounted)
+                showToast(
+                  t(
+                    '地址已有新更改或无法保存，未撤销',
+                    'The address changed again or could not be saved. Undo was not applied.',
+                  ),
+                );
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _showDeviceInformation(WorkspaceDevice device) =>
       showDialog<void>(
         context: context,
@@ -1227,7 +1579,30 @@ class _LanWorkspaceState extends State<LanWorkspace> {
                 _status(device),
                 const SizedBox(height: 20),
                 Text(t('连接地址', 'Connection address')),
-                SelectableText(device.displayAddress),
+                Row(
+                  children: [
+                    Expanded(child: SelectableText(device.displayAddress)),
+                    if (widget.onEditAddress != null &&
+                        device.fingerprint.isNotEmpty)
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(c);
+                          _editDeviceAddress(device);
+                        },
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        label: Text(t('编辑地址', 'Edit address')),
+                      ),
+                  ],
+                ),
+                if (widget.onEditAddress != null &&
+                    device.fingerprint.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    device.autoUpdateAddress
+                        ? t('mDNS 自动更新已开启', 'mDNS address updates are on')
+                        : t('使用手动地址', 'Using the manual address'),
+                  ),
+                ],
                 if (device.fingerprint.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   Text(t('设备指纹', 'Device fingerprint') + ' · SHA-256'),
@@ -1259,7 +1634,7 @@ class _LanWorkspaceState extends State<LanWorkspace> {
           ),
           actions: [
             TextButton(
-              onPressed: () => _copy(device.id),
+              onPressed: () => _copy(device.connectionAddress),
               child: Text(t('复制地址', 'Copy address')),
             ),
             TextButton(
@@ -1271,12 +1646,12 @@ class _LanWorkspaceState extends State<LanWorkspace> {
       );
 
   Widget _status(WorkspaceDevice device, {bool compact = false}) {
-    final darkMobile = widget.mobile &&
-        Theme.of(context).brightness == Brightness.dark;
+    final darkMobile =
+        widget.mobile && Theme.of(context).brightness == Brightness.dark;
     final color = device.online == true
         ? darkMobile
-            ? const Color(0xFF91CDA2)
-            : const Color(0xFF447956)
+              ? const Color(0xFF91CDA2)
+              : const Color(0xFF447956)
         : Theme.of(context).hintColor;
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1397,6 +1772,8 @@ class _LanWorkspaceState extends State<LanWorkspace> {
         ? widget.favorites
         : _filter == 0
         ? _orderedNearby
+        : _filter == 3
+        ? widget.recent
         : [...widget.recent, ...widget.favorites, ..._orderedNearby];
     for (final d in source) {
       map[d.id] = d;
@@ -1416,6 +1793,24 @@ class _LanWorkspaceState extends State<LanWorkspace> {
   }
 
   Widget _deviceBrowser() {
+    if (!widget.mobile) {
+      return _SavedDevicesBrowser(
+        nearby: _orderedNearby,
+        recent: widget.recent,
+        favorites: widget.favorites,
+        groups: widget.groups,
+        groupFor: widget.groupFor,
+        source: _filter,
+        onSource: (value) => setState(() => _filter = value),
+        onAssignGroups: widget.onAssignGroups,
+        captureUndo: widget.captureGroupUndo,
+        onManageGroup: (action, id) => _manageGroup(action, groupId: id),
+        onAdd: _addDevice,
+        onRefresh: widget.onRefresh,
+        onConnect: widget.onConnect,
+        actions: _deviceActions,
+      );
+    }
     final devices = _listedDevices;
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: widget.mobile ? 16 : 32),
@@ -1438,6 +1833,24 @@ class _LanWorkspaceState extends State<LanWorkspace> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if (!widget.mobile)
+                            Wrap(
+                              spacing: 12,
+                              children: [
+                                TextButton(
+                                  onPressed: () => setState(() => _filter = 0),
+                                  child: Text(t('附近设备', 'Nearby')),
+                                ),
+                                TextButton(
+                                  onPressed: () => setState(() => _filter = 1),
+                                  child: Text(t('收藏', 'Favorites')),
+                                ),
+                                TextButton(
+                                  onPressed: () => setState(() => _filter = 2),
+                                  child: Text(t('浏览全部', 'Browse all')),
+                                ),
+                              ],
+                            ),
                           Row(
                             children: [
                               Expanded(
@@ -1451,6 +1864,8 @@ class _LanWorkspaceState extends State<LanWorkspace> {
                                           ? t('收藏', 'Favorites')
                                           : _filter == 0
                                           ? t('附近的设备', 'Nearby devices')
+                                          : _filter == 3
+                                          ? t('最近连接', 'Recent connections')
                                           : t('全部设备', 'All devices'),
                                       style: TextStyle(
                                         fontSize: widget.mobile ? 24 : 28,
@@ -1568,10 +1983,11 @@ class _LanWorkspaceState extends State<LanWorkspace> {
   double get _connectButtonWidth => math.max(
     76,
     subnetTextWidth(
-      context,
-      t('连接', 'Connect'),
-      const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-    ) + 24,
+          context,
+          t('连接', 'Connect'),
+          const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ) +
+        24,
   );
 
   Widget _deviceColumns({
@@ -1630,9 +2046,7 @@ class _LanWorkspaceState extends State<LanWorkspace> {
                 fontWeight: FontWeight.w600,
               ),
             ),
-            child: Text(
-              t('连接', 'Connect'),
-            ),
+            child: Text(t('连接', 'Connect')),
           ),
         ),
         SizedBox(width: stackActions ? 0 : 8, height: stackActions ? 8 : 0),
@@ -1752,8 +2166,11 @@ class _LanWorkspaceState extends State<LanWorkspace> {
     ),
   );
 
-  Future<void> _manageGroup(String action) async {
-    final group = widget.groups.where((g) => g.id == _group).firstOrNull;
+  Future<void> _manageGroup(String action, {String? groupId}) async {
+    final group = widget.groups
+        .where((g) => g.id == (groupId ?? _group))
+        .firstOrNull;
+    final undo = widget.captureGroupUndo?.call();
     if (action == 'delete' && group != null) {
       final accepted = await showDialog<bool>(
         context: context,
@@ -1779,8 +2196,20 @@ class _LanWorkspaceState extends State<LanWorkspace> {
         ),
       );
       if (accepted == true) {
-        widget.onDeleteGroup?.call(group.id);
-        if (mounted) setState(() => _group = null);
+        try {
+          widget.onDeleteGroup?.call(group.id);
+          if (mounted) {
+            setState(() => _group = null);
+            _groupUndoNotice(
+              t('已删除分组，设备保留在未分组中', 'Group deleted. Devices remain ungrouped.'),
+              undo,
+            );
+          }
+        } catch (error) {
+          debugPrint('Deleting favorite group failed: $error');
+          if (mounted)
+            showToast(t('无法保存分组，请重试', 'Could not save groups. Try again.'));
+        }
       }
       return;
     }
@@ -1829,10 +2258,17 @@ class _LanWorkspaceState extends State<LanWorkspace> {
       ),
     );
     if (result != null) {
-      if (action == 'rename' && group != null) {
-        widget.onRenameGroup?.call(group.id, result);
-      } else {
-        widget.onCreateGroup?.call(result);
+      if (action == 'rename' && group?.name == result) return;
+      try {
+        final changed = action == 'rename' && group != null
+            ? widget.onRenameGroup?.call(group.id, result)
+            : widget.onCreateGroup?.call(result);
+        if (changed == true && mounted)
+          _groupUndoNotice(t('已保存分组', 'Group saved'), undo);
+      } catch (error) {
+        debugPrint('Saving favorite group failed: $error');
+        if (mounted)
+          showToast(t('无法保存分组，请重试', 'Could not save groups. Try again.'));
       }
     }
   }
@@ -2013,10 +2449,21 @@ class _LanWorkspaceState extends State<LanWorkspace> {
                       contentPadding: EdgeInsets.zero,
                       title: Text(t('连接地址', 'Connection address')),
                       subtitle: SelectableText(device.displayAddress),
-                      trailing: IconButton(
-                        tooltip: t('复制地址', 'Copy address'),
-                        onPressed: () => _copy(device.id),
-                        icon: const Icon(Icons.copy_outlined),
+                      trailing: Wrap(
+                        children: [
+                          if (widget.onEditAddress != null &&
+                              device.fingerprint.isNotEmpty)
+                            IconButton(
+                              tooltip: t('编辑地址', 'Edit address'),
+                              onPressed: () => _editDeviceAddress(device),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                          IconButton(
+                            tooltip: t('复制地址', 'Copy address'),
+                            onPressed: () => _copy(device.connectionAddress),
+                            icon: const Icon(Icons.copy_outlined),
+                          ),
+                        ],
                       ),
                     ),
                     const Divider(),
@@ -2198,6 +2645,7 @@ class _LanWorkspaceState extends State<LanWorkspace> {
       ],
     );
   }
+
   Future<void> _addDevice() async {
     final form = GlobalKey<FormState>();
     String address = '';

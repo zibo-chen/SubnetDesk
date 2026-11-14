@@ -2,6 +2,22 @@
 
 All notable SubnetDesk changes are documented in this file.
 
+## [2.0.0-rc.5] - 2026-11-14
+
+### Changed
+
+- Unified the desktop Nearby, Recent, Favorites, and All device views around one persistent layout, with scoped search, status filters, and 12-device pagination.
+- Improved favorite groups with a searchable directory, cross-page selection, batch moves, count previews, and undo.
+- Keyed saved devices, favorites, and group memberships by public-key fingerprint; addresses and names remain mutable attributes. Existing associations migrate only when a verified identity is available.
+
+### Added
+
+- Added manual editing of device IP addresses, hostnames, and ports, with undo and stale-update protection. mDNS automatic address updates remain enabled by default and can be disabled to pin an address.
+
+### Fixed
+
+- Refused connection candidates whose handshake fingerprint differs from the saved device, preventing a reassigned IP from redirecting a saved connection to another device.
+
 ## [2.0.0] - 2026-10-31
 
 ### Added
@@ -42,5 +58,6 @@ All notable SubnetDesk changes are documented in this file.
 - Fixed known LAN peers being rejected before the user could confirm an unexpected device-identity fingerprint.
 - Hardened macOS update extraction with unique mount paths, symlink-safe cleanup, code-signature verification, and Gatekeeper validation.
 
+[2.0.0-rc.5]: https://github.com/zibo-chen/SubnetDesk/compare/v2.0.0-rc.4...v2.0.0-rc.5
 [2.0.0]: https://github.com/zibo-chen/SubnetDesk/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/zibo-chen/SubnetDesk/compare/v1.2.3...v1.3.0

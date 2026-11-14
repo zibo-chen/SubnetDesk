@@ -6,6 +6,9 @@ import 'package:flutter_hbb/models/platform_model.dart';
 
 const String favoriteUngroupedId = '__ungrouped__';
 
+bool isDeviceFingerprint(String value) =>
+    RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(value);
+
 String normalizeFavoriteGroupName(String value) => value.trim();
 
 class FavoriteGroup {
@@ -38,6 +41,9 @@ class FavoriteGroupModel extends ChangeNotifier {
   final Map<String, String> _peerGroups = {};
   bool _loaded = false;
   int _nextId = 0;
+  int _revision = 0;
+  List<FavoriteGroup> _committedGroups = [];
+  Map<String, String> _committedPeerGroups = {};
 
   List<FavoriteGroup> get groups => List.unmodifiable(_groups);
 
@@ -86,10 +92,15 @@ class FavoriteGroupModel extends ChangeNotifier {
               peerId.isNotEmpty &&
               groupId is String &&
               groupIds.contains(groupId)) {
-            _peerGroups[peerId] = groupId;
+            final key = isDeviceFingerprint(peerId)
+                ? peerId.toLowerCase()
+                : peerId;
+            _peerGroups[key] = groupId;
           }
         }
       }
+      _committedGroups = List.of(_groups);
+      _committedPeerGroups = Map.of(_peerGroups);
     } catch (error) {
       _groups.clear();
       _peerGroups.clear();
@@ -140,34 +151,79 @@ class FavoriteGroupModel extends ChangeNotifier {
     return true;
   }
 
-  void setPeerGroup(String peerId, String? groupId) {
-    load();
-    if (peerId.isEmpty) return;
+  void setPeerGroup(String peerId, String? groupId) =>
+      setPeerGroups([peerId], groupId);
 
-    if (groupId == null || groupId == favoriteUngroupedId) {
-      if (_peerGroups.remove(peerId) != null) {
-        _saveAndNotify();
+  /// One persisted update and one notification, even for hundreds of peers.
+  void setPeerGroups(Iterable<String> peerIds, String? groupId) {
+    load();
+    if (groupId == favoriteUngroupedId) groupId = null;
+    if (groupId != null && !_groups.any((group) => group.id == groupId)) return;
+    var changed = false;
+    for (final value in peerIds.toSet()) {
+      if (!isDeviceFingerprint(value)) continue;
+      final id = value.toLowerCase();
+      if (id.isEmpty || _peerGroups[id] == groupId) continue;
+      if (groupId == null) {
+        changed = _peerGroups.remove(id) != null || changed;
+      } else {
+        _peerGroups[id] = groupId;
+        changed = true;
       }
-      return;
     }
-    if (!_groups.any((group) => group.id == groupId) ||
-        _peerGroups[peerId] == groupId) {
-      return;
+    if (changed) _saveAndNotify();
+  }
+
+  /// The next single edit can be undone, without overwriting subsequent edits.
+  bool Function() captureUndo() {
+    load();
+    final groups = List<FavoriteGroup>.of(_groups);
+    final assignments = Map<String, String>.of(_peerGroups);
+    final expectedRevision = _revision + 1;
+    return () {
+      if (_revision != expectedRevision) return false;
+      _groups
+        ..clear()
+        ..addAll(groups);
+      _peerGroups
+        ..clear()
+        ..addAll(assignments);
+      _saveAndNotify();
+      return true;
+    };
+  }
+
+  void migratePeerKeys(Map<String, String> fingerprintByLegacyId) {
+    load();
+    var changed = false;
+    for (final entry in fingerprintByLegacyId.entries) {
+      if (!RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(entry.value)) continue;
+      final fingerprint = entry.value.toLowerCase();
+      if (entry.key == fingerprint) continue;
+      final assignment = _peerGroups.remove(entry.key);
+      if (assignment != null) {
+        _peerGroups.putIfAbsent(fingerprint, () => assignment);
+        changed = true;
+      }
     }
-    _peerGroups[peerId] = groupId;
-    _saveAndNotify();
+    if (changed) _saveAndNotify();
   }
 
   void removePeer(String peerId) {
     load();
-    if (_peerGroups.remove(peerId) != null) {
+    if (_peerGroups.remove(
+          isDeviceFingerprint(peerId) ? peerId.toLowerCase() : peerId,
+        ) !=
+        null) {
       _saveAndNotify();
     }
   }
 
   String? groupIdForPeer(String peerId) {
     load();
-    return _peerGroups[peerId];
+    return _peerGroups[isDeviceFingerprint(peerId)
+        ? peerId.toLowerCase()
+        : peerId];
   }
 
   FavoriteGroup? groupById(String id) {
@@ -181,6 +237,7 @@ class FavoriteGroupModel extends ChangeNotifier {
   bool matches(String peerId, String? selectedGroupId) {
     load();
     if (selectedGroupId == null) return true;
+    if (isDeviceFingerprint(peerId)) peerId = peerId.toLowerCase();
     if (selectedGroupId == favoriteUngroupedId) {
       return !_peerGroups.containsKey(peerId);
     }
@@ -201,13 +258,26 @@ class FavoriteGroupModel extends ChangeNotifier {
   }
 
   void _saveAndNotify() {
-    _write(
-      jsonEncode({
-        'version': 1,
-        'groups': _groups.map((group) => group.toJson()).toList(),
-        'peer_groups': _peerGroups,
-      }),
-    );
+    try {
+      _write(
+        jsonEncode({
+          'version': 1,
+          'groups': _groups.map((group) => group.toJson()).toList(),
+          'peer_groups': _peerGroups,
+        }),
+      );
+    } catch (_) {
+      _groups
+        ..clear()
+        ..addAll(_committedGroups);
+      _peerGroups
+        ..clear()
+        ..addAll(_committedPeerGroups);
+      rethrow;
+    }
+    _committedGroups = List.of(_groups);
+    _committedPeerGroups = Map.of(_peerGroups);
+    _revision++;
     notifyListeners();
   }
 }

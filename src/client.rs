@@ -284,11 +284,19 @@ impl Client {
         interface.update_direct(Some(true));
         interface.update_received(false);
 
-        let requested = hbb_common::lan::Endpoint::parse(peer)?
-            .authority()
-            .to_owned();
-        let (expected_fingerprint, mut candidates) = crate::lan::connection_candidates(&requested);
-        let mut discovery = expected_fingerprint.as_ref().map(|_| {
+        let saved = if crate::lan_devices::valid_fingerprint(peer) {
+            let id = peer.to_owned();
+            tokio::task::spawn_blocking(move || crate::lan_devices::connection(&id)).await?
+        } else { None };
+        let requested = if crate::lan_devices::valid_fingerprint(peer) {
+            if saved.is_none() { bail!("Saved device address is unavailable"); }
+            peer.to_ascii_lowercase()
+        } else {
+            hbb_common::lan::Endpoint::parse(peer)?.authority().to_owned()
+        };
+        let (expected_fingerprint, mut candidates) = crate::lan::connection_candidates_async(requested.clone()).await?;
+        let allow_discovery = saved.map(|saved| saved.automatic).unwrap_or(true);
+        let mut discovery = expected_fingerprint.as_ref().filter(|_| allow_discovery).map(|_| {
             tokio::spawn(async {
                 if let Err(err) = crate::lan::discover_async().await {
                     log::debug!("LAN discovery during connection fallback failed: {err}");
@@ -333,11 +341,13 @@ impl Client {
                 if let Some(expected) = expected_fingerprint.as_ref() {
                     if !identity.fingerprint.eq_ignore_ascii_case(expected) {
                         log::warn!(
-                            "LAN endpoint {} presented fingerprint {}, expected {}; requesting user confirmation",
+                            "LAN endpoint {} presented fingerprint {}, expected {}; refusing a different device",
                             endpoint,
                             identity.fingerprint,
                             expected
                         );
+                        errors.push(format!("{endpoint}: device identity changed"));
+                        continue;
                     }
                 }
 
@@ -356,7 +366,7 @@ impl Client {
                 if let Err(err) = discovery.await {
                     log::debug!("LAN discovery fallback task failed: {err}");
                 }
-                let (_, refreshed) = crate::lan::connection_candidates(&requested);
+                let (_, refreshed) = crate::lan::connection_candidates_async(requested.clone()).await?;
                 candidates = refreshed;
                 if candidates
                     .iter()
@@ -1954,27 +1964,6 @@ impl LoginConfigHandler {
         } else {
             self.lan_connected_endpoint.clone()
         };
-        if connected_endpoint != self.id && !self.lan_fingerprint.is_empty() {
-            self.config.store(&connected_endpoint);
-            let mut changed = false;
-            let mut seen = HashSet::new();
-            let favorites = LocalConfig::get_fav()
-                .into_iter()
-                .filter_map(|favorite| {
-                    let favorite = if favorite == self.id {
-                        changed = true;
-                        connected_endpoint.clone()
-                    } else {
-                        favorite
-                    };
-                    seen.insert(favorite.clone()).then_some(favorite)
-                })
-                .collect::<Vec<_>>();
-            if changed {
-                LocalConfig::set_fav(favorites);
-            }
-            LocalConfig::set_remote_id(&connected_endpoint);
-        }
         if !self.lan_fingerprint.is_empty() && !self.lan_access_username.is_empty() {
             let additions = serde_json::from_str::<serde_json::Value>(&pi.platform_additions)
                 .unwrap_or_default();
@@ -1990,6 +1979,18 @@ impl LoginConfigHandler {
                 device_type,
             ) {
                 log::error!("Failed to store recent LAN endpoint: {err}");
+            }
+            match crate::lan_devices::remember_connection(&self.id, hbb_common::config::RecentLanEndpoint {
+                endpoint: connected_endpoint.clone(), username: self.lan_access_username.clone(),
+                hostname: pi.hostname.clone(), platform: pi.platform.clone(),
+                fingerprint: self.lan_fingerprint.clone(), device_type: device_type.to_owned(),
+                last_connected_at: hbb_common::get_time(),
+            }) {
+                Ok(stable_id) => {
+                    if !PeerConfig::exists(&stable_id) { self.config.store(&stable_id); }
+                    LocalConfig::set_remote_id(&stable_id);
+                },
+                Err(err) => log::error!("Saving stable LAN device: {err}"),
             }
         }
         self.supported_encoding = pi.encoding.clone().unwrap_or_default();

@@ -1351,8 +1351,12 @@ pub fn session_add(
     is_terminal: bool,
     mut password: String,
 ) -> ResultType<FlutterSession> {
-    let endpoint = hbb_common::lan::Endpoint::parse(id)?;
-    let id = endpoint.authority().to_owned();
+    let id = if crate::lan_devices::valid_fingerprint(id) {
+        if crate::lan_devices::connection(id).is_none() { bail!("Saved device address is unavailable"); }
+        id.to_ascii_lowercase()
+    } else {
+        hbb_common::lan::Endpoint::parse(id)?.authority().to_owned()
+    };
     let conn_type = if is_file_transfer {
         ConnType::FILE_TRANSFER
     } else if is_view_camera {

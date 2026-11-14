@@ -51,6 +51,7 @@ pub const OPTION_ENABLE_PERM_CHANGE_IN_ACCEPT_WINDOW: &str = "enable-perm-change
 pub const OPTION_ALLOW_SCOPE_VIOLATION_CLOSE: &str = "allow-scope-violation-close";
 pub const OPTION_ALLOW_SCOPE_VIOLATION_ALARM: &str = "allow-scope-violation-alarm";
 pub const OPTION_ALLOW_REMOTE_CONFIG_MODIFICATION: &str = "allow-remote-config-modification";
+pub const OPTION_LAN_DEVICE_ADDRESSES: &str = "lan-device-addresses";
 pub const OPTION_ENABLE_LAN_DISCOVERY: &str = "lan-discovery-enabled";
 pub const OPTION_WEB_ACCESS_ENABLED: &str = "web-access-enabled";
 pub const OPTION_WEB_LISTEN_PORT: &str = "web-listen-port";

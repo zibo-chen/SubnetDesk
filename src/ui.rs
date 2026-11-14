@@ -503,9 +503,13 @@ impl UI {
     }
 
     fn connect_lan(&self, endpoint: String, connection_type: String) -> String {
-        let endpoint = match hbb_common::lan::Endpoint::parse(&endpoint) {
-            Ok(endpoint) => endpoint.authority().to_owned(),
-            Err(err) => return err.to_string(),
+        let endpoint = if crate::lan_devices::connection(&endpoint).is_some() {
+            endpoint.to_ascii_lowercase()
+        } else {
+            match hbb_common::lan::Endpoint::parse(&endpoint) {
+                Ok(endpoint) => endpoint.authority().to_owned(),
+                Err(err) => return err.to_string(),
+            }
         };
         if !matches!(connection_type.as_str(), "" | "--file-transfer" | "--port-forward" | "--rdp") {
             return "Unsupported connection type".to_owned();

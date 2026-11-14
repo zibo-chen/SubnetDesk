@@ -514,7 +514,23 @@ pub fn get_fav() -> Vec<String> {
 
 #[inline]
 pub fn store_fav(fav: Vec<String>) {
-    LocalConfig::set_fav(fav);
+    let previous = LocalConfig::get_fav();
+    let mut saved = Vec::new();
+    for id in fav {
+        let id = if crate::lan_devices::valid_fingerprint(&id) {
+            id.to_ascii_lowercase()
+        } else if previous.contains(&id) {
+            // Preserve unresolved legacy favorites until their identity is verified.
+            id
+        } else {
+            log::warn!("Cannot favorite a device without a fingerprint");
+            continue;
+        };
+        if !saved.contains(&id) {
+            saved.push(id);
+        }
+    }
+    LocalConfig::set_fav(saved);
 }
 
 #[inline]
@@ -624,14 +640,14 @@ pub fn peer_exists(id: &str) -> bool {
 #[inline]
 pub fn get_lan_peers() -> Vec<serde_json::Value> {
     let now = hbb_common::get_time();
-    config::LanPeers::load()
-        .peers
-        .iter()
-        .map(|peer| discovery_peer_to_json(peer, now))
-        .collect()
+    let peers = config::LanPeers::load().peers;
+    crate::lan_devices::discovered_peers(&peers, now).unwrap_or_else(|err| {
+        log::error!("Loading discovered devices: {err}");
+        peers.iter().map(|peer| discovery_peer_to_json(peer, now)).collect()
+    })
 }
 
-fn discovery_peer_to_json(peer: &config::DiscoveryPeer, now: i64) -> serde_json::Value {
+pub(crate) fn discovery_peer_to_json(peer: &config::DiscoveryPeer, now: i64) -> serde_json::Value {
     serde_json::json!({
         "id": if peer.endpoint.is_empty() { &peer.id } else { &peer.endpoint },
         "username": peer.username,
@@ -679,7 +695,7 @@ mod discovery_payload_tests {
 #[inline]
 pub fn remove_discovered(id: String) {
     let mut peers = config::LanPeers::load().peers;
-    peers.retain(|x| x.id != id);
+    peers.retain(|x| x.id != id && !x.fingerprint.eq_ignore_ascii_case(&id));
     config::LanPeers::store(&peers);
 }
 

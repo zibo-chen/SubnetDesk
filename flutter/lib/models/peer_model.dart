@@ -5,6 +5,11 @@ import 'platform_model.dart';
 
 class Peer {
   final String id;
+  String address;
+  bool autoUpdateAddress;
+  String addressSource;
+  int addressRevision;
+  List<String> legacyIds;
   String username; // pc username
   String hostname;
   String platform;
@@ -26,15 +31,22 @@ class Peer {
   }
 
   Peer.fromJson(Map<String, dynamic> json)
-      : id = json['id'] ?? '',
-        username = json['username'] ?? '',
-        hostname = json['hostname'] ?? '',
-        platform = json['platform'] ?? '',
-        deviceType = json['device_type'] is String ? json['device_type'] : '',
-        alias = json['alias'] ?? '',
-        fingerprint = json['fingerprint'] ?? '',
-        rdpPort = json['rdpPort'] ?? '',
-        rdpUsername = json['rdpUsername'] ?? '' {
+    : id = json['id'] ?? '',
+      legacyIds =
+          (json['legacy_ids'] as List?)?.whereType<String>().toList() ??
+          const [],
+      address = json['address'] ?? json['id'] ?? '',
+      autoUpdateAddress = json['auto_update_address'] != false,
+      addressSource = json['address_source'] ?? 'saved',
+      addressRevision = (json['address_revision'] as num?)?.toInt() ?? 0,
+      username = json['username'] ?? '',
+      hostname = json['hostname'] ?? '',
+      platform = json['platform'] ?? '',
+      deviceType = json['device_type'] is String ? json['device_type'] : '',
+      alias = json['alias'] ?? '',
+      fingerprint = json['fingerprint'] ?? '',
+      rdpPort = json['rdpPort'] ?? '',
+      rdpUsername = json['rdpUsername'] ?? '' {
     online = json['online'] is bool ? json['online'] as bool : null;
     lastSeen = (json['last_seen'] as num?)?.toInt() ?? 0;
     lastChecked = (json['last_checked'] as num?)?.toInt() ?? 0;
@@ -43,6 +55,11 @@ class Peer {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       "id": id,
+      "address": address,
+      "legacy_ids": legacyIds,
+      "auto_update_address": autoUpdateAddress,
+      "address_source": addressSource,
+      "address_revision": addressRevision,
       "username": username,
       "hostname": hostname,
       "platform": platform,
@@ -59,6 +76,11 @@ class Peer {
 
   Peer({
     required this.id,
+    String? address,
+    this.autoUpdateAddress = true,
+    this.addressSource = 'saved',
+    this.addressRevision = 0,
+    this.legacyIds = const [],
     required this.username,
     required this.hostname,
     required this.platform,
@@ -67,7 +89,7 @@ class Peer {
     required this.fingerprint,
     required this.rdpPort,
     required this.rdpUsername,
-  });
+  }) : address = address ?? id;
 
   Peer.loading()
       : this(
@@ -82,6 +104,11 @@ class Peer {
         );
   bool equal(Peer other) {
     return id == other.id &&
+        address == other.address &&
+        autoUpdateAddress == other.autoUpdateAddress &&
+        addressSource == other.addressSource &&
+        addressRevision == other.addressRevision &&
+        listEquals(legacyIds, other.legacyIds) &&
         username == other.username &&
         hostname == other.hostname &&
         platform == other.platform &&
@@ -94,15 +121,21 @@ class Peer {
 
   factory Peer.copy(Peer other) {
     final peer = Peer(
-        id: other.id,
-        username: other.username,
-        hostname: other.hostname,
-        platform: other.platform,
-        deviceType: other.deviceType,
-        alias: other.alias,
-        fingerprint: other.fingerprint,
-        rdpPort: other.rdpPort,
-        rdpUsername: other.rdpUsername);
+      id: other.id,
+      address: other.address,
+      legacyIds: List.of(other.legacyIds),
+      autoUpdateAddress: other.autoUpdateAddress,
+      addressSource: other.addressSource,
+      addressRevision: other.addressRevision,
+      username: other.username,
+      hostname: other.hostname,
+      platform: other.platform,
+      deviceType: other.deviceType,
+      alias: other.alias,
+      fingerprint: other.fingerprint,
+      rdpPort: other.rdpPort,
+      rdpUsername: other.rdpUsername,
+    );
     peer.online = other.online;
     peer.lastSeen = other.lastSeen;
     peer.lastChecked = other.lastChecked;
@@ -132,10 +165,11 @@ class Peers extends ChangeNotifier {
   final GetInitPeers? getInitPeers;
   UpdateEvent event = UpdateEvent.load;
 
-  Peers(
-      {required this.name,
-      required this.getInitPeers,
-      required this.loadEvent}) {
+  Peers({
+    required this.name,
+    required this.getInitPeers,
+    required this.loadEvent,
+  }) {
     peers = getInitPeers?.call() ?? [];
     platformFFI.registerEventHandler(loadEvent, name, (evt) async {
       _updatePeers(evt);

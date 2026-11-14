@@ -22,6 +22,7 @@ pub mod ipc;
 mod diagnostics;
 mod device_type;
 mod lan;
+mod lan_devices;
 mod lan_identity;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod lan_mdns;

@@ -470,3 +470,48 @@ final result: passed
 - [x] Complete final rebuilt native capture and production build checks. The five tests and final targeted analysis pass; the normal `lib/main.dart` macOS Debug build and strict signature verification pass.
 
 final result: passed
+
+
+---
+
+## 分组、指纹身份与手动地址 — 2026-11-14
+
+**Comparison target and evidence**
+
+- Source visual truth: `docs/design/2026-11-grouping/prototype/evidence/selected.png`, 1608 × 978 pixels, first selected concept, light theme, 96 favorites and three selected devices.
+- Final native implementation: `docs/design/2026-11-grouping/native-final.png`, 2880 × 1920 pixels, macOS Retina DPR 2, 1440 × 960 logical window. Downsampled to 1440 × 960 and cropped only the 28-logical-pixel native title strip, yielding `native-final-logical.png` at 1440 × 932. The source is not stretched to force pixel equality.
+- Both are the favorites view with 96 devices, all-favorites scope and three selected rows. The native fixture uses TEST-NET addresses and consecutive office aliases; the concept uses illustrative names and online states. Native fixture devices correctly remain unchecked. The client has a fourth All tab, retained because the user explicitly requires the same UI across all sources.
+- Full comparison opened together: `docs/design/2026-11-grouping/native-final-comparison.png`. Focused comparisons opened together: `native-controls-comparison.png` and `native-sidebar-comparison.png` in the same directory.
+- Source-switch comparison: `native-tabs-comparison.png`, using `native-all-final.png` and `native-nearby-final.png`, each 2880 × 1920 normalized at DPR 2. All has 97 rows including one real nearby host; Nearby has one. No connections were made to that host.
+
+**Findings and required fidelity surfaces**
+
+- No actionable P0/P1/P2 issues remain in the reviewed desktop states.
+- Fonts/typography: native platform fallback and the existing client scale are retained: 26-logical-pixel title, 14-pixel device names, 13-pixel table metadata. The concept uses larger image typography. This is an intentional adaptation to the client's existing text scale, not a claim of identical raster glyphs. Names, addresses, actions and counts remain legible without wrapping or clipping; system text scaling is preserved and covered by tests.
+- Spacing/layout: the sidebar occupies approximately the same proportion at the reviewed window size; heading, scoped search, status filter, add action, selected toolbar, table columns and persistent footer follow the selected anatomy. Revised row padding allows all 12 page rows to remain visible. The header spans the device page consistently. All source tabs keep the same component and geometry, with unavailable grouping checkboxes disabled in place.
+- Colors/tokens: porcelain surfaces, dark plum primary actions, lavender selection and muted secondary text use the existing SubnetDesk theme. Native flat surfaces replace the concept's subtle generated gradients as an intentional theme adaptation. Semantic state labels use real observations rather than simulated availability.
+- Image/asset quality: existing native brand assets and stock outline device/action icons remain sharp at Retina density; no illustrative bitmap content is required in this screen. No replacement logo was drawn. Native icon shapes and button radii follow the client's established controls.
+- Copy/content: group counts total 96 and ungrouped 12. Search says name/IP/hostname because the actual data model has no separate notes field. Partial page selection shows an indeterminate header checkbox. Group actions remain discoverable through explicit menus. All is an intentional fourth source, consistent with the user's requested behavior.
+
+**Comparison history**
+
+1. Initial native comparison (`native-initial-comparison.png`) found P2 density and hierarchy differences: only about nine rows visible, header constrained to the old width, count detached from title and filled search fields. Kept blocked.
+2. Reduced row vertical padding, expanded the device-page header, placed count beside the heading, aligned sidebar proportions and outlined the fields. Initial post-fix captures were distorted Stage Manager thumbnails; later the capture service returned an invalid-parameter error. These captures were not accepted as visual evidence.
+3. User reported that switching source tabs replaced the UI. Reused one desktop browser for Nearby/Recent/Favorites/All, kept checkbox and compact-group control slots, fixed title to one line and disabled chip checkmarks to avoid width changes. Added a geometry regression test for header, sidebar, tabs, first row, list and pagination across all four sources.
+4. A fresh isolated final preview restored full-resolution captures. Native All → Nearby → Favorites retained the same layout. Three selected test devices moved from Shanghai (24 → 21) to Test (14 → 17), then Undo restored both counts and all three memberships. Final selection capture was obtained after expanding and restoring the native window; the restored 1440 × 960 capture is the final evidence above.
+5. The final full-view and both focused comparisons were opened together after the fixes. Twelve rows, scoped controls, selection state, sidebar counts and persistent footer are visible without overlap; no additional P0/P1/P2 visual fixes were identified.
+
+**Implementation checklist and test boundary**
+
+- [x] Consistent desktop source layout, 12-row pagination, group search, scoped device search and status filters.
+- [x] Fingerprint-only new records/favorites/group assignments, safe migration of verified legacy associations and strict expected-fingerprint connection checks.
+- [x] Batch grouping in one write, revision-guarded undo, group CRUD and failed-write model rollback.
+- [x] Manual address form/save/undo and automatic mDNS enabled by default; stale advertisements cannot immediately overwrite a manual update. Native address save/undo was checked against persisted test configuration earlier in the run.
+- [x] 101 Flutter tests, 6 registry tests, 7 existing LAN tests, target analysis without errors/warnings, Rust library/macOS Debug builds and strict ad hoc signature verification.
+- [ ] Windows/Linux native testing and a physical DHCP/mDNS address-change exercise remain outside this macOS run. Core ordering and identity rules have deterministic Rust coverage.
+
+**Follow-up polish**
+
+- P3: Native type sizes, flat selection fills, outline icon shapes and button radii follow the existing client rather than reproducing the generated mock pixel for pixel.
+
+final result: passed

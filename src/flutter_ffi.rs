@@ -1497,10 +1497,11 @@ pub fn main_load_recent_peers() {
     if !config::APP_DIR.read().unwrap().is_empty() {
         let discovered = config::LanPeers::load().peers;
         let now = hbb_common::get_time();
-        let peers: Vec<_> = LocalConfig::get_recent_lan_endpoints()
-            .into_iter()
-            .map(|peer| crate::lan_ui::recent_lan_endpoint_to_map(peer, &discovered, now))
-            .collect();
+        let peers = crate::lan_devices::saved_peers(false, &discovered, now).unwrap_or_else(|err| {
+            log::error!("Loading saved LAN devices: {err}");
+            LocalConfig::get_recent_lan_endpoints().into_iter()
+                .map(|peer| crate::lan_ui::recent_lan_endpoint_to_map(peer, &discovered, now)).collect()
+        });
         push_to_flutter(serde_json::ser::to_string(&peers).unwrap_or_else(|_| "[]".to_owned()));
     } else {
         push_to_flutter("[]".to_owned())
@@ -1519,14 +1520,11 @@ pub fn main_load_fav_peers() {
         let favs = get_fav();
         let discovered = config::LanPeers::load().peers;
         let now = hbb_common::get_time();
-        let peers: Vec<_> = crate::lan_ui::favorite_lan_endpoints(
-            favs,
-            LocalConfig::get_recent_lan_endpoints(),
-            &discovered,
-        )
-            .into_iter()
-            .map(|peer| crate::lan_ui::recent_lan_endpoint_to_map(peer, &discovered, now))
-            .collect();
+        let peers = crate::lan_devices::saved_peers(true, &discovered, now).unwrap_or_else(|err| {
+            log::error!("Loading favorite LAN devices: {err}");
+            crate::lan_ui::favorite_lan_endpoints(favs, LocalConfig::get_recent_lan_endpoints(), &discovered)
+                .into_iter().map(|peer| crate::lan_ui::recent_lan_endpoint_to_map(peer, &discovered, now)).collect()
+        });
 
         push_to_flutter(serde_json::ser::to_string(&peers).unwrap_or_else(|_| "[]".to_owned()));
     } else {
@@ -1726,6 +1724,7 @@ pub fn get_voice_call_input_device(_is_cm: bool) -> String {
 
 pub fn main_get_last_remote_id() -> String {
     let endpoint = LocalConfig::get_remote_id();
+    if crate::lan_devices::valid_fingerprint(&endpoint) { return endpoint.to_ascii_lowercase(); }
     hbb_common::lan::Endpoint::parse(&endpoint)
         .map(|endpoint| endpoint.authority().to_owned())
         .unwrap_or_default()
@@ -1741,6 +1740,14 @@ pub fn main_get_langs() -> String {
 
 pub fn main_get_fingerprint() -> String {
     crate::lan_protocol::fingerprint(&Config::get_key_pair().1)
+}
+
+pub fn main_update_lan_device_address(id: String, address: String, automatic: bool, revision: i64) -> String {
+    crate::lan_devices::update_address(id, address, automatic, revision)
+}
+
+pub fn main_restore_lan_device_address(token: String) -> String {
+    crate::lan_devices::restore_address(token)
 }
 
 pub fn main_get_lan_server_info() -> String {

@@ -218,9 +218,20 @@ pub async fn discover() -> ResultType<()> {
     discover_async().await
 }
 
+pub(crate) async fn connection_candidates_async(endpoint: String) -> ResultType<(Option<String>, Vec<String>)> {
+    Ok(tokio::task::spawn_blocking(move || connection_candidates(&endpoint)).await?)
+}
+
 pub(crate) fn connection_candidates(endpoint: &str) -> (Option<String>, Vec<String>) {
     let recent = config::LocalConfig::get_recent_lan_endpoints();
     let peers = config::LanPeers::load().peers;
+    if let Some(saved) = crate::lan_devices::connection(endpoint) {
+        let fingerprint = if saved.peer.fingerprint.len() == 64 { Some(saved.peer.fingerprint.as_str()) } else { None };
+        if !saved.automatic {
+            return (fingerprint.map(ToOwned::to_owned), vec![saved.endpoint]);
+        }
+        return connection_candidates_with_identity(&saved.endpoint, &recent, &peers, fingerprint);
+    }
     connection_candidates_from(endpoint, &recent, &peers)
 }
 
@@ -229,14 +240,23 @@ fn connection_candidates_from(
     recent: &[config::RecentLanEndpoint],
     peers: &[config::DiscoveryPeer],
 ) -> (Option<String>, Vec<String>) {
+    connection_candidates_with_identity(endpoint, recent, peers, None)
+}
+
+fn connection_candidates_with_identity(
+    endpoint: &str,
+    recent: &[config::RecentLanEndpoint],
+    peers: &[config::DiscoveryPeer],
+    expected: Option<&str>,
+) -> (Option<String>, Vec<String>) {
     let Ok(requested) = hbb_common::lan::Endpoint::parse(endpoint) else {
         return (None, vec![endpoint.to_owned()]);
     };
     let requested = requested.authority().to_owned();
-    let mut fingerprint = recent
+    let mut fingerprint = expected.map(str::to_ascii_lowercase).or_else(|| recent
         .iter()
         .find(|recent| recent.endpoint == requested)
-        .map(|recent| recent.fingerprint.to_ascii_lowercase());
+        .map(|recent| recent.fingerprint.to_ascii_lowercase()));
 
     if fingerprint.is_none() {
         fingerprint = peers.iter().find_map(|peer| {
@@ -296,7 +316,7 @@ fn push_unique(values: &mut Vec<String>, value: String) {
 pub fn send_wol(id: String) {
     let interfaces = default_net::get_interfaces();
     for peer in &config::LanPeers::load().peers {
-        if peer.id == id {
+        if peer.id == id || peer.fingerprint.eq_ignore_ascii_case(&id) {
             for (_, mac) in peer.ip_mac.iter() {
                 if let Ok(mac_addr) = mac.parse() {
                     for interface in &interfaces {
