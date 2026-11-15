@@ -44,9 +44,6 @@ pub fn plug_in_headless() -> ResultType<()> {
 
 pub fn get_platform_additions() -> serde_json::Map<String, serde_json::Value> {
     let mut map = serde_json::Map::new();
-    if !crate::platform::windows::is_self_service_running() {
-        return map;
-    }
     map.insert("idd_impl".into(), serde_json::json!(IDD_IMPL));
     match IDD_IMPL {
         IDD_IMPL_RUSTDESK => {
@@ -627,6 +624,11 @@ pub mod amyuni_idd {
     }
 
     pub fn plug_in_headless() -> ResultType<()> {
+        // An existing virtual output can temporarily disappear from capture
+        // enumeration during an RDP/desktop transition. Do not add another one.
+        if get_monitor_count() > 0 {
+            return Ok(());
+        }
         let mut tm = LAST_PLUG_IN_HEADLESS_TIME.lock().unwrap();
         if let Some(tm) = &mut *tm {
             if tm.elapsed() < Duration::from_secs(3) {

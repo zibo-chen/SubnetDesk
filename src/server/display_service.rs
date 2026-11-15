@@ -17,6 +17,14 @@ pub const NAME: &'static str = "display";
 #[cfg(windows)]
 const DUMMY_DISPLAY_SIDE_MAX_SIZE: usize = 1024;
 
+#[cfg(windows)]
+mod headless_recovery;
+
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    static ref HEADLESS_RECOVERY: Mutex<headless_recovery::HeadlessRecovery> = Default::default();
+}
+
 struct ChangedResolution {
     original: (i32, i32),
     changed: (i32, i32),
@@ -450,7 +458,7 @@ fn displays_to_msg(displays: Vec<DisplayInfo>) -> Message {
     pi.displays = displays.clone();
 
     #[cfg(windows)]
-    if crate::platform::is_installed() {
+    {
         let m = crate::virtual_display_manager::get_platform_additions();
         pi.platform_additions = serde_json::to_string(&m).unwrap_or_default();
     }
@@ -493,7 +501,11 @@ fn check_get_displays_changed_msg() -> Option<Message> {
             return get_displays_msg();
         }
     }
-    check_update_displays(&try_get_displays().ok()?);
+    #[cfg(windows)]
+    let displays = try_get_displays_add_amyuni_headless().ok()?;
+    #[cfg(not(windows))]
+    let displays = try_get_displays().ok()?;
+    check_update_displays(&displays);
     get_displays_msg()
 }
 
@@ -506,7 +518,11 @@ pub fn check_displays_changed() -> ResultType<()> {
             return Ok(());
         }
     }
-    check_update_displays(&try_get_displays()?);
+    #[cfg(windows)]
+    let displays = try_get_displays_add_amyuni_headless()?;
+    #[cfg(not(windows))]
+    let displays = try_get_displays()?;
+    check_update_displays(&displays);
     Ok(())
 }
 
@@ -714,12 +730,19 @@ pub async fn update_get_sync_displays_on_login() -> ResultType<(Vec<DisplayInfo>
         }
     }
     #[cfg(not(windows))]
-    let displays = display_service::try_get_displays();
+    let (sync_displays, primary_display_idx) = {
+        let displays = display_service::try_get_displays()?;
+        (update_sync_displays(&displays), get_primary_2(&displays))
+    };
     #[cfg(windows)]
-    let displays = display_service::try_get_displays_add_amyuni_headless();
-    let displays = displays?;
-    let primary_display_idx = get_primary_2(&displays);
-    let sync_displays = update_sync_displays(&displays);
+    let (sync_displays, primary_display_idx) = hbb_common::tokio::task::spawn_blocking(
+        || -> ResultType<(Vec<DisplayInfo>, usize)> {
+            let displays = display_service::try_get_displays_add_amyuni_headless()?;
+            // Keep the thread-bound Windows display handles in this worker.
+            Ok((update_sync_displays(&displays), get_primary_2(&displays)))
+        },
+    )
+    .await??;
     let primary_display_idx =
         normalize_primary_display_idx(primary_display_idx, sync_displays.len());
     Ok((sync_displays, primary_display_idx))
@@ -790,46 +813,28 @@ pub fn try_get_displays_add_amyuni_headless() -> ResultType<Vec<Display>> {
 #[inline]
 #[cfg(windows)]
 pub fn try_get_displays_(add_amyuni_headless: bool) -> ResultType<Vec<Display>> {
-    let mut displays = Display::all()?;
-
-    // Do not add virtual display if the platform is not installed or the virtual display is not supported.
-    if !crate::platform::is_installed() || !virtual_display_manager::is_virtual_display_supported()
-    {
-        return Ok(displays);
+    // The interactive runtime does not require a system-wide installation.
+    // Driver installation still reports permission/package errors to the caller's log.
+    if !virtual_display_manager::is_virtual_display_supported() {
+        return Ok(Display::all()?);
     }
 
     // Enable headless virtual display when
     // 1. `amyuni` idd is not used.
     // 2. `amyuni` idd is used and `add_amyuni_headless` is true.
     if virtual_display_manager::is_amyuni_idd() && !add_amyuni_headless {
-        return Ok(displays);
+        return Ok(Display::all()?);
     }
 
-    // The following code causes a bug.
-    // The virtual display cannot be added when there's no session(eg. when exiting from RDP).
-    // Because `crate::platform::desktop_changed()` always returns true at that time.
-    //
-    // The code only solves a rare case:
-    // 1. The control side is connecting.
-    // 2. The windows session is switching, no displays are detected, but they're there.
-    // Then the controlled side plugs in a virtual display for "headless".
-    //
-    // No need to do the following check. But the code is kept here for marking the issue.
-    // If there're someones reporting the issue, we may add a better check by waiting for a while. (switching session).
-    // But I don't think it's good to add the timeout check without any issue.
-    //
-    // If is switching session, no displays may be detected.
-    // if displays.is_empty() && crate::platform::desktop_changed() {
-    //     return Ok(displays);
-    // }
-
-    let no_displays_v = no_displays(&displays);
-    if no_displays_v {
+    let mut recovery = HEADLESS_RECOVERY.lock().unwrap();
+    let mut displays = Display::all()?;
+    if recovery.should_plug(std::time::Instant::now(), no_displays(&displays)) {
         log::debug!("no displays, create virtual display");
-        if let Err(e) = virtual_display_manager::plug_in_headless() {
-            log::error!("plug in headless failed {}", e);
-        } else {
-            displays = Display::all()?;
+        let result = virtual_display_manager::plug_in_headless();
+        recovery.plugged(std::time::Instant::now(), result.is_ok());
+        match result {
+            Err(e) => log::error!("plug in headless failed {}", e),
+            Ok(()) => displays = Display::all()?,
         }
     }
     Ok(displays)

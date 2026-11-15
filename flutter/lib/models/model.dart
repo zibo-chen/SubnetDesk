@@ -1226,6 +1226,18 @@ class FfiModel with ChangeNotifier {
     bind.sessionOnWaitingForImageDialogShow(sessionId: sessionId);
   }
 
+  void showDisplayRecovery(
+    OverlayDialogManager dialogManager,
+    SessionID sessionId,
+  ) {
+    dialogManager.dismissAll();
+    dialogManager.showLoading(
+      translate('Connected, waiting for image...'),
+      onCancel: closeConnection,
+      tag: '$sessionId-waiting-for-image',
+    );
+  }
+
   void showPrivacyFailedDialog(
     SessionID sessionId,
     String type,
@@ -1304,6 +1316,20 @@ class FfiModel with ChangeNotifier {
     _pi.username = evt['username'];
     _pi.hostname = evt['hostname'];
     _pi.platform = evt['platform'];
+    final connType = parent.target?.connType;
+    // Display updates can arrive while the rest of this async login handler
+    // awaits options. Install the recovery capability before yielding.
+    if (connType == ConnType.defaultConn || connType == ConnType.viewCamera) {
+      _pi.platformAdditions = {};
+      final platformAdditions = evt['platform_additions'];
+      if (platformAdditions != null && platformAdditions != '') {
+        try {
+          _pi.platformAdditions = json.decode(platformAdditions);
+        } catch (e) {
+          debugPrint('Failed to decode platformAdditions $e');
+        }
+      }
+    }
     _pi.sasEnabled = evt['sas_enabled'] == 'true';
     final currentDisplay = int.parse(evt['current_display']);
     if (_pi.primaryDisplay == kInvalidDisplayIndex) {
@@ -1324,7 +1350,6 @@ class FfiModel with ChangeNotifier {
       //
     }
 
-    final connType = parent.target?.connType;
     if (isPeerAndroid) {
       _touchMode = true;
     } else {
@@ -1420,17 +1445,6 @@ class FfiModel with ChangeNotifier {
         ),
       );
     }
-    if (connType == ConnType.defaultConn || connType == ConnType.viewCamera) {
-      final platformAdditions = evt['platform_additions'];
-      if (platformAdditions != null && platformAdditions != '') {
-        try {
-          _pi.platformAdditions = json.decode(platformAdditions);
-        } catch (e) {
-          debugPrint('Failed to decode platformAdditions $e');
-        }
-      }
-    }
-
     _pi.isSet.value = true;
     stateGlobal.resetLastResolutionGroupValues(peerId);
 
@@ -1640,7 +1654,14 @@ class FfiModel with ChangeNotifier {
       _pi.displays.value = newDisplays;
       _pi.displaysCount.value = _pi.displays.length;
 
-      if (_pi.currentDisplay == kAllDisplayValue) {
+      if (_pi.displays.isEmpty &&
+          _pi.supportsDisplayRecovery &&
+          parent.target?.connType == ConnType.defaultConn) {
+        waitForFirstImage.value = true;
+        waitForImageTimer?.cancel();
+        waitForImageDialogShow.value = true;
+        showDisplayRecovery(parent.target!.dialogManager, sessionId);
+      } else if (_pi.currentDisplay == kAllDisplayValue) {
         updateCurDisplay(sessionId);
         // to-do: What if the displays are changed?
       } else {
@@ -4256,6 +4277,10 @@ class PeerInfo with ChangeNotifier {
   Features features = Features();
   List<Resolution> resolutions = [];
   Map<String, dynamic> platformAdditions = {};
+
+  bool get supportsDisplayRecovery =>
+      platform == 'Windows' &&
+      platformAdditions['user_session_display_recovery'] == true;
 
   RxInt displaysCount = 0.obs;
   RxBool isSet = false.obs;

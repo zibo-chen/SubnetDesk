@@ -138,6 +138,8 @@ jobs:
         if ($LASTEXITCODE -ne 0) { throw 'Portable package tests failed' }
         python scripts/test_windows_runner_lifecycle.py
         if ($LASTEXITCODE -ne 0) { throw 'Windows runner lifecycle tests failed' }
+        python scripts/test_windows_capture_recovery.py
+        if ($LASTEXITCODE -ne 0) { throw 'Windows capture recovery tests failed' }
         Push-Location flutter
         flutter pub get
         if ($LASTEXITCODE -ne 0) { throw 'Flutter dependencies failed' }

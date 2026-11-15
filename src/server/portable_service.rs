@@ -491,15 +491,21 @@ pub mod server {
                 let current_display = (*para).current_display;
                 let timeout_ms = (*para).timeout_ms;
                 if c.is_none() {
-                    let Ok(mut displays) = display_service::try_get_displays() else {
-                        log::error!("Failed to get displays");
-                        *EXIT.lock().unwrap() = true;
-                        return;
+                    shmem.write(ADDR_CAPTURE_WOULDBLOCK, &utils::i32_to_vec(TRUE));
+                    crate::platform::try_change_desktop();
+                    let mut displays = match display_service::try_get_displays() {
+                        Ok(displays) => displays,
+                        Err(err) => {
+                            log::warn!("Waiting for capture displays: {}", err);
+                            std::thread::sleep(Duration::from_secs(1));
+                            continue;
+                        }
                     };
                     if displays.len() <= current_display {
-                        log::error!("Invalid display index:{}", current_display);
-                        *EXIT.lock().unwrap() = true;
-                        return;
+                        // RDP disconnects and display hotplug can temporarily
+                        // remove every output. Keep the session agent alive.
+                        std::thread::sleep(Duration::from_secs(1));
+                        continue;
                     }
                     let display = displays.remove(current_display);
                     display_width = display.width();
@@ -513,9 +519,9 @@ pub mod server {
                                 if dxgi_failed_times > MAX_DXGI_FAIL_TIME {
                                     dxgi_failed_times = 0;
                                     if !v.set_gdi() {
-                                        log::error!("Failed to create portable service GDI capturer");
-                                        *EXIT.lock().unwrap() = true;
-                                        return;
+                                        log::warn!("Waiting for portable service GDI capturer");
+                                        std::thread::sleep(Duration::from_secs(1));
+                                        continue;
                                     }
                                 }
                                 utils::set_para(
@@ -563,9 +569,10 @@ pub mod server {
                             current_display,
                         );
                         if !capturer.set_gdi() {
-                            log::error!("Failed to create portable service GDI capturer");
-                            *EXIT.lock().unwrap() = true;
-                            return;
+                            log::warn!("Waiting for portable service GDI capturer");
+                            c = None;
+                            std::thread::sleep(Duration::from_secs(1));
+                            continue;
                         }
                         dxgi_failed_times = 0;
                     }
@@ -621,6 +628,14 @@ pub mod server {
                             if c.as_ref().map(|c| c.is_gdi()) == Some(false) {
                                 // nog gdi
                                 dxgi_failed_times += 1;
+                            } else {
+                                // A GDI DC from the disconnected desktop is no
+                                // longer usable. Reopen it once the session returns.
+                                log::warn!("Recreating portable service GDI capturer: {}", e);
+                                c = None;
+                                shmem.write(ADDR_CAPTURE_WOULDBLOCK, &utils::i32_to_vec(TRUE));
+                                std::thread::sleep(Duration::from_secs(1));
+                                continue;
                             }
                             if dxgi_failed_times > MAX_DXGI_FAIL_TIME {
                                 c = None;
@@ -897,14 +912,15 @@ pub mod client {
         };
         let start_result = (|| -> ResultType<()> {
             clear_runtime_shmem_state();
-            let mut shmem_lock = SHMEM.lock().unwrap();
             let displays = scrap::Display::all()?;
-            if displays.is_empty() {
-                bail!("no display available!");
-            }
-            let mut max_pixel = 0;
+            // Start the agent even if RDP has removed all outputs. Reserve a
+            // 4K frame so a newly created headless display can be captured later.
+            let mut max_pixel = 3840 * 2160;
             let align = 64;
             for d in displays {
+                max_pixel = max_pixel.max(
+                    utils::align(d.width(), align) * utils::align(d.height(), align),
+                );
                 let resolutions = crate::platform::resolutions(&d.name());
                 for r in resolutions {
                     let pixel =
@@ -921,6 +937,7 @@ pub mod client {
                 bail!("Generated invalid portable service shared memory name");
             }
             let ipc_token = ipc::generate_one_time_ipc_token()?;
+            let mut shmem_lock = SHMEM.lock().unwrap();
             // os error 112, no enough space
             *shmem_lock = Some(crate::portable_service::SharedMemory::create(
                 &shmem_name,

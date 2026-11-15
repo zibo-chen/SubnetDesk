@@ -1757,32 +1757,43 @@ impl<T: InvokeUiSession> Interface for Session<T> {
             }
         } else if !self.is_port_forward() && !self.is_terminal() {
             if pi.displays.is_empty() {
-                self.lc.write().unwrap().handle_peer_info(&pi);
-                self.update_privacy_mode();
-                let msg = if self.is_view_camera() {
-                    "No cameras"
-                } else {
-                    "No displays"
-                };
-                self.msgbox("error", "Error", msg, "");
-                return;
-            }
-            if !self.is_view_camera() {
-                self.try_change_init_resolution(pi.current_display);
-                let p = self.lc.read().unwrap().should_auto_login();
-                if !p.is_empty() {
-                    input_os_password(p, true, self.clone());
+                let can_recover = !self.is_view_camera()
+                    && pi.platform == "Windows"
+                    && serde_json::from_str::<serde_json::Value>(&pi.platform_additions)
+                        .ok()
+                        .and_then(|v| v["user_session_display_recovery"].as_bool())
+                        == Some(true);
+                if !can_recover {
+                    self.lc.write().unwrap().handle_peer_info(&pi);
+                    self.update_privacy_mode();
+                    let msg = if self.is_view_camera() {
+                        "No cameras"
+                    } else {
+                        "No displays"
+                    };
+                    self.msgbox("error", "Error", msg, "");
+                    return;
                 }
+                // Finish login and subscribe to display updates. The session can
+                // acquire an output after RDP reconnects or the IDD becomes ready.
+            } else {
+                if !self.is_view_camera() {
+                    self.try_change_init_resolution(pi.current_display);
+                    let p = self.lc.read().unwrap().should_auto_login();
+                    if !p.is_empty() {
+                        input_os_password(p, true, self.clone());
+                    }
+                }
+                let current = &pi.displays[pi.current_display as usize];
+                self.set_display(
+                    current.x,
+                    current.y,
+                    current.width,
+                    current.height,
+                    current.cursor_embedded,
+                    current.scale,
+                );
             }
-            let current = &pi.displays[pi.current_display as usize];
-            self.set_display(
-                current.x,
-                current.y,
-                current.width,
-                current.height,
-                current.cursor_embedded,
-                current.scale,
-            );
         }
         self.update_privacy_mode();
         // Authentication succeeded. Persist the selected identity binding or the

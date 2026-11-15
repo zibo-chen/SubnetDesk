@@ -1316,12 +1316,14 @@ impl Connection {
         #[cfg(target_os = "windows")]
         {
             platform_additions.insert(
+                "user_session_display_recovery".into(),
+                json!(crate::desktop_runtime::is_host()),
+            );
+            platform_additions.insert(
                 "is_installed".into(),
                 json!(crate::platform::is_installed()),
             );
-            if crate::platform::is_installed() {
-                platform_additions.extend(virtual_display_manager::get_platform_additions());
-            }
+            platform_additions.extend(virtual_display_manager::get_platform_additions());
             platform_additions.insert(
                 "supported_privacy_mode_impl".into(),
                 json!(privacy_mode::get_supported_privacy_mode_impl()),
@@ -1606,6 +1608,11 @@ impl Connection {
         pi: &mut PeerInfo,
         wait_session_id_confirm: &mut bool,
     ) {
+        // This process and its capture agent belong to the launching user session.
+        // The old selector relied on an OS service that no longer exists.
+        if crate::desktop_runtime::is_host() {
+            return;
+        }
         let sessions = crate::platform::get_available_sessions(true);
         if let Some(current_sid) = crate::platform::get_current_process_session_id() {
             if crate::platform::is_installed()
@@ -2836,7 +2843,8 @@ impl Connection {
                             crate::platform::get_current_process_session_id()
                         {
                             let sessions = crate::platform::get_available_sessions(false);
-                            if crate::platform::is_installed()
+                            if !crate::desktop_runtime::is_host()
+                                && crate::platform::is_installed()
                                 && crate::platform::is_share_rdp()
                                 && raii::AuthedConnID::non_port_forward_conn_count() == 1
                                 && sessions.len() > 1
