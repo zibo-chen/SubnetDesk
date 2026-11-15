@@ -2,6 +2,18 @@
 
 All notable SubnetDesk changes are documented in this file.
 
+## [2.0.0-rc.6] - 2026-11-15
+
+### Fixed
+
+- Kept the Windows user-session capture agent alive through empty display enumeration and recreated invalid GDI capture contexts, allowing the existing connection to resume when the same desktop becomes capturable again.
+- Enabled automatic headless virtual displays for portable/user-session launches and active monitor connections, with bounded retries and protection against repeatedly plugging invisible outputs.
+- Preserved client connections while displays recover and disabled the obsolete OS-service session selector in the interactive runtime.
+
+### Validation
+
+- Added capture-loop, headless retry, and client display-recovery regression tests. Real Windows RDP and headless-device validation is still required; a virtual monitor does not reactivate a Windows-suspended RDP session.
+
 ## [2.0.0-rc.5] - 2026-11-14
 
 ### Changed
@@ -58,6 +70,7 @@ All notable SubnetDesk changes are documented in this file.
 - Fixed known LAN peers being rejected before the user could confirm an unexpected device-identity fingerprint.
 - Hardened macOS update extraction with unique mount paths, symlink-safe cleanup, code-signature verification, and Gatekeeper validation.
 
+[2.0.0-rc.6]: https://github.com/zibo-chen/SubnetDesk/compare/v2.0.0-rc.5...v2.0.0-rc.6
 [2.0.0-rc.5]: https://github.com/zibo-chen/SubnetDesk/compare/v2.0.0-rc.4...v2.0.0-rc.5
 [2.0.0]: https://github.com/zibo-chen/SubnetDesk/compare/v1.3.0...v2.0.0
 [1.3.0]: https://github.com/zibo-chen/SubnetDesk/compare/v1.2.3...v1.3.0
