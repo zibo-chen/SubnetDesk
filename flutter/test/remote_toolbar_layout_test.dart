@@ -73,6 +73,92 @@ void main() {
     }
   }
 
+  for (final horizontal in [true, false]) {
+    testWidgets(
+      'toolbar stays inside a smaller remote viewport while resizing: '
+      'horizontal=$horizontal',
+      (tester) async {
+        tester.view.physicalSize = const Size(1600, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final viewportSize = ValueNotifier(const Size(475, 310));
+        addTearDown(viewportSize.dispose);
+        var activated = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: ValueListenableBuilder<Size>(
+                  valueListenable: viewportSize,
+                  builder: (context, size, _) => SizedBox(
+                    key: const ValueKey('remote-viewport'),
+                    width: size.width,
+                    height: size.height,
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: RemoteToolbarSurface(
+                        isHorizontal: horizontal,
+                        children: [
+                          for (var i = 0; i < 12; i++)
+                            SizedBox.square(
+                              dimension: 40,
+                              child: IconButton(
+                                key: ValueKey('resize-action-$i'),
+                                onPressed: () => activated++,
+                                icon: const Icon(Icons.settings),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        for (final size in [
+          const Size(475, 310),
+          const Size(320, 240),
+          const Size(224, 144),
+        ]) {
+          viewportSize.value = size;
+          await tester.pumpAndSettle();
+          final viewport = tester.getRect(
+            find.byKey(const ValueKey('remote-viewport')),
+          );
+          final material = tester.getRect(
+            find
+                .descendant(
+                  of: find.byType(RemoteToolbarSurface),
+                  matching: find.byType(Material),
+                )
+                .first,
+          );
+          expect(material.left, greaterThanOrEqualTo(viewport.left));
+          expect(material.right, lessThanOrEqualTo(viewport.right));
+          expect(material.top, greaterThanOrEqualTo(viewport.top));
+          expect(material.bottom, lessThanOrEqualTo(viewport.bottom));
+          if (horizontal) {
+            expect(material.left, greaterThanOrEqualTo(viewport.left + 8));
+            expect(material.right, lessThanOrEqualTo(viewport.right - 8));
+          } else {
+            expect(material.top, greaterThanOrEqualTo(viewport.top + 8));
+            expect(material.bottom, lessThanOrEqualTo(viewport.bottom - 8));
+          }
+          final action = find.byKey(const ValueKey('resize-action-11'));
+          await tester.ensureVisible(action);
+          await tester.pumpAndSettle();
+          await tester.tap(action);
+          expect(tester.takeException(), isNull);
+        }
+        expect(activated, 3);
+      },
+    );
+  }
+
   testWidgets('menus open outside the clipped toolbar and remain usable', (
     tester,
   ) async {
