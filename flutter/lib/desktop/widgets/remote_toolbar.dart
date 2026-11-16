@@ -447,7 +447,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   bool _toolbarHovered = false;
   bool _toolbarHasFocus = false;
   int _openMenus = 0;
-  Timer? _revealTimer;
   final _fraction = 0.5.obs;
   final _edge = _ToolbarEdge.top.obs;
   final _dragging = false.obs;
@@ -667,7 +666,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   @override
   dispose() {
     ++_dockingOptionSyncSerial;
-    _revealTimer?.cancel();
     _debouncerHide.cancel();
     widget.onEnterOrLeaveImageCleaner(identityHashCode(this));
     super.dispose();
@@ -763,39 +761,30 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       if (collapse.isFalse && _dragging.isFalse) {
         triggerAutoHide();
       }
-      return MouseRegion(
-        onEnter: (_) {
-          _revealTimer?.cancel();
-          if (collapse.isTrue && _dragging.isFalse) {
-            _revealTimer = Timer(const Duration(milliseconds: 150), () {
-              if (mounted) collapse.value = false;
-            });
-          }
-        },
-        onExit: (_) => _revealTimer?.cancel(),
-        child: Offstage(
-          offstage: _dragging.isTrue,
-          child: _DraggableShowHide(
-            id: widget.id,
-            ffi: widget.ffi,
-            sessionId: widget.ffi.sessionId,
-            dragging: _dragging,
-            fraction: _fraction,
-            edge: _edge,
-            previewEdge: _previewEdge,
-            previewFraction: _previewFraction,
-            toolbarSize: _toolbarSize,
-            markDragEpoch: _markToolbarDragEpoch,
-            syncDockingOptionsAfterDragIfNeeded:
-                _syncDockingOptionsAfterDragIfNeeded,
-            isHorizontal: isHorizontal,
-            multiEdgeEnabled: _multiEdgeEnabled.value,
-            toolbarState: widget.state,
-            setFullscreen: _setFullscreen,
-            setMinimize: _minimize,
-            borderRadius: _collapseHandleBorderRadius(edge),
-            toolbarItems: toolbarItems,
-          ),
+      // Expansion is controlled by the show/hide button. Passing the pointer
+      // over the compact handle must not cover the remote desktop with menus.
+      return Offstage(
+        offstage: _dragging.isTrue,
+        child: _DraggableShowHide(
+          id: widget.id,
+          ffi: widget.ffi,
+          sessionId: widget.ffi.sessionId,
+          dragging: _dragging,
+          fraction: _fraction,
+          edge: _edge,
+          previewEdge: _previewEdge,
+          previewFraction: _previewFraction,
+          toolbarSize: _toolbarSize,
+          markDragEpoch: _markToolbarDragEpoch,
+          syncDockingOptionsAfterDragIfNeeded:
+              _syncDockingOptionsAfterDragIfNeeded,
+          isHorizontal: isHorizontal,
+          multiEdgeEnabled: _multiEdgeEnabled.value,
+          toolbarState: widget.state,
+          setFullscreen: _setFullscreen,
+          setMinimize: _minimize,
+          borderRadius: _collapseHandleBorderRadius(edge),
+          toolbarItems: toolbarItems,
         ),
       );
     });

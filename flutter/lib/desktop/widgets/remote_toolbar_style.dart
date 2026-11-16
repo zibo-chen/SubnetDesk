@@ -93,40 +93,49 @@ class RemoteToolbarSurface extends StatelessWidget {
     final radius =
         borderRadius ?? BorderRadius.circular(RemoteToolbarStyle.radius);
     final axis = isHorizontal ? Axis.horizontal : Axis.vertical;
-    return Material(
-      color: colors.surface,
-      elevation: 3,
-      shadowColor: colors.onSurface.withValues(alpha: .18),
-      shape: RoundedRectangleBorder(
-        borderRadius: radius,
-        side: BorderSide(
-          color: colors.outline.withValues(alpha: .55),
-          width: .7,
+    // Respect the actual remote viewport, which can be much smaller than the
+    // app window. Leave room at either end while keeping every action scrollable.
+    return Padding(
+      padding: compact
+          ? EdgeInsets.zero
+          : isHorizontal
+          ? const EdgeInsets.symmetric(horizontal: 8)
+          : const EdgeInsets.symmetric(vertical: 8),
+      child: Material(
+        color: colors.surface,
+        elevation: 3,
+        shadowColor: colors.onSurface.withValues(alpha: .18),
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: BorderSide(
+            color: colors.outline.withValues(alpha: .55),
+            width: .7,
+          ),
         ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: SingleChildScrollView(
-        scrollDirection: axis,
-        child: Padding(
-          padding: isHorizontal
-              ? EdgeInsets.symmetric(horizontal: compact ? 4 : 12)
-              : EdgeInsets.symmetric(vertical: compact ? 4 : 12),
-          child: MenuBarTheme(
-            data: MenuBarThemeData(
-              style: MenuStyle(
-                padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-                elevation: const WidgetStatePropertyAll(0),
-                backgroundColor: const WidgetStatePropertyAll(
-                  Colors.transparent,
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
+          scrollDirection: axis,
+          child: Padding(
+            padding: isHorizontal
+                ? EdgeInsets.symmetric(horizontal: compact ? 4 : 12)
+                : EdgeInsets.symmetric(vertical: compact ? 4 : 12),
+            child: MenuBarTheme(
+              data: MenuBarThemeData(
+                style: MenuStyle(
+                  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                  elevation: const WidgetStatePropertyAll(0),
+                  backgroundColor: const WidgetStatePropertyAll(
+                    Colors.transparent,
+                  ),
+                  side: const WidgetStatePropertyAll(BorderSide.none),
+                  shape: WidgetStatePropertyAll(RoundedRectangleBorder()),
                 ),
-                side: const WidgetStatePropertyAll(BorderSide.none),
-                shape: WidgetStatePropertyAll(RoundedRectangleBorder()),
               ),
-            ),
-            child: Flex(
-              direction: axis,
-              mainAxisSize: MainAxisSize.min,
-              children: children,
+              child: Flex(
+                direction: axis,
+                mainAxisSize: MainAxisSize.min,
+                children: children,
+              ),
             ),
           ),
         ),
