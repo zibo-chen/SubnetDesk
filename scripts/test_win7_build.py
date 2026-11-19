@@ -1,14 +1,18 @@
 """Regression tests for the Win7 artifact boundary and PE import reader."""
 import struct
+import hashlib
 import re
 import tempfile
 from pathlib import Path
 import unittest
+from unittest import mock
+import zipfile
 
 import audit_win7_pe
 import audit_dart_aot
 import build_win7
 import prepare_win7_flutter
+import windows_display_driver
 import json
 
 
@@ -231,6 +235,45 @@ final label = Text('SubnetDesk', style: const TextStyle(fontSize: 16));'''
             lock.write_text('[[package]]\nname = "windows_i686_msvc"\nversion = "0.48.5"\n')
             with self.assertRaises(RuntimeError):
                 build_win7.win7_import_library_paths("x86", root, lock)
+
+
+class DisplayDriverBundleTests(unittest.TestCase):
+    def test_stages_pinned_driver_resources_without_extracting_other_members(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "driver.zip"
+            payload = {name: name.encode() for name in windows_display_driver.FILES_SHA256}
+            expected = {name: hashlib.sha256(data).hexdigest() for name, data in payload.items()}
+            with zipfile.ZipFile(archive, "w") as z:
+                for name, data in payload.items():
+                    z.writestr("usbmmidd_v2/" + name, data)
+                z.writestr("usbmmidd_v2/deviceinstaller64.exe", b"not packaged")
+                z.writestr("../escaped.dll", b"not extracted")
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            with mock.patch.object(windows_display_driver, "ARCHIVE_SHA256", digest), \
+                    mock.patch.dict(windows_display_driver.FILES_SHA256, expected, clear=True):
+                report = windows_display_driver.stage(archive, root / "runtime")
+                self.assertEqual(19041, report["minimum_windows_build"])
+                for name, data in payload.items():
+                    self.assertEqual(data, (root / "runtime/usbmmidd_v2" / name).read_bytes())
+            self.assertFalse((root / "runtime/usbmmidd_v2/deviceinstaller64.exe").exists())
+            self.assertFalse((root / "escaped.dll").exists())
+
+    def test_rejects_archive_and_payload_checksum_failures_before_staging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = root / "driver.zip"
+            archive.write_bytes(b"incorrect download")
+            with self.assertRaisesRegex(ValueError, "archive checksum mismatch"):
+                windows_display_driver.stage(archive, root / "runtime")
+            with zipfile.ZipFile(archive, "w") as z:
+                for name in windows_display_driver.FILES_SHA256:
+                    z.writestr("usbmmidd_v2/" + name, b"incorrect payload")
+            with mock.patch.object(windows_display_driver, "ARCHIVE_SHA256",
+                                   hashlib.sha256(archive.read_bytes()).hexdigest()):
+                with self.assertRaisesRegex(ValueError, "driver checksum mismatch"):
+                    windows_display_driver.stage(archive, root / "runtime")
+            self.assertFalse((root / "runtime").exists())
 
 
 if __name__ == "__main__":

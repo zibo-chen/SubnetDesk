@@ -20,6 +20,12 @@ successful plug, enumeration waits for the output instead of adding more monitor
 The capture agent can start without displays, waits through empty enumeration,
 and recreates a GDI capture context that becomes invalid during a transition.
 
+The default Win7-compatible x64 ZIP and installer also include the optional
+Windows 10+ driver resources. The driver is gated off on Windows 7. Packaging
+checks the pinned driver archive and every bundled resource; the IDD DLL is
+audited separately by checksum rather than treated as a Win7 application DLL.
+An incomplete driver bundle prevents installer creation.
+
 ## Validation
 
 `python3 scripts/test_windows_capture_recovery.py` compiles and executes the actual

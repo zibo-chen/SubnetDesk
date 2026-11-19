@@ -1,15 +1,29 @@
 """Check installer boundaries that protect existing user profiles."""
 import json
+import hashlib
 from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import package_win7_installer as packager
+import windows_display_driver
 from test_win7_build import pe_fixture
 
 
 class Win7InstallerTests(unittest.TestCase):
+    def setUp(self):
+        self.driver_payload = {
+            name: bytes(pe_fixture(64, "WaitOnAddress")) if name.endswith(".dll") else name.encode()
+            for name in windows_display_driver.FILES_SHA256
+        }
+        patch = mock.patch.dict(windows_display_driver.FILES_SHA256, {
+            name: hashlib.sha256(data).hexdigest() for name, data in self.driver_payload.items()
+        }, clear=True)
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def fixture(self, root):
         package = root / "portable"
         for name in ("SubnetDesk.exe", "app/SubnetDesk.exe", "app/flutter_windows.dll",
@@ -21,6 +35,10 @@ class Win7InstallerTests(unittest.TestCase):
         (package / "app/data/app.so").write_bytes(b"snapshot")
         (package / "app/build-provenance.json").write_text(json.dumps({
             "rust_target": "x86_64-win7-windows-msvc", "sciter": False}))
+        for name, data in self.driver_payload.items():
+            path = package / "app/usbmmidd_v2" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
         (package / "userdata").mkdir()
         (package / "userdata/identity.toml").write_text("existing identity")
         return package
@@ -78,6 +96,32 @@ class Win7InstallerTests(unittest.TestCase):
 
     def test_nsis_paths_escape_literal_dollars_and_quotes(self):
         self.assertEqual('price$$1$\\"', packager.nsis_literal('price$1"'))
+
+    def test_optional_driver_ships_but_other_incompatible_dlls_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            package = self.fixture(Path(temporary))
+            files, _ = packager.payload_files(package)
+            for name in self.driver_payload:
+                self.assertIn(Path("app/usbmmidd_v2") / name, files)
+            install, _ = packager.file_commands(package, files)
+            self.assertIn("usbmmIdd.inf", install)
+            self.assertIn("usbmmidd.cat", install)
+            extra = package / "app/usbmmidd_v2/x64/unexpected.dll"
+            extra.write_bytes(pe_fixture(64, "WaitOnAddress"))
+            with self.assertRaisesRegex(ValueError, "post-Win7"):
+                packager.payload_files(package)
+
+    def test_missing_or_corrupt_driver_blocks_installer_packaging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            package = self.fixture(Path(temporary))
+            inf = package / "app/usbmmidd_v2/usbmmIdd.inf"
+            inf.unlink()
+            with self.assertRaisesRegex(ValueError, "Missing virtual display driver"):
+                packager.payload_files(package)
+            inf.write_bytes(self.driver_payload["usbmmIdd.inf"])
+            (package / "app/usbmmidd_v2/x64/usbmmIdd.dll").write_bytes(b"wrong driver")
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                packager.payload_files(package)
 
 
 if __name__ == "__main__":
