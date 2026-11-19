@@ -16,6 +16,7 @@ import audit_win7_pe
 import audit_dart_aot
 import prepare_win7_flutter
 import package_win7_installer
+import windows_display_driver
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLCHAIN = "nightly-2025-08-01"  # Rust 1.90.0 nightly; rust-src is required.
@@ -87,6 +88,8 @@ def main():
     if not flutter.is_file():
         parser.error("Pass --flutter-sdk pointing to Flutter " + prepare_win7_flutter.ENGINE["flutter_version"])
     package_win7_installer.find_makensis()
+    driver_archive = windows_display_driver.ensure_archive(
+        ROOT / "target/windows-display-driver/usbmmidd_v2.zip")
     args.workspace = args.workspace.resolve()
     if args.workspace.exists():
         if not (args.workspace / "ui-compatibility.json").is_file():
@@ -138,6 +141,8 @@ def main():
     host.rename(runtime / "SubnetDesk.exe")
     shutil.copy2(ROOT / "LICENCE", runtime / "SubnetDesk-LICENSE.txt")
     shutil.copy2(sdk / "LICENSE", runtime / "Flutter-LICENSE.txt")
+    display_driver = windows_display_driver.stage(
+        driver_archive, runtime)
     manifest = (ROOT / "Cargo.toml").read_text(encoding="utf-8").split("[package]", 1)[1].split("\n[", 1)[0]
     version_match = re.search(r'^version\s*=\s*"([^"\n]+)"', manifest, re.MULTILINE)
     if not version_match:
@@ -148,6 +153,7 @@ def main():
     provenance = {
         "ui": "shared Flutter UI", "sciter": False, "minimum_os": "Windows 7 SP1 x64",
         "rust_target": TARGETS[args.arch], "rust_toolchain": TOOLCHAIN,
+        "optional_windows10_display_driver": display_driver,
         "ui_source_sha256": ui_metadata["source_sha256"],
         "engine": prepare_win7_flutter.ENGINE, "engine_dll_sha256": expected,
         "source_commit": os.environ.get("GITHUB_SHA") or subprocess.check_output(
@@ -166,7 +172,8 @@ def main():
             if path.relative_to(runtime).as_posix() != "data/app.so":
                 raise RuntimeError("Unexpected shared object in the Windows package: " + str(path))
             snapshots.append(audit_dart_aot.inspect(path))
-        if path.suffix.lower() in (".exe", ".dll"):
+        if (path.suffix.lower() in (".exe", ".dll")
+                and not windows_display_driver.is_optional_driver_dll(path.relative_to(runtime))):
             report = audit_win7_pe.inspect(path)
             report["errors"] = audit_win7_pe.violations(report, "x64")
             reports.append(report)
@@ -184,7 +191,8 @@ def main():
     provenance["pe_files_checked"] = len(reports)
     provenance["aot_files_checked"] = len(snapshots)
     (args.output / (name + "-provenance.json")).write_text(json.dumps(provenance, indent=2), encoding="utf-8")
-    print(f"Win7 Flutter test package: {archive}; {len(reports)} PE files checked")
+    print(f"Win7 Flutter test package: {archive}; {len(reports)} application PE files checked; "
+          "optional Windows 10+ display driver checksums verified")
     installer = package_win7_installer.package_installer(
         args.output / name, args.output / (name + "-setup.exe"), version_match.group(1))
     print(f"Win7 Flutter installer: {installer}")

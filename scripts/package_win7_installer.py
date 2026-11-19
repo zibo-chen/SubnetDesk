@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 
 import audit_win7_pe
+import windows_display_driver
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,6 +28,7 @@ def payload_files(package):
     provenance = json.loads((package / "app/build-provenance.json").read_text(encoding="utf-8"))
     if provenance.get("rust_target") != "x86_64-win7-windows-msvc" or provenance.get("sciter") is not False:
         raise ValueError("Expected Win7 x64 Flutter build provenance")
+    windows_display_driver.validate(package / "app")
     files = []
     for path in sorted(package.rglob("*")):
         relative = path.relative_to(package)
@@ -37,7 +39,9 @@ def payload_files(package):
         if path.is_file():
             if relative.parts[0] != "app" and relative.as_posix() != "SubnetDesk.exe":
                 raise ValueError("Unexpected file outside the runtime: " + str(relative))
-            if path.suffix.lower() in (".exe", ".dll"):
+            optional_driver = (relative.parts[0] == "app"
+                               and windows_display_driver.is_optional_driver_dll(relative.relative_to("app")))
+            if path.suffix.lower() in (".exe", ".dll") and not optional_driver:
                 errors = audit_win7_pe.violations(audit_win7_pe.inspect(path), "x64")
                 if errors:
                     raise ValueError(f"{relative}: {errors}")
